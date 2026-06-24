@@ -20,9 +20,10 @@ import { tmpdir } from 'os'
 import type { RenderFeature, PrepareResult, PostProcessContext } from './feature'
 import type { RenderClipJob, RenderBatchOptions } from '../types'
 import { renderOverlays } from '../../hyperframes/renderer'
-import type { OverlayRequest } from '../../hyperframes/types'
+import type { OverlayRequest, OverlayTiming } from '../../hyperframes/types'
 import { toFFmpegPath } from '../helpers'
 import { ffmpeg as createFfmpeg, getSoftwareEncoder } from '../../ffmpeg'
+import { extendEndTimeForLastPoint, type WordTimestamp } from '../point-coverage'
 // ---------------------------------------------------------------------------
 // Job extension — overlay requests attached by upstream features/handlers
 // ---------------------------------------------------------------------------
@@ -62,6 +63,13 @@ export const hyperframesOverlayFeature: RenderFeature = {
     // No overlays requested — skip.
     if (!job.hyperframesOverlays || job.hyperframesOverlays.length === 0) {
       return { tempFiles: [], modified: false }
+    }
+
+    // Keep multi-item graphics on screen until their last point is spoken.
+    const clipEnd = job.endTime - job.startTime
+    const words = toClipRelativeWords(job.wordTimestamps, job.startTime)
+    for (const request of job.hyperframesOverlays) {
+      request.timing = extendOverlayTimingForPoints(request, words, clipEnd)
     }
 
     console.log(
@@ -153,6 +161,90 @@ export const hyperframesOverlayFeature: RenderFeature = {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Point-coverage timing
+// ---------------------------------------------------------------------------
+
+/** Prop fields (in priority order) that carry a widget's list of points. */
+const ITEM_LIST_FIELDS = [
+  'items',
+  'words',
+  'findings',
+  'services',
+  'metrics',
+  'nodes',
+  'bars',
+  'rows',
+  'steps'
+] as const
+
+/** Coerce one list entry (string or object) into its display text. */
+function itemToText(entry: unknown): string {
+  if (typeof entry === 'string') return entry
+  if (entry && typeof entry === 'object') {
+    const o = entry as Record<string, unknown>
+    const value = o.label ?? o.text ?? o.title ?? o.name ?? o.value
+    if (typeof value === 'string') return value
+    if (typeof value === 'number') return String(value)
+  }
+  return ''
+}
+
+/**
+ * Pull the multi-item text list out of an overlay request's props. Returns the
+ * longest list field present (the widget's main content) as plain strings.
+ */
+export function extractOverlayItemTexts(request: OverlayRequest): string[] {
+  const props = request.props as Record<string, unknown>
+  let best: string[] = []
+  for (const field of ITEM_LIST_FIELDS) {
+    const value = props[field]
+    if (!Array.isArray(value)) continue
+    const texts = value.map(itemToText).filter((t) => t.length > 0)
+    if (texts.length > best.length) best = texts
+  }
+  return best
+}
+
+/** Shift source-relative word timestamps into clip-relative seconds. */
+function toClipRelativeWords(
+  words: WordTimestamp[] | undefined,
+  clipStart: number
+): WordTimestamp[] | undefined {
+  if (!words || words.length === 0) return words
+  if (clipStart === 0) return words
+  const out: WordTimestamp[] = []
+  for (const w of words) {
+    const start = w.start - clipStart
+    const end = w.end - clipStart
+    if (end >= 0) out.push({ text: w.text, start, end })
+  }
+  return out
+}
+
+/**
+ * Compute the timing for an overlay request, extending its end time so a
+ * multi-item graphic stays visible until its last point has been spoken. The
+ * `words` must already be in clip-relative seconds and `clipEnd` is the clip
+ * duration. Single-item or unmatched widgets keep their original timing.
+ */
+export function extendOverlayTimingForPoints(
+  request: OverlayRequest,
+  words: WordTimestamp[] | undefined,
+  clipEnd: number
+): OverlayTiming {
+  const start = request.timing.start
+  const currentEndTime = start + request.timing.duration
+  const items = extractOverlayItemTexts(request)
+  const newEndTime = extendEndTimeForLastPoint({
+    items,
+    currentEndTime,
+    clipEnd,
+    words
+  })
+  return { start, duration: Math.max(0, newEndTime - start) }
 }
 
 // ---------------------------------------------------------------------------
