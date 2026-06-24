@@ -27,6 +27,7 @@ import { renderLongformVideo } from './longform-pipeline'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { SegmentRenderConfig, ResolvedSegment } from './segment-render'
+import { enforceSpeakerOpening } from './opening-guard'
 import { resolveQualityParams } from './quality'
 import { buildOutputPath } from './filename'
 import { getEditStyleById, DEFAULT_EDIT_STYLE_ID } from './../edit-styles/index'
@@ -541,7 +542,7 @@ export async function startBatchRender(
         // marginV; no per-segment text / color / variant plumbing. Captions,
         // hook title, and rehook are burned post-concat inside
         // renderSegmentedClip from the data forwarded below.
-        const resolvedSegments: ResolvedSegment[] = job.segmentedSegments.map((raw) => ({
+        const builtSegments: ResolvedSegment[] = job.segmentedSegments.map((raw) => ({
           startTime: raw.startTime,
           endTime: raw.endTime,
           archetype: raw.archetype,
@@ -554,6 +555,14 @@ export async function startBatchRender(
           videoPath: raw.videoPath,
           cropRect: raw.cropRect
         }))
+
+        // ── Opening guard ────────────────────────────────────────────────
+        // Guarantee the clip opens on the speaker (talking-head) within the
+        // first MIN_FACE_LEAD_SECONDS. When the first segment is a non-speaker
+        // archetype (fullscreen image/quote card, split-image), it is split or
+        // demoted so a face is visible from frame 0 and any media/card overlay
+        // is delayed past the lead.
+        const resolvedSegments: ResolvedSegment[] = enforceSpeakerOpening(builtSegments)
 
         // Clip-relative archetype windows for the post-concat caption pass.
         const archetypeWindows: ArchetypeWindow[] = []
