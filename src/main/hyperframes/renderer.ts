@@ -339,7 +339,7 @@ function buildVariables(request: OverlayRequest): Record<string, unknown> {
       vars.accentColor = (props as Record<string, unknown>).accentColor ?? '#9f75ff'
       break
 
-    // Delos tablet pop-ups
+    // Tablet pop-ups — `delos-*` are legacy internal IDs; brand shown on screen is PRESTYJ (do not rename)
     case 'delos-console':
       vars.title = (props as Record<string, unknown>).title ?? 'AI SYSTEM'
       vars.statusText = (props as Record<string, unknown>).statusText ?? 'OPERATIONAL'

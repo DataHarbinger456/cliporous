@@ -1217,7 +1217,7 @@
     "block": "delos-console",
     "category": "data-viz",
     "metadata": {
-      "description": "Full Delos console overlay with header, status, and metrics",
+      "description": "Full PRESTYJ console overlay with header, status, and metrics",
       "triggerKeywords": ["console", "system console", "system dashboard", "control panel", "admin"],
       "topics": ["console", "dashboard", "control", "system"]
     },
@@ -1237,7 +1237,7 @@
     "block": "delos-alert",
     "category": "data-viz",
     "metadata": {
-      "description": "Delos-style alert notification with warning severity",
+      "description": "PRESTYJ-style alert notification with warning severity",
       "triggerKeywords": ["alert", "warning", "notification", "alarm", "anomaly"],
       "topics": ["alert", "warning", "notification", "security"]
     },
@@ -1253,7 +1253,7 @@
     "block": "delos-alert",
     "category": "data-viz",
     "metadata": {
-      "description": "Delos-style critical alert with flashing indicator",
+      "description": "PRESTYJ-style critical alert with flashing indicator",
       "triggerKeywords": ["critical alert", "emergency", "breach", "critical error", "lockdown"],
       "topics": ["critical", "emergency", "breach", "security"]
     },

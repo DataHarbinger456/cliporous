@@ -177,7 +177,7 @@ html, body {
   50% { opacity: 0.3; transform: scale(1.05); }
 }
 
-/* ─── Delos / Holographic utilities ────────────────────────────── */
+/* ─── PRESTYJ / Holographic utilities ──────────────────────────── */
 @keyframes hf-holo-spin { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(360deg); } }
 @keyframes hf-scan-line { 0% { top: 0%; } 100% { top: 100%; } }
 @keyframes hf-glow-pulse {

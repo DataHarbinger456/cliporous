@@ -9,11 +9,12 @@ export type OverlayBlockName =
   // Voice agent visualization
   | 'voice-waveform' | 'voice-spectrum' | 'agent-avatar' | 'transcript-stream'
   // Data visualization
+  // NOTE: `delos-*` IDs are legacy-named internal identifiers; the brand shown on screen is PRESTYJ. Do not rename (breaks selection/registry wiring).
   | 'delos-matrix' | 'delos-biometric' | 'delos-system-diagnostics' | 'delos-tracking-map'
   | 'circular-progress' | 'sparkline-chart'
   // Glowing 3D icons
   | 'hologram-orb' | 'neural-network' | 'data-sphere' | 'glowing-cube' | 'energy-ring'
-  // Delos tablet pop-ups
+  // Tablet pop-ups (legacy `delos-*` IDs; brand shown on screen is PRESTYJ)
   | 'delos-console' | 'delos-alert' | 'delos-scan-result'
 
 export type PresetCategory =
