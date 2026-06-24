@@ -24,6 +24,12 @@ import type { OverlayRequest, OverlayTiming } from '../../hyperframes/types'
 import { toFFmpegPath } from '../helpers'
 import { ffmpeg as createFfmpeg, getSoftwareEncoder } from '../../ffmpeg'
 import { extendEndTimeForLastPoint, type WordTimestamp } from '../point-coverage'
+import {
+  buildCardContent,
+  type CardContent,
+  type CardKind,
+  type CardWord
+} from '../../hyperframes/card-content'
 // ---------------------------------------------------------------------------
 // Job extension — overlay requests attached by upstream features/handlers
 // ---------------------------------------------------------------------------
@@ -57,7 +63,7 @@ export const hyperframesOverlayFeature: RenderFeature = {
 
   async prepare(
     job: RenderClipJob,
-    _batchOptions: RenderBatchOptions,
+    batchOptions: RenderBatchOptions,
     _onProgress?: (message: string, percent: number) => void
   ): Promise<PrepareResult> {
     // No overlays requested — skip.
@@ -65,9 +71,19 @@ export const hyperframesOverlayFeature: RenderFeature = {
       return { tempFiles: [], modified: false }
     }
 
-    // Keep multi-item graphics on screen until their last point is spoken.
     const clipEnd = job.endTime - job.startTime
     const words = toClipRelativeWords(job.wordTimestamps, job.startTime)
+
+    // Fill PRESTYJ delos-* cards with transcript-derived content so their
+    // on-screen text matches what the speaker says in the card's window. This
+    // runs BEFORE timing extension so the spoken-point timing helper below sees
+    // the transcript-derived findings/services/metrics (not the preset stubs).
+    for (const request of job.hyperframesOverlays) {
+      await populateDelosCardContent(request, words, batchOptions.geminiApiKey)
+    }
+
+    // Keep multi-item graphics on screen until their last point is spoken.
+    // Reuses extendEndTimeForLastPoint (the 'spoken points' timing helper).
     for (const request of job.hyperframesOverlays) {
       request.timing = extendOverlayTimingForPoints(request, words, clipEnd)
     }
@@ -245,6 +261,112 @@ export function extendOverlayTimingForPoints(
     words
   })
   return { start, duration: Math.max(0, newEndTime - start) }
+}
+
+// ---------------------------------------------------------------------------
+// PRESTYJ delos-* card content injection
+// ---------------------------------------------------------------------------
+//
+// delos-* cards render structured text (findings, services, metrics, …) that
+// should reflect what the speaker says while the card is on screen. We slice
+// the clip-relative word timestamps to the card's display window, ask
+// buildCardContent to distil that window into the card's slots, and merge the
+// result into the request's props BEFORE render. Decorative slots already on
+// the request (accentColor, position/yPos, timing) are preserved — only the
+// text/data slots are filled.
+// ---------------------------------------------------------------------------
+
+/** Every delos-* card kind buildCardContent knows how to populate. */
+const DELOS_CARD_KINDS = new Set<CardKind>([
+  'delos-scan-result',
+  'delos-alert',
+  'delos-console',
+  'delos-matrix',
+  'delos-system-diagnostics',
+  'delos-tracking-map',
+  'delos-biometric'
+])
+
+/** True when an overlay block is a delos-* card buildCardContent supports. */
+function isDelosCardKind(block: string): block is CardKind {
+  return DELOS_CARD_KINDS.has(block as CardKind)
+}
+
+/** Words (clip-relative) whose span overlaps the [start, end] window. */
+function sliceWordsToWindow(
+  words: WordTimestamp[] | undefined,
+  start: number,
+  end: number
+): CardWord[] {
+  if (!words || words.length === 0) return []
+  const out: CardWord[] = []
+  for (const w of words) {
+    if (w.end > start && w.start < end) {
+      out.push({ text: w.text, start: w.start, end: w.end })
+    }
+  }
+  return out
+}
+
+/** Strip the discriminant so only the card's text/data slots remain. */
+function cardContentToSlots(content: CardContent): Record<string, unknown> {
+  const { kind: _kind, ...slots } = content
+  return slots
+}
+
+/** True when at least one slot carries real, non-empty content. */
+function hasMeaningfulContent(slots: Record<string, unknown>): boolean {
+  return Object.values(slots).some((v) => {
+    if (Array.isArray(v)) return v.length > 0
+    if (typeof v === 'string') return v.trim().length > 0
+    return v != null
+  })
+}
+
+/**
+ * Populate a single delos-* card request's props from the transcript window it
+ * covers. No-op for non-delos blocks. Fail-safe: on any error or empty build the
+ * request keeps its existing preset-default props (no empty cards, no crash).
+ */
+export async function populateDelosCardContent(
+  request: OverlayRequest,
+  words: WordTimestamp[] | undefined,
+  apiKey?: string
+): Promise<void> {
+  if (!isDelosCardKind(request.block)) return
+
+  const kind = request.block
+  const winStart = request.timing.start
+  const winEnd = winStart + request.timing.duration
+  const windowWords = sliceWordsToWindow(words, winStart, winEnd)
+
+  // No narration inside the card's window — keep the preset defaults.
+  if (windowWords.length === 0) return
+
+  const windowText = windowWords.map((w) => w.text).join(' ')
+
+  try {
+    const content = await buildCardContent(
+      kind,
+      windowText,
+      windowWords,
+      apiKey ? { apiKey } : {}
+    )
+    const slots = cardContentToSlots(content)
+    if (!hasMeaningfulContent(slots)) {
+      console.warn(
+        `[HyperFrames] Card content for ${kind} was empty, keeping preset defaults`
+      )
+      return
+    }
+    // Merge only the text/data slots; accentColor/position/timing untouched.
+    Object.assign(request.props as Record<string, unknown>, slots)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn(
+      `[HyperFrames] buildCardContent failed for ${kind}, keeping preset defaults: ${message}`
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
