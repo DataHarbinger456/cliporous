@@ -5,6 +5,7 @@
 import type { RenderFeature, PrepareResult } from './feature'
 import type { RenderClipJob, RenderBatchOptions } from '../types'
 import { analyzeEmphasisHeuristic } from '../../word-emphasis'
+import { applyMinEmphasisDwell } from '../../emphasis-dwell'
 
 /**
  * Computes word emphasis levels and emphasis keyframes during prepare().
@@ -60,13 +61,24 @@ export const wordEmphasisFeature: RenderFeature = {
         if (job.emphasisKeyframesInput && job.emphasisKeyframesInput.length > 0) {
           job.emphasisKeyframes = job.emphasisKeyframesInput
         } else {
-          job.emphasisKeyframes = job.wordEmphasis
+          // Clip-relative duration — keyframes are 0-based so the clip end is
+          // simply (endTime - startTime). Used to clamp the dwell extension.
+          const clipEnd = job.endTime - job.startTime
+          const rawKeyframes = job.wordEmphasis
             .filter((w) => w.emphasis === 'emphasis' || w.emphasis === 'supersize' || w.emphasis === 'box')
             .map((w) => ({
               time: w.start,
+              start: w.start,
               end: w.end,
               level: w.emphasis as 'emphasis' | 'supersize' | 'box'
             }))
+          // Enforce the minimum emphasis dwell so fast-speech emphases stay on
+          // screen long enough to read. `applyMinEmphasisDwell` extends each
+          // `end` to at least time + MIN_EMPHASIS_DWELL_SECONDS, clamped to the
+          // clip end and to the next emphasised word's start.
+          job.emphasisKeyframes = applyMinEmphasisDwell(rawKeyframes, clipEnd).map(
+            ({ time, end, level }) => ({ time, end, level })
+          )
         }
       }
 

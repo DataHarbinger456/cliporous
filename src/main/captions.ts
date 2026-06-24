@@ -27,6 +27,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import { resolveTemplate, DEFAULT_EDIT_STYLE_ID, isSpeakerFullscreen } from './edit-styles'
+import { minEmphasisDwellEnd } from './emphasis-dwell'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -280,7 +281,17 @@ interface WordGroup {
 const CAPTION_LEAD_IN_SECONDS = 0.08
 const CAPTION_LEAD_OUT_SECONDS = 0.20
 
-function groupWords(words: WordInput[], wordsPerLine: number): WordGroup[] {
+function groupWords(
+  words: WordInput[],
+  wordsPerLine: number,
+  /**
+   * When true, a group containing an emphasised word holds on screen for at
+   * least the minimum emphasis dwell (see emphasis-dwell.ts) so the recolor /
+   * highlight persists as long as the reactive-zoom keyframe. Only the emphasis
+   * caption modes pass this; 'standard' mode keeps its raw timing.
+   */
+  honorEmphasisDwell = false
+): WordGroup[] {
   const n = Math.max(1, wordsPerLine | 0)
   const groups: WordGroup[] = []
   for (let i = 0; i < words.length; i += n) {
@@ -306,7 +317,17 @@ function groupWords(words: WordInput[], wordsPerLine: number): WordGroup[] {
     const minStart = prev ? prev.end : 0
     g.start = Math.max(minStart, Math.max(0, desiredStart))
 
-    const desiredEnd = g.end + CAPTION_LEAD_OUT_SECONDS
+    // Lead-out, plus (for emphasis modes) the minimum emphasis dwell of any
+    // emphasised word in the group. This keeps the recolored word visible long
+    // enough to read even when fast speech makes its raw window ~150–250 ms.
+    let desiredEnd = g.end + CAPTION_LEAD_OUT_SECONDS
+    if (honorEmphasisDwell) {
+      for (const w of g.words) {
+        if (isEmphasized(w)) {
+          desiredEnd = Math.max(desiredEnd, minEmphasisDwellEnd(w.start))
+        }
+      }
+    }
     // Use raw `next.start` for the clamp (before next's lead-in is applied
     // in the next loop iteration — but order doesn't matter because the
     // next iteration's clamp is `Math.max(prev.end, ...)` which sees this
@@ -357,7 +378,7 @@ export function buildAssLines(
   if (words.length === 0) return []
 
   const accentASS = hexToASS(accent)
-  const groups = groupWords(words, wordsPerLine)
+  const groups = groupWords(words, wordsPerLine, mode !== 'standard')
   const lines: string[] = []
 
   for (const group of groups) {
