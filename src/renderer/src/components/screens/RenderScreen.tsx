@@ -34,6 +34,7 @@ import {
   Check,
   FileVideo,
   Folder,
+  FolderOpen,
   Loader2,
   Play,
 } from 'lucide-react'
@@ -61,6 +62,7 @@ interface RowProgress {
   status: RowStatus
   percent: number
   error?: string
+  outputPath?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +80,12 @@ function buildProgressMap(
   }
   for (const r of records) {
     if (!map.has(r.clipId)) continue
-    map.set(r.clipId, { status: r.status, percent: r.percent, error: r.error })
+    map.set(r.clipId, {
+      status: r.status,
+      percent: r.percent,
+      error: r.error,
+      outputPath: r.outputPath,
+    })
   }
   return map
 }
@@ -86,6 +93,22 @@ function buildProgressMap(
 /** Pick a small poster image for the row. Custom thumbnail wins. */
 function pickThumbnail(clip: ClipCandidate): string | undefined {
   return clip.customThumbnail ?? clip.thumbnail
+}
+
+/** Trailing path segment (filename) from a POSIX or Windows path. */
+function basename(filePath: string): string {
+  const parts = filePath.split(/[/\\]/)
+  return parts[parts.length - 1] || filePath
+}
+
+/** Reveal a rendered file in the OS file manager (Finder / Explorer). */
+async function revealInFolder(filePath: string): Promise<void> {
+  try {
+    await window.api.showItemInFolder(filePath)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`Couldn't reveal file: ${msg}`)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +263,26 @@ function ClipRow({ clip, progress }: ClipRowProps): React.JSX.Element {
           >
             {progress.error}
           </p>
+        )}
+
+        {isDone && progress.outputPath && (
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+              onClick={() => revealInFolder(progress.outputPath as string)}
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              Reveal in Finder
+            </Button>
+            <p
+              className="text-muted-foreground min-w-0 truncate text-xs"
+              title={progress.outputPath}
+            >
+              {basename(progress.outputPath)}
+            </p>
+          </div>
         )}
       </div>
     </Card>
@@ -523,7 +566,14 @@ export function RenderScreen(): React.JSX.Element {
 
       {/* ── Post-batch footer ──────────────────────────────────────── */}
       {isComplete && (
-        <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t pt-4">
+        <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t pt-4">
+          {outputDirectory ? (
+            <p className="text-muted-foreground min-w-0 truncate text-xs" title={outputDirectory}>
+              Saved to <span className="text-foreground">{outputDirectory}</span>
+            </p>
+          ) : (
+            <span />
+          )}
           <Button size="sm" onClick={handleOpenFolder} disabled={!outputDirectory}>
             <Folder />
             Open Output Folder

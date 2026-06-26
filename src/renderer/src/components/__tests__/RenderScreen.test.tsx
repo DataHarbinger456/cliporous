@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   within,
@@ -112,6 +113,7 @@ function installRenderApi(): void {
       callbacks.onCancelled = cb
       return () => {}
     }),
+    showItemInFolder: vi.fn(async () => undefined),
   })
 }
 
@@ -211,6 +213,38 @@ describe('RenderScreen', () => {
 
     // Three "Done" badges are also visible — one per clip.
     expect(screen.getAllByText('Done')).toHaveLength(CLIPS.length)
+  })
+
+  it('reveals a finished clip in the OS file manager and shows the output path', async () => {
+    const { RenderScreen } = await import('@/components/screens/RenderScreen')
+    render(<RenderScreen />)
+
+    act(() => {
+      useStore.getState().setIsRendering(true)
+    })
+    act(() => {
+      callbacks.onStart?.({ clipId: 'c1' })
+      callbacks.onDone?.({ clipId: 'c1', outputPath: '/output/c1.mp4' })
+      callbacks.onStart?.({ clipId: 'c2' })
+      callbacks.onDone?.({ clipId: 'c2', outputPath: '/output/c2.mp4' })
+      callbacks.onStart?.({ clipId: 'c3' })
+      callbacks.onDone?.({ clipId: 'c3', outputPath: '/output/c3.mp4' })
+      callbacks.onBatchDone?.({ completed: 3, failed: 0, total: 3 })
+    })
+
+    // One "Reveal in Finder" action per finished clip, each showing its file.
+    const revealBtns = await screen.findAllByRole('button', {
+      name: /reveal in finder/i,
+    })
+    expect(revealBtns).toHaveLength(CLIPS.length)
+    expect(screen.getByText('c1.mp4')).toBeInTheDocument()
+
+    // Clicking the first reveal forwards that clip's outputPath to the bridge.
+    fireEvent.click(revealBtns[0] as HTMLElement)
+    expect(window.api.showItemInFolder).toHaveBeenCalledWith('/output/c1.mp4')
+
+    // The footer surfaces the resolved output directory.
+    expect(screen.getByText('/output')).toBeInTheDocument()
   })
 
   it('"Open Output Folder" is disabled when no output directory is set', async () => {
