@@ -82,6 +82,7 @@ export const InvokeChannels = {
   // Python setup (required for transcribe + face-detect)
   PYTHON_GET_STATUS: 'python:getStatus',
   PYTHON_START_SETUP: 'python:startSetup',
+  PYTHON_CANCEL: 'python:cancel',
 
   // System
   SYSTEM_GET_DISK_SPACE: 'system:getDiskSpace',

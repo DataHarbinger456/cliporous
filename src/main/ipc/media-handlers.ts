@@ -17,6 +17,7 @@ import type {
   BRollTransition
 } from '../broll-placement'
 import { checkPythonSetup, runFullSetup, ensurePythonReady } from '../python-setup'
+import { cancelPythonProcesses } from '../python'
 import { generateBRollImage } from '../broll-image-gen'
 import { imageToVideoClip } from '../broll-image-overlay'
 
@@ -273,5 +274,13 @@ export function registerMediaHandlers(): void {
       })
       return { started: true }
     })
+  )
+
+  // Python cancel — SIGTERM any in-flight transcribe.py / download.py /
+  // face_detect.py so a cancelled job stops pinning CPU/GPU instead of running
+  // out its multi-hour timeout. Returns the number of processes signalled.
+  ipcMain.handle(
+    Ch.Invoke.PYTHON_CANCEL,
+    wrapHandler(Ch.Invoke.PYTHON_CANCEL, () => cancelPythonProcesses())
   )
 }

@@ -287,7 +287,7 @@ export function ProcessingScreen(): React.JSX.Element {
   const setPipeline = useStore((s) => s.setPipeline)
   const setActiveSource = useStore((s) => s.setActiveSource)
   const clearPipelineCache = useStore((s) => s.clearPipelineCache)
-  const { processVideo } = usePipeline()
+  const { processVideo, cancelProcessing } = usePipeline()
 
   // Resume is offered only when:
   //   • the pipeline is currently in the error state
@@ -323,9 +323,16 @@ export function ProcessingScreen(): React.JSX.Element {
   }, [activeSource?.origin, outputMode])
 
   const handleCancel = (): void => {
-    // Reset pipeline + drop the active source — the App router will swap back
-    // to the drop screen on the next render.  In-flight async work will see
-    // the next state read and short-circuit on its own boundaries.
+    // 1. Set the cancelled ref so in-flight pipeline stages short-circuit at
+    //    their next `check()` boundary and the catch block swallows the abort.
+    cancelProcessing()
+    // 2. SIGTERM any running Python child (transcribe.py / download.py /
+    //    face_detect.py). Without this the heavyweight process keeps running
+    //    against its multi-hour timeout, pinning CPU/GPU — and a new drop would
+    //    spawn a second one alongside it.
+    void window.api.cancelPython()
+    // 3. Reset pipeline + drop the active source — the App router swaps back to
+    //    the drop screen on the next render.
     setPipeline({ stage: 'idle', message: '', percent: 0 })
     setActiveSource(null)
     clearPipelineCache()

@@ -50,6 +50,9 @@ const api = {
   formatTranscriptForAI: invoke(I.TRANSCRIBE_FORMAT_FOR_AI),
   onTranscribeProgress: listen(S.TRANSCRIBE_PROGRESS),
 
+  // Python process cancellation (kills in-flight transcribe/download/face-detect)
+  cancelPython: invoke(I.PYTHON_CANCEL),
+
   // AI scoring & generation
   scoreTranscript: invoke(I.AI_SCORE_TRANSCRIPT),
   onScoringProgress: listen(S.AI_SCORING_PROGRESS),

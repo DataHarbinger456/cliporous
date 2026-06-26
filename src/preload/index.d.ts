@@ -541,6 +541,10 @@ interface Api {
   formatTranscriptForAI: (result: TranscriptionResult) => Promise<string>
   onTranscribeProgress: (callback: (data: TranscriptionProgress) => void) => () => void
 
+  // Python process cancellation — SIGTERMs any in-flight Python child
+  // (transcribe.py / download.py / face_detect.py). Resolves with the count killed.
+  cancelPython: () => Promise<number>
+
   // AI scoring & generation
   scoreTranscript: (
     apiKey: string,

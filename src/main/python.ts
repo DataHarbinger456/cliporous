@@ -1,4 +1,4 @@
-import { spawn, execFileSync } from 'child_process'
+import { spawn, execFileSync, type ChildProcess } from 'child_process'
 import { join, dirname } from 'path'
 import { app } from 'electron'
 import { existsSync } from 'fs'
@@ -188,6 +188,42 @@ export interface RunOptions {
   onStdout?: (line: string) => void
 }
 
+// ---------------------------------------------------------------------------
+// Live process tracking + cancellation
+//
+// Every spawned Python child is registered here so the renderer can kill an
+// in-flight transcribe.py / download.py / face_detect.py via `cancelPythonProcesses()`.
+// Without this, clicking Cancel only resets the UI store while the heavyweight
+// Python process keeps running against its 2–3h timeout, pinning CPU/GPU.
+// ---------------------------------------------------------------------------
+
+/** Currently running Python child processes, tracked for cancellation. */
+const activeProcesses = new Set<ChildProcess>()
+
+/**
+ * SIGTERM every tracked Python child process (then SIGKILL after a short grace
+ * period if it ignores the term). Returns the number of processes signalled.
+ */
+export function cancelPythonProcesses(): number {
+  const count = activeProcesses.size
+  activeProcesses.forEach((proc) => {
+    try {
+      proc.kill('SIGTERM')
+      // Escalate to SIGKILL if it hasn't exited within the grace window.
+      setTimeout(() => {
+        try {
+          if (!proc.killed) proc.kill('SIGKILL')
+        } catch { /* already gone */ }
+      }, 5000)
+    } catch { /* already gone */ }
+  })
+  activeProcesses.clear()
+  if (count > 0) {
+    console.log(`[Python] Cancelled ${count} running process(es)`)
+  }
+  return count
+}
+
 /**
  * Spawn a Python script as a child process.
  *
@@ -223,6 +259,10 @@ export function runPythonScript(
       stdio: ['ignore', 'pipe', 'pipe'],
       env: spawnEnv
     })
+
+    // Track for cancellation so the renderer's Cancel button can SIGTERM this
+    // child. Untracked on close (below) and on spawn error.
+    activeProcesses.add(proc)
 
     let stdout = ''
     let stderrBuf = ''
@@ -281,6 +321,7 @@ export function runPythonScript(
 
     proc.on('error', (err: NodeJS.ErrnoException) => {
       clearTimeout(timer)
+      activeProcesses.delete(proc)
       if (err.code === 'ENOENT') {
         const launcher = [pythonBin, ...prefixArgs].join(' ')
         const hint = isManaged
@@ -296,6 +337,7 @@ export function runPythonScript(
 
     proc.on('close', (code) => {
       clearTimeout(timer)
+      activeProcesses.delete(proc)
 
       // Flush any trailing partial line that wasn't terminated by a newline.
       if (onStdout && stdoutLineBuf.trim()) {
