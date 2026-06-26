@@ -99,6 +99,7 @@ export const InvokeChannels = {
   SYSTEM_OPEN_LOG_FOLDER: 'system:openLogFolder',
   SYSTEM_GET_RESOURCE_USAGE: 'system:getResourceUsage',
   SYSTEM_LOG_RENDERER: 'system:logRenderer',
+  SYSTEM_GET_DEFAULT_OUTPUT_DIR: 'system:getDefaultOutputDir',
 
   // Shell
   SHELL_OPEN_PATH: 'shell:openPath',

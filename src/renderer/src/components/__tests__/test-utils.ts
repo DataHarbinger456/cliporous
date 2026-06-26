@@ -79,6 +79,7 @@ export function installApiStub(overrides: Record<string, unknown> = {}): Record<
     onRenderCancelled: vi.fn(unsubscribe),
     onSegmentFallback: vi.fn(unsubscribe),
     openOutputFolder: vi.fn(async () => ''),
+    getDefaultOutputDirectory: vi.fn(async () => '/default/output/BatchClip'),
 
     // Misc
     setBadge: vi.fn(noop),

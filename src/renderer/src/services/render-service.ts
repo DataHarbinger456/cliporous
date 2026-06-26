@@ -68,10 +68,24 @@ export async function startApprovedRender(): Promise<StartApprovedRenderResult> 
     return { started: false, reason: 'no-clips' }
   }
 
-  const outputDirectory = settings.outputDirectory
+  // Zero-config floor: render must work without ever opening Settings. When no
+  // output directory is configured, fall back to the app-wide default
+  // (<OS Videos>/BatchClip) the main process resolves, seed it into the store
+  // (in-memory) so the post-batch "Open Output Folder" button targets the same
+  // path, and forward it to the render pipeline below.
+  let outputDirectory = settings.outputDirectory
   if (!outputDirectory) {
-    toast.error('Set an output directory in Settings before rendering')
-    return { started: false, reason: 'no-output-dir' }
+    outputDirectory = (await window.api.getDefaultOutputDirectory().catch(() => null)) ?? null
+    if (!outputDirectory) {
+      toast.error('Couldn’t resolve a default output directory')
+      return { started: false, reason: 'no-output-dir' }
+    }
+    // Seed the store (in-memory only — don't persist to safeStorage) so the
+    // post-batch "Open Output Folder" button targets this same default path.
+    const resolved = outputDirectory
+    useStore.setState((s) => {
+      s.settings.outputDirectory = resolved
+    })
   }
 
   // Reset per-batch UI state before kicking off the next run. RenderScreen

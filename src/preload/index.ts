@@ -160,6 +160,11 @@ const api = {
    */
   openOutputFolder: (dirPath?: string): Promise<string> =>
     ipcRenderer.invoke(I.SHELL_OPEN_PATH, dirPath ?? ''),
+  /**
+   * Resolve the app-wide default output directory (`<OS Videos>/BatchClip`).
+   * Used to seed `settings.outputDirectory` so rendering works with zero config.
+   */
+  getDefaultOutputDirectory: invoke<string>(I.SYSTEM_GET_DEFAULT_OUTPUT_DIR),
 
   // Python setup
   getPythonStatus: invoke(I.PYTHON_GET_STATUS),

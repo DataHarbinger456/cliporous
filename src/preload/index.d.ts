@@ -852,6 +852,11 @@ interface Api {
    * (matches the underlying Electron `shell.openPath` contract).
    */
   openOutputFolder: (dirPath?: string) => Promise<string>
+  /**
+   * Resolve the app-wide default output directory (`<OS Videos>/BatchClip`).
+   * Used to seed `settings.outputDirectory` for zero-config rendering.
+   */
+  getDefaultOutputDirectory: () => Promise<string>
 
   // Python setup
   getPythonStatus: () => Promise<PythonSetupStatus>

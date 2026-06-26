@@ -17,6 +17,7 @@ import {
   buildPresetLookup,
   type StylePresetForResolution
 } from '../render/shot-style-resolver'
+import { resolveOutputDirectory } from '../render/output-dir'
 
 export function registerRenderHandlers(): void {
   // Render — start a batch render of approved clips
@@ -25,6 +26,12 @@ export function registerRenderHandlers(): void {
     wrapHandler(Ch.Invoke.RENDER_START_BATCH, async (event, options: RenderBatchOptions) => {
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win) throw new Error('No BrowserWindow found for render request')
+
+      // Zero-config floor: fall back to <OS Videos>/BatchClip when the renderer
+      // sends no output directory, so a brand-new user can render without ever
+      // opening Settings. Every downstream consumer (pipeline writes, manifest)
+      // reads `options.outputDirectory`, so resolving it here keeps them aligned.
+      options.outputDirectory = resolveOutputDirectory(options.outputDirectory)
 
       // ── Phase 1: B-Roll placement generation ────────────────────────────────
       // When B-Roll is enabled, generate placements for each clip. Long-form

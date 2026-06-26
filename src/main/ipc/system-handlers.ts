@@ -4,8 +4,10 @@ import { tmpdir, homedir, cpus, totalmem, freemem } from 'os'
 import { execFile } from 'child_process'
 import { readFileSync, writeFileSync, statfs, existsSync } from 'fs'
 import { readdir, stat, unlink } from 'fs/promises'
+import { mkdirSync } from 'fs'
 import { Ch } from '@shared/ipc-channels'
 import { wrapHandler } from '../ipc-error-handler'
+import { getDefaultOutputDirectory, resolveOutputDirectory } from '../render/output-dir'
 import { getEncoder } from '../ffmpeg'
 import { getLogPath, getLogSize, getLogDir, log } from '../logger'
 import { getEditPlanCacheSize } from '../ai/edit-plan-cache'
@@ -232,11 +234,32 @@ export function registerSystemHandlers(): void {
     )
   )
 
-  // Shell — open a path in OS file manager
+  // Shell — open a path in OS file manager.
+  // An empty path is the renderer's "open my output folder" signal when no
+  // directory has been configured: resolve the app-wide default, create it so
+  // the OS file manager has something to open, then reveal it.
   ipcMain.handle(
     Ch.Invoke.SHELL_OPEN_PATH,
     wrapHandler(Ch.Invoke.SHELL_OPEN_PATH, async (_event, path: string) => {
-      return shell.openPath(path)
+      const target = (path ?? '').trim().length > 0 ? path : resolveOutputDirectory(null)
+      if (!existsSync(target)) {
+        try {
+          mkdirSync(target, { recursive: true })
+        } catch {
+          /* fall through — shell.openPath surfaces the error string */
+        }
+      }
+      return shell.openPath(target)
+    })
+  )
+
+  // System — resolve the app-wide default output directory (<OS Videos>/BatchClip).
+  // The renderer can't call app.getPath('videos') itself, so it fetches the
+  // default here to seed `settings.outputDirectory` for zero-config rendering.
+  ipcMain.handle(
+    Ch.Invoke.SYSTEM_GET_DEFAULT_OUTPUT_DIR,
+    wrapHandler(Ch.Invoke.SYSTEM_GET_DEFAULT_OUTPUT_DIR, (): string => {
+      return getDefaultOutputDirectory()
     })
   )
 

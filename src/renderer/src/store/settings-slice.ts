@@ -139,14 +139,25 @@ export const createSettingsSlice: StateCreator<
         secrets.get('pexels'),
         secrets.get('outputDirectory'),
       ])
+      // Zero-config floor: when the user has never picked an output folder, seed
+      // the store with the app-wide default (<OS Videos>/BatchClip) so rendering
+      // works without ever opening Settings. We don't persist this back to
+      // safeStorage — the Settings secret stays empty ("falls back to system
+      // default") and an explicit user choice still overrides it.
+      const trimmed = (outputDirectory ?? '').trim()
+      const resolvedOutputDir =
+        trimmed.length > 0
+          ? trimmed
+          : (await window.api?.getDefaultOutputDirectory?.().catch(() => null)) ?? null
+
       set((state) => {
         if (gemini) state.settings.geminiApiKey = gemini
         if (fal) state.settings.falApiKey = fal
         if (pexels) state.settings.pexelsApiKey = pexels
         // outputDirectory is intentionally allowed to overwrite to null/empty
-        // so removing it in the Settings window propagates to the main window.
-        const trimmed = (outputDirectory ?? '').trim()
-        state.settings.outputDirectory = trimmed.length > 0 ? trimmed : null
+        // so removing it in the Settings window propagates to the main window;
+        // the default seed above keeps rendering functional in that case.
+        state.settings.outputDirectory = resolvedOutputDir
       })
     } catch (err) {
       console.warn('[secrets] Failed to hydrate secrets from main:', err)
