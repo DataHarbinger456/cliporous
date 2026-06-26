@@ -65,6 +65,8 @@ interface RowProgress {
   percent: number
   error?: string
   outputPath?: string
+  /** Live status text shown during the prepare phase (B-Roll, filler removal, etc.) */
+  prepareMessage?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +89,7 @@ function buildProgressMap(
       percent: r.percent,
       error: r.error,
       outputPath: r.outputPath,
+      prepareMessage: r.prepareMessage,
     })
   }
   return map
@@ -189,6 +192,11 @@ function GenericRow({
             className={cn('mt-2 h-1.5', isError && '[&>div]:bg-destructive')}
           />
         )}
+        {progress.status === 'preparing' && progress.prepareMessage && (
+          <p className="text-muted-foreground mt-1.5 line-clamp-1 text-xs" title={progress.prepareMessage}>
+            {progress.prepareMessage}
+          </p>
+        )}
         {isError && progress.error && (
           <p className="text-destructive mt-1.5 line-clamp-2 text-xs" title={progress.error}>
             {progress.error}
@@ -256,6 +264,15 @@ function ClipRow({ clip, progress }: ClipRowProps): React.JSX.Element {
             value={barValue}
             className={cn('mt-2 h-1.5', isError && '[&>div]:bg-destructive')}
           />
+        )}
+
+        {progress.status === 'preparing' && progress.prepareMessage && (
+          <p
+            className="text-muted-foreground mt-1.5 line-clamp-1 text-xs"
+            title={progress.prepareMessage}
+          >
+            {progress.prepareMessage}
+          </p>
         )}
 
         {isError && progress.error && (
@@ -354,7 +371,8 @@ export function RenderScreen(): React.JSX.Element {
           percent: patch.percent ?? 0,
           status: patch.status ?? 'queued',
           error: patch.error,
-          outputPath: patch.outputPath
+          outputPath: patch.outputPath,
+          prepareMessage: patch.prepareMessage
         }
         setRenderProgress([...current, next])
       } else {
@@ -364,7 +382,23 @@ export function RenderScreen(): React.JSX.Element {
       }
     }
 
+    const offPrepare = window.api.onRenderClipPrepare((data) => {
+      // Prep runs before the encode begins. Don't downgrade a row that has
+      // already moved on to 'rendering'/'done' (events can race on retry).
+      const current = useStore.getState().renderProgress
+      const row = current.find((r) => r.clipId === data.clipId)
+      if (row && (row.status === 'rendering' || row.status === 'done')) return
+      upsertProgress(data.clipId, {
+        status: 'preparing',
+        percent: Math.max(0, Math.min(100, data.percent)),
+        prepareMessage: data.message,
+      })
+    })
+
     const offStart = window.api.onRenderClipStart((data) => {
+      // Note: a stale prepareMessage may remain on the row, but the UI only
+      // renders it while status === 'preparing', so it's harmless once we
+      // flip to 'rendering'.
       upsertProgress(data.clipId, { status: 'rendering', percent: 0 })
     })
 
@@ -416,6 +450,7 @@ export function RenderScreen(): React.JSX.Element {
     })
 
     return () => {
+      offPrepare()
       offStart()
       offProgress()
       offDone()

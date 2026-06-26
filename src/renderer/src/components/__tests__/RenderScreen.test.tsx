@@ -78,6 +78,7 @@ const CLIPS: ClipCandidate[] = [
 
 interface RenderEventCallbacks {
   onStart?: (data: { clipId: string }) => void
+  onPrepare?: (data: { clipId: string; message: string; percent: number }) => void
   onProgress?: (data: { clipId: string; percent: number }) => void
   onDone?: (data: { clipId: string; outputPath: string }) => void
   onError?: (data: { clipId: string; error: string }) => void
@@ -91,6 +92,10 @@ function installRenderApi(): void {
   installApiStub({
     onRenderClipStart: vi.fn((cb: RenderEventCallbacks['onStart']) => {
       callbacks.onStart = cb
+      return () => {}
+    }),
+    onRenderClipPrepare: vi.fn((cb: RenderEventCallbacks['onPrepare']) => {
+      callbacks.onPrepare = cb
       return () => {}
     }),
     onRenderClipProgress: vi.fn((cb: RenderEventCallbacks['onProgress']) => {
@@ -179,6 +184,37 @@ describe('RenderScreen', () => {
       .renderProgress.find((r) => r.clipId === 'c1')
     expect(record?.percent).toBe(42)
     expect(record?.status).toBe('rendering')
+  })
+
+  it('shows the prepare status + live message on a clipPrepare event (B-Roll prep)', async () => {
+    const { RenderScreen } = await import('@/components/screens/RenderScreen')
+    render(<RenderScreen />)
+
+    expect(callbacks.onPrepare).toBeDefined()
+
+    act(() => {
+      callbacks.onPrepare?.({
+        clipId: 'c1',
+        message: 'Downloading stock footage…',
+        percent: 20,
+      })
+    })
+
+    // Row flips to the "Preparing" badge and surfaces the live message line.
+    expect(screen.getByText('Preparing')).toBeInTheDocument()
+    expect(screen.getByText('Downloading stock footage…')).toBeInTheDocument()
+
+    const record = useStore.getState().renderProgress.find((r) => r.clipId === 'c1')
+    expect(record?.status).toBe('preparing')
+    expect(record?.percent).toBe(20)
+    expect(record?.prepareMessage).toBe('Downloading stock footage…')
+
+    // Once the encode starts, the row moves to "Rendering" and drops the line.
+    act(() => {
+      callbacks.onStart?.({ clipId: 'c1' })
+    })
+    expect(screen.getByText('Rendering')).toBeInTheDocument()
+    expect(screen.queryByText('Downloading stock footage…')).not.toBeInTheDocument()
   })
 
   it('enables "Open Output Folder" only after the batch completes', async () => {

@@ -72,6 +72,7 @@ export function installApiStub(overrides: Record<string, unknown> = {}): Record<
     cancelRender: vi.fn(async () => undefined),
     renderSingleClip: vi.fn(async () => ({ ok: true })),
     onRenderClipStart: vi.fn(unsubscribe),
+    onRenderClipPrepare: vi.fn(unsubscribe),
     onRenderClipProgress: vi.fn(unsubscribe),
     onRenderClipDone: vi.fn(unsubscribe),
     onRenderClipError: vi.fn(unsubscribe),
