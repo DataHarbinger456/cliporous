@@ -12,8 +12,8 @@
  * to the main process's `python:setupProgress` / `python:setupDone` events.
  */
 
-import { useCallback } from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, Loader2, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,22 @@ export function PythonSetupCard(): React.JSX.Element {
   const progress = useStore((s) => s.pythonSetupProgress)
   const error = useStore((s) => s.pythonSetupError)
   const { retry } = usePythonSetup()
+
+  // Track connectivity so a stalled first-run download (which needs the
+  // network to fetch ~2–3 GB of models) shows an offline message instead of
+  // an apparent hang at "Preparing… 0%".
+  const [online, setOnline] = useState(() => navigator.onLine)
+  useEffect(() => {
+    const handleOnline = (): void => setOnline(true)
+    const handleOffline = (): void => setOnline(false)
+    setOnline(navigator.onLine)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const handleRetry = useCallback(async (): Promise<void> => {
     try {
@@ -95,6 +111,42 @@ export function PythonSetupCard(): React.JSX.Element {
   const showPackageCounter =
     progress?.currentPackage != null && progress.currentPackage > 0
 
+  // Offline pre-check — the download can't start without a connection, so
+  // surface that up front rather than letting the user stare at "Preparing…"
+  // until pip eventually throws a network error. Only override before any real
+  // download progress has landed (percent === 0).
+  if (!online && percent === 0) {
+    return (
+      <Card
+        className="flex flex-col items-center gap-6 border-2 border-dashed bg-transparent p-12 shadow-none"
+        style={{ minHeight: '60vh' }}
+      >
+        <div className="flex flex-col items-center gap-3 text-center">
+          <WifiOff
+            className="text-muted-foreground h-12 w-12"
+            strokeWidth={1.5}
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <h2 className="text-foreground text-lg font-semibold tracking-tight">
+              You&apos;re offline
+            </h2>
+            <p className="text-muted-foreground max-w-md text-sm">
+              First-run setup downloads ~2–3 GB of AI models, so it needs an
+              internet connection. Reconnect and setup will continue
+              automatically — keep the app open.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex w-full max-w-md items-center gap-2 text-xs">
+          <Loader2 className="text-muted-foreground h-3 w-3 animate-spin" aria-hidden />
+          <span className="text-muted-foreground">Waiting for a connection…</span>
+        </div>
+      </Card>
+    )
+  }
+
   return (
     <Card
       className="flex flex-col items-center gap-6 border-2 border-dashed bg-transparent p-12 shadow-none"
@@ -113,6 +165,10 @@ export function PythonSetupCard(): React.JSX.Element {
           <p className="text-muted-foreground max-w-md text-sm">
             Installing the AI tools BatchClip needs to score, transcribe, and
             crop your videos. This only happens once.
+          </p>
+          <p className="text-muted-foreground/80 max-w-md text-xs">
+            Downloads ~2–3 GB of AI models, usually 10–30 min on first run. Keep
+            the app open.
           </p>
         </div>
       </div>
