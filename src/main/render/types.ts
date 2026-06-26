@@ -174,6 +174,12 @@ export interface RenderClipJob {
     layout?: 'default' | 'blur-background'
     /** Per-clip accent color — overrides highlight colors across all visual elements */
     accentColor?: string
+    /**
+     * Per-clip caption mode — forces one of the three V2 caption modes for
+     * this clip only, overriding the mode resolved from the global
+     * `captionStyle`. When absent, the global style's mode applies.
+     */
+    captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight'
   }
   /**
    * Metadata used when generating the export manifest (manifest.json / manifest.csv).

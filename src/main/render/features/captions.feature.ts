@@ -174,10 +174,14 @@ export function createCaptionsFeature(): RenderFeature {
           : undefined
 
         // Lock the style to one of the three V2 modes before passing it down.
+        // A per-clip `captionMode` override (set in the clip editor) wins over
+        // the mode resolved from the global style, so the choice the user made
+        // on this specific clip is honoured.
         const baseStyle = batchOptions.captionStyle as CaptionStyleInput
+        const clipCaptionMode = job.clipOverrides?.captionMode
         const resolvedStyle: CaptionStyleInput = {
           ...baseStyle,
-          captionMode: resolveCaptionMode(baseStyle, localWords),
+          captionMode: clipCaptionMode ?? resolveCaptionMode(baseStyle, localWords),
           accentColor: resolveAccent(baseStyle)
         }
 

@@ -12,8 +12,8 @@
  *   │ Input + character counter              │
  *   ├────── Captions mode ───────────────────┤
  *   │ Select (Standard / Emphasis / E+H)     │
- *   ├────── Accent color ────────────────────┤
- *   │ swatch #9f75ff + tooltip               │
+ *   ├────── Brand accent (preview) ──────────┤
+ *   │ swatch #9f75ff + tooltip (read-only)   │
  *   ├────────────────────────────────────────┤
  *   │ SheetFooter — Reject / Approve         │
  *   └────────────────────────────────────────┘
@@ -21,7 +21,11 @@
  * State strategy:
  *   - Trim and hook text are debounced into the store via the existing
  *     `updateClipTrim` / `updateClipHookText` actions so undo/redo works.
- *   - Captions mode is local UI state for now (no field on ClipCandidate).
+ *   - Captions mode is persisted as a per-clip render override
+ *     (`overrides.captionMode` via `setClipOverride`) and forwarded to the
+ *     render pipeline, so the chosen mode is actually burned in.
+ *   - Brand accent is a fixed, read-only preview (not a per-clip control in
+ *     this version).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -78,13 +82,21 @@ const TRIM_SLIDER_STEP = 0.1
 /** Soft cap for the hook-text counter. The Input itself has no maxLength. */
 const HOOK_TEXT_TARGET = 80
 
-type CaptionsMode = 'standard' | 'emphasis' | 'emphasis-highlight'
+/** Caption modes — values match the main-side V2 caption builder exactly. */
+type CaptionsMode = 'standard' | 'emphasis' | 'emphasis_highlight'
 
 const CAPTIONS_MODE_LABELS: Record<CaptionsMode, string> = {
   standard: 'Standard',
   emphasis: 'Emphasis',
-  'emphasis-highlight': 'Emphasis + Highlight',
+  emphasis_highlight: 'Emphasis + Highlight',
 }
+
+/**
+ * Default caption mode shown when a clip has no explicit override. Mirrors
+ * `PRESTYJ_CAPTION_STYLE.captionMode` in render-defaults.ts, which is what the
+ * render path actually applies — so the control reflects the real output.
+ */
+const DEFAULT_CAPTIONS_MODE: CaptionsMode = 'emphasis_highlight'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -164,6 +176,7 @@ export function ClipDetail({
   const updateClipTrim = useStore((s) => s.updateClipTrim)
   const updateClipHookText = useStore((s) => s.updateClipHookText)
   const updateClipStatus = useStore((s) => s.updateClipStatus)
+  const setClipOverride = useStore((s) => s.setClipOverride)
   const updateStitchedClipStatus = useStore((s) => s.updateStitchedClipStatus)
 
   const stitched = clip !== null && isStitched(clip)
@@ -178,7 +191,7 @@ export function ClipDetail({
   const [startInput, setStartInput] = useState('0:00.0')
   const [endInput, setEndInput] = useState('0:00.0')
   const [hookText, setHookText] = useState('')
-  const [captionsMode, setCaptionsMode] = useState<CaptionsMode>('emphasis')
+  const [captionsMode, setCaptionsMode] = useState<CaptionsMode>(DEFAULT_CAPTIONS_MODE)
 
   // Sync local state whenever the active clip changes.
   useEffect(() => {
@@ -189,10 +202,16 @@ export function ClipDetail({
     setStartInput(formatTimecode(start))
     setEndInput(formatTimecode(end))
     setHookText(regularClip.hookText ?? '')
-    // Captions mode has no persisted field on ClipCandidate yet — reset to
-    // the default each time so the UI remains coherent.
-    setCaptionsMode('emphasis')
-  }, [regularClip?.id, regularClip?.startTime, regularClip?.endTime, regularClip?.hookText])
+    // Captions mode is persisted as a per-clip render override. Fall back to
+    // the PRESTYJ default the render path applies when the clip has no choice.
+    setCaptionsMode(regularClip.overrides?.captionMode ?? DEFAULT_CAPTIONS_MODE)
+  }, [
+    regularClip?.id,
+    regularClip?.startTime,
+    regularClip?.endTime,
+    regularClip?.hookText,
+    regularClip?.overrides?.captionMode,
+  ])
 
   // ---- Video preview ------------------------------------------------------
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -276,6 +295,16 @@ export function ClipDetail({
     if (!regularClip) return
     if (next === regularClip.hookText) return
     updateClipHookText(regularClip.sourceId, regularClip.id, next)
+  }
+
+  // Persist the chosen caption mode onto the clip as a render override so the
+  // render pipeline (captions.feature.ts) burns the selected mode. Stored even
+  // when it equals the default, so the choice survives a default change later.
+  const handleCaptionsModeChange = (next: CaptionsMode): void => {
+    setCaptionsMode(next)
+    if (!regularClip) return
+    if (regularClip.overrides?.captionMode === next) return
+    setClipOverride(regularClip.sourceId, regularClip.id, 'captionMode', next)
   }
 
   // ---- Approve / Reject ---------------------------------------------------
@@ -564,7 +593,7 @@ export function ClipDetail({
               <Label htmlFor="captions-mode">Captions mode</Label>
               <Select
                 value={captionsMode}
-                onValueChange={(v) => setCaptionsMode(v as CaptionsMode)}
+                onValueChange={(v) => handleCaptionsModeChange(v as CaptionsMode)}
               >
                 <SelectTrigger id="captions-mode">
                   <SelectValue placeholder="Select captions mode" />
@@ -576,8 +605,8 @@ export function ClipDetail({
                   <SelectItem value="emphasis">
                     {CAPTIONS_MODE_LABELS.emphasis}
                   </SelectItem>
-                  <SelectItem value="emphasis-highlight">
-                    {CAPTIONS_MODE_LABELS['emphasis-highlight']}
+                  <SelectItem value="emphasis_highlight">
+                    {CAPTIONS_MODE_LABELS.emphasis_highlight}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -585,9 +614,12 @@ export function ClipDetail({
 
             <Separator />
 
-            {/* Section 4 — Accent color --------------------------------- */}
+            {/* Section 4 — Brand accent (preview, not editable) ---------- */}
             <section className="flex flex-col gap-2">
-              <Label>Accent color</Label>
+              <div className="flex items-baseline justify-between">
+                <Label>Brand accent</Label>
+                <span className="text-xs text-muted-foreground">Preview</span>
+              </div>
               <TooltipProvider delayDuration={150}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -605,9 +637,14 @@ export function ClipDetail({
                       </span>
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent>Brand accent</TooltipContent>
+                  <TooltipContent>
+                    Fixed brand accent applied to every clip — not editable.
+                  </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              <p className="text-xs text-muted-foreground">
+                Applied to every clip. Not editable in this version.
+              </p>
             </section>
 
           </div>

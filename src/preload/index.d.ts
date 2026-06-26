@@ -362,6 +362,21 @@ interface RenderClipJob {
     imagePath?: string
     cropRect?: { x: number; y: number; width: number; height: number }
   }>
+  /**
+   * Per-clip overrides for global render settings. Forwarded from
+   * ClipCandidate.overrides; only the fields the render pipeline reads are
+   * carried. Absent keys fall back to the global render settings.
+   */
+  clipOverrides?: {
+    enableCaptions?: boolean
+    enableHookTitle?: boolean
+    enableAutoZoom?: boolean
+    layout?: 'default' | 'blur-background'
+    /** Per-clip accent color — overrides highlight colors across all visual elements. */
+    accentColor?: string
+    /** Per-clip caption mode — forces one of the three V2 caption modes. */
+    captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight'
+  }
 }
 
 interface RenderBatchOptions {

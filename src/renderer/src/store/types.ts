@@ -135,6 +135,11 @@ export interface ClipRenderSettings {
    * text color, and rehook text color — painting the whole edit with one colour.
    */
   accentColor?: string
+  /**
+   * Per-clip caption mode. Overrides the global PRESTYJ caption mode at
+   * render time for this clip only. One of the three V2 caption modes.
+   */
+  captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight'
 }
 
 export interface ClipCandidate {

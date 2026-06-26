@@ -184,6 +184,10 @@ export async function startApprovedRender(): Promise<StartApprovedRenderResult> 
           cropTimeline: c.cropTimeline,
           wordTimestamps: c.wordTimestamps,
           hookTitleText: c.hookText,
+          // Per-clip overrides edited in ClipDetail (caption mode, etc.).
+          // Absent keys fall back to the global render settings on the main
+          // side, so we forward the override object as-is when present.
+          clipOverrides: c.overrides,
           // Per-segment archetype rotation produced by the segmenting stage.
           // Falsy zoomStyle/zoomIntensity are filled in by resolveTemplate() on
           // the main side, so we just forward what the styler produced.
