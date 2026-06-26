@@ -196,12 +196,20 @@ function RecoveryPrompt(): React.JSX.Element | null {
         return
       }
       try {
-        const project = JSON.parse(data) as { clips?: Record<string, unknown[]> }
+        const project = JSON.parse(data) as {
+          clips?: Record<string, unknown[]>
+          transcriptions?: Record<string, unknown>
+          longformPlans?: Record<string, unknown>
+        }
         const clips = project.clips ?? {}
         const hasClips = Object.values(clips).some(
           (arr) => Array.isArray(arr) && arr.length > 0
         )
-        if (!hasClips) {
+        // Long-form projects autosave only a transcription (+ optional edit
+        // plan) and no short-form clips. Restore those too so the slow
+        // transcription / expensive Gemini plan isn't silently discarded.
+        const hasTranscriptions = Object.keys(project.transcriptions ?? {}).length > 0
+        if (!hasClips && !hasTranscriptions) {
           await clearRecovery()
           acknowledgeRecovery()
           return
@@ -225,16 +233,25 @@ function RecoveryPrompt(): React.JSX.Element | null {
       const project = JSON.parse(payload)
       const sources = project.sources ?? []
       const clips = project.clips ?? {}
+      const stitchedClips = project.stitchedClips ?? {}
+      const longformPlans = project.longformPlans ?? {}
       const hasClips = Object.values(clips).some(
         (arr) => Array.isArray(arr) && arr.length > 0
       )
-      const activeSourceId = hasClips && sources.length > 0 ? sources[0].id : null
+      const hasLongform = Object.keys(longformPlans).length > 0
+      // Long-form-only state (transcription + edit plan, no short-form clips)
+      // is still restorable — surface the first source and jump to 'ready' so
+      // the saved plan can render without re-calling Gemini.
+      const ready = hasClips || hasLongform
+      const activeSourceId = ready && sources.length > 0 ? sources[0].id : null
       useStore.setState({
         sources,
         transcriptions: project.transcriptions ?? {},
         clips,
+        stitchedClips,
+        longformPlans,
         activeSourceId,
-        pipeline: hasClips
+        pipeline: ready
           ? { stage: 'ready', message: '', percent: 100 }
           : { stage: 'idle', message: '', percent: 0 },
         isDirty: false,

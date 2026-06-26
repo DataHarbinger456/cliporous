@@ -15,6 +15,7 @@ import type {
   Platform,
 } from './types'
 import { DEFAULT_MIN_SCORE, DEFAULT_FILENAME_TEMPLATE } from '@shared/constants'
+import { DEFAULT_PALETTE_ID } from '@shared/palettes'
 
 // ---------------------------------------------------------------------------
 // Generic helpers
@@ -217,7 +218,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   templateLayout: DEFAULT_TEMPLATE_LAYOUT,
   targetPlatform: DEFAULT_TARGET_PLATFORM,
   outputMode: 'short',
-  longformSkin: 'editorial'
+  longformSkin: 'editorial',
+  longformPaletteId: DEFAULT_PALETTE_ID,
+  customPalettes: []
 }
 
 export const DEFAULT_TARGET_AUDIENCE = ''
@@ -249,6 +252,12 @@ export interface ProjectFileData {
   clips: Record<string, ClipCandidate[]>
   /** Stitched (multi-range) clip candidates keyed by source ID. */
   stitchedClips?: Record<string, StitchedClipCandidate[]>
+  /**
+   * Long-form (16:9) edit plans keyed by source ID. Persisted so a saved /
+   * recovered long-form project can re-render without re-paying the Gemini
+   * `longformEditPlan` call. Optional for back-compat with older project files.
+   */
+  longformPlans?: Record<string, import('./longform-slice').LongformPlanRecord>
   settings: AppSettings
   processingConfig?: ProcessingConfig
 }
@@ -292,7 +301,9 @@ export function loadPersistedSettings(): AppSettings {
             ...(saved.templateLayout?.subtitles ?? {})
           }
         },
-        targetPlatform: saved.targetPlatform ?? DEFAULT_TARGET_PLATFORM
+        targetPlatform: saved.targetPlatform ?? DEFAULT_TARGET_PLATFORM,
+        longformPaletteId: saved.longformPaletteId ?? DEFAULT_PALETTE_ID,
+        customPalettes: Array.isArray(saved.customPalettes) ? saved.customPalettes : []
       }
     }
   } catch {

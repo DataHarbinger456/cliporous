@@ -35,6 +35,7 @@ import type {
   StitchedClipRole,
   LongformSkinId,
 } from '@shared/types'
+import type { Palette } from '@shared/palettes'
 
 // Re-export shared types so existing component imports from store don't break
 export type {
@@ -392,12 +393,21 @@ export interface AppSettings {
   outputMode: OutputMode
   /** Visual skin applied to every long-form content block. */
   longformSkin: LongformSkinId
+  /**
+   * Id of the color palette applied to long-form block renders. Resolved
+   * against `customPalettes` then the built-in presets (see
+   * `getPaletteById` in `@shared/palettes`). Separate axis from the skin.
+   */
+  longformPaletteId: string
+  /** User-created color palettes (in addition to the built-in presets). */
+  customPalettes: Palette[]
 }
 
 /** Output mode for a dropped source video. */
 export type OutputMode = 'short' | 'longform'
 
 export type { LongformSkinId } from '@shared/types'
+export type { Palette } from '@shared/palettes'
 
 export interface ProcessingConfig {
   targetDuration: TargetDuration
@@ -438,6 +448,9 @@ export interface AppState {
 
   // Stitched clip candidates (keyed by source ID)
   stitchedClips: Record<string, StitchedClipCandidate[]>
+
+  // Long-form edit plans (keyed by source ID)
+  longformPlans: Record<string, import('./longform-slice').LongformPlanRecord>
 
   // Pipeline
   pipeline: PipelineProgress
@@ -517,6 +530,14 @@ export interface AppState {
 
   // Actions — Transcription
   setTranscription: (sourceId: string, data: TranscriptionData) => void
+
+  // Actions — Long-form edit plans
+  setLongformPlan: (
+    sourceId: string,
+    record: import('./longform-slice').LongformPlanRecord
+  ) => void
+  clearLongformPlan: (sourceId: string) => void
+  getLongformPlan: (sourceId: string) => import('./longform-slice').LongformPlanRecord | null
 
   // Actions — Clips
   setClips: (sourceId: string, clips: ClipCandidate[]) => void

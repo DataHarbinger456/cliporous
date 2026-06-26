@@ -22,6 +22,7 @@ function getProjectJson(pretty = false): string {
     transcriptions: state.transcriptions,
     clips: state.clips,
     stitchedClips: state.stitchedClips,
+    longformPlans: state.longformPlans,
     settings: state.settings,
     processingConfig: state.processingConfig
   }
@@ -37,22 +38,29 @@ function applyProject(data: string): boolean {
   const sources = project.sources ?? []
   const clips = project.clips ?? {}
   const stitchedClips = project.stitchedClips ?? {}
+  const longformPlans = project.longformPlans ?? {}
   const hasClips =
     Object.values(clips).some((arr) => arr.length > 0) ||
     Object.values(stitchedClips).some((arr) => arr.length > 0)
+  // A long-form project may carry only a saved edit plan (no short-form clips).
+  // Treat that as restorable so the slow Gemini plan + transcription survive.
+  const hasLongform = Object.keys(longformPlans).length > 0
 
-  // If the project has clips, jump straight to the clip grid by setting
-  // pipeline to 'ready' and selecting the first source.
-  const activeSourceId = hasClips && sources.length > 0 ? sources[0].id : null
-  const pipeline = hasClips
-    ? { stage: 'ready' as const, message: '', percent: 100 }
-    : DEFAULT_PIPELINE
+  // If the project has clips (or a long-form plan), jump straight past the
+  // drop screen by setting pipeline to 'ready' and selecting the first source.
+  const ready = hasClips || hasLongform
+  const activeSourceId = ready ? (sources[0]?.id ?? null) : null
+  const pipeline =
+    ready
+      ? { stage: 'ready' as const, message: '', percent: 100 }
+      : DEFAULT_PIPELINE
 
   const nextState: Partial<AppState> = {
     sources,
     transcriptions: project.transcriptions ?? {},
     clips,
     stitchedClips,
+    longformPlans,
     settings: {
       ...DEFAULT_SETTINGS,
       ...(project.settings ?? {})
@@ -125,9 +133,11 @@ export async function autoSaveProject(): Promise<void> {
     Object.values(state.stitchedClips).some((arr) => arr.length > 0)
   // Autosave even before clips exist if there's a transcription cached — that
   // way a scoring failure mid-pipeline doesn't lose the (slow) transcription
-  // step on the next launch and the user can resume.
+  // step on the next launch and the user can resume. A long-form edit plan is
+  // likewise expensive (Gemini) and must survive even with no short-form clips.
   const hasTranscription = Object.keys(state.transcriptions).length > 0
-  if (!hasClips && !hasTranscription) return
+  const hasLongform = Object.keys(state.longformPlans).length > 0
+  if (!hasClips && !hasTranscription && !hasLongform) return
   try {
     await window.api.autoSaveProject(getProjectJson())
     useStore.setState({ isDirty: false, lastSavedAt: Date.now() })

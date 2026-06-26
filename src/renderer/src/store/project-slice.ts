@@ -27,6 +27,7 @@ export const createProjectSlice: StateCreator<
       activeSourceId: null,
       transcriptions: {},
       clips: {},
+      longformPlans: {},
       pipeline: DEFAULT_PIPELINE,
       renderProgress: [],
       isRendering: false,

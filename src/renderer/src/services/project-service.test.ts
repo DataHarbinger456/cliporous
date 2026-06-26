@@ -289,6 +289,7 @@ function expectedProject(): ProjectFileData {
     },
     clips: CLIP_FIXTURES,
     stitchedClips: {},
+    longformPlans: {},
     settings: SETTINGS_FIXTURE,
     processingConfig: PROCESSING_CONFIG_FIXTURE,
   }
@@ -436,6 +437,74 @@ describe('project-service · autoSaveProject ↔ loadRecovery round-trip', () =>
 
     await autoSaveProject()
     expect(vfs.recovery).toBeNull()
+  })
+})
+
+describe('project-service · long-form persistence floor (RF-020)', () => {
+  // A long-form (16:9) project persists a transcription + the expensive Gemini
+  // edit plan but NO short-form clips. Both must survive a save/recover.
+  const LONGFORM_PLAN_RECORD = {
+    plan: {
+      phrases: [],
+      blocks: [],
+      reasoning: 'test plan',
+      generatedAt: 1_700_000_000_000,
+    },
+    skin: 'editorial' as const,
+    paletteId: 'brand',
+  }
+
+  function populateLongformOnlyStore(): void {
+    useStore.setState({
+      sources: [SOURCE_A],
+      transcriptions: { [SOURCE_A.id]: TRANSCRIPTION_A },
+      clips: {},
+      longformPlans: { [SOURCE_A.id]: LONGFORM_PLAN_RECORD },
+      settings: { ...DEFAULT_SETTINGS },
+      processingConfig: { ...DEFAULT_PROCESSING_CONFIG },
+    })
+  }
+
+  it('saveProject → loadProjectFromPath restores the edit plan without clips', async () => {
+    populateLongformOnlyStore()
+
+    const path = await saveProject()
+    expect(path).toBe(SAVE_PATH)
+
+    // The serialized project carries the long-form plan keyed by source.
+    const parsed = JSON.parse(vfs.saved.get(SAVE_PATH)!) as ProjectFileData
+    expect(parsed.longformPlans).toEqual({ [SOURCE_A.id]: LONGFORM_PLAN_RECORD })
+    expect(parsed.clips).toEqual({})
+
+    // Reset to a fresh, empty store.
+    useStore.getState().reset()
+    useStore.setState({
+      settings: { ...DEFAULT_SETTINGS },
+      processingConfig: { ...DEFAULT_PROCESSING_CONFIG },
+    })
+    expect(useStore.getState().longformPlans).toEqual({})
+
+    const ok = await loadProjectFromPath(SAVE_PATH)
+    expect(ok).toBe(true)
+
+    const state = useStore.getState()
+    // The plan survived — render can proceed WITHOUT re-calling Gemini.
+    expect(state.longformPlans).toEqual({ [SOURCE_A.id]: LONGFORM_PLAN_RECORD })
+    expect(state.transcriptions).toEqual({ [SOURCE_A.id]: TRANSCRIPTION_A })
+    // Long-form-only state still jumps past the drop screen.
+    expect(state.activeSourceId).toBe(SOURCE_A.id)
+    expect(state.pipeline.stage).toBe('ready')
+  })
+
+  it('autoSaveProject writes recovery for a long-form-only project (no clips)', async () => {
+    populateLongformOnlyStore()
+    expect(vfs.recovery).toBeNull()
+
+    await autoSaveProject()
+
+    expect(vfs.recovery).toBeTruthy()
+    const parsed = JSON.parse(vfs.recovery!) as ProjectFileData
+    expect(parsed.longformPlans).toEqual({ [SOURCE_A.id]: LONGFORM_PLAN_RECORD })
   })
 })
 
