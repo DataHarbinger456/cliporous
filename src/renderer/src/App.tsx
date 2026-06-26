@@ -29,6 +29,7 @@ import { RenderScreen } from '@/components/screens/RenderScreen'
 import { useAutosave, usePythonSetup } from '@/hooks'
 import { useStore } from '@/store'
 import { selectScreen } from '@/store/selectors'
+import { listenForSettingsChanges } from '@/store/settings-sync'
 import { saveProject, loadProject, loadRecovery, clearRecovery } from '@/services'
 
 // ---------------------------------------------------------------------------
@@ -291,6 +292,10 @@ export default function App(): React.JSX.Element {
   // pipeline's scoring step fails with "API key required".
   useEffect(() => {
     void hydrateSecretsFromMain()
+    // Re-hydrate whenever the Settings window saves, so freshly entered keys /
+    // output dir take effect in the main store immediately — independent of
+    // BroadcastChannel availability or mount timing.
+    return listenForSettingsChanges(() => void hydrateSecretsFromMain())
   }, [hydrateSecretsFromMain])
 
   const screen = useMemo(
