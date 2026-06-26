@@ -58,6 +58,7 @@ function formatDuration(ms: number): string {
 export function AiUsageIndicator(): React.JSX.Element {
   const aiUsage = useStore((s) => s.aiUsage)
   const resetAiUsage = useStore((s) => s.resetAiUsage)
+  const hasGeminiKey = useStore((s) => s.settings.geminiApiKey.trim().length > 0)
   const [open, setOpen] = useState(false)
 
   const totalTokens = aiUsage.totalPromptTokens + aiUsage.totalCompletionTokens
@@ -93,6 +94,22 @@ export function AiUsageIndicator(): React.JSX.Element {
   const sessionDuration = Date.now() - aiUsage.sessionStarted
 
   if (aiUsage.totalCalls === 0) {
+    // First-run floor: surface a clear global signal about whether a Gemini key
+    // is configured, before anything fails deep in the pipeline. One click on
+    // the amber chip opens Settings to fix it.
+    if (!hasGeminiKey) {
+      return (
+        <button
+          type="button"
+          onClick={() => void window.api?.openSettingsWindow?.()}
+          title="No Gemini API key configured — click to open Settings"
+          className="flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-400 transition-colors hover:bg-amber-500/20"
+        >
+          <Sparkles className="h-3 w-3 shrink-0" />
+          <span>API key not set</span>
+        </button>
+      )
+    }
     return (
       <div className="text-muted-foreground/40 flex items-center gap-1 px-1 text-xs">
         <Sparkles className="h-3 w-3" />
