@@ -160,6 +160,33 @@ describe('ClipGrid', () => {
     expect(startApprovedRender).toHaveBeenCalledTimes(1)
   })
 
+  it('shows the cold-start empty state when no source has been processed', async () => {
+    // Tear down the seeded source/clips: a fresh app with nothing run yet.
+    resetStore()
+    installApiStub()
+    useStore.getState().setPipeline({ stage: 'idle', message: '', percent: 0 })
+
+    const { ClipGrid } = await import('@/components/ClipGrid')
+    render(<ClipGrid />)
+
+    expect(screen.getByText('No clips yet')).toBeInTheDocument()
+    expect(screen.getByText(/Drop a video on the start screen/)).toBeInTheDocument()
+  })
+
+  it('shows an actionable empty state when a completed run yields zero clips', async () => {
+    // Source processed to completion ('ready') but scoring produced no clips.
+    useStore.getState().setClips(SOURCE.id, [])
+    useStore.getState().setPipeline({ stage: 'ready', message: '', percent: 100 })
+
+    const { ClipGrid } = await import('@/components/ClipGrid')
+    render(<ClipGrid />)
+
+    expect(screen.getByText('No clips passed scoring')).toBeInTheDocument()
+    expect(screen.getByText(/lowering the minimum score in/i)).toBeInTheDocument()
+    // Must NOT show the misleading cold-start prompt.
+    expect(screen.queryByText('No clips yet')).not.toBeInTheDocument()
+  })
+
   it('opens the ClipDetail Sheet when a card is clicked', async () => {
     const { ClipGrid } = await import('@/components/ClipGrid')
     render(<ClipGrid />)

@@ -5,16 +5,26 @@ import type { PipelineContext } from './types'
 export function notificationStage(ctx: PipelineContext, clips: ClipCandidate[]): void {
   const { setPipeline, getState } = ctx
 
-  setPipeline({ stage: 'ready', message: `Found ${clips.length} clip candidates`, percent: 100 })
+  // A finished run with zero clips is still 'ready' (the clips screen owns the
+  // "0 passed scoring" empty state), but the message must not read like work is
+  // still pending.
+  const message =
+    clips.length > 0
+      ? `Found ${clips.length} clip candidates`
+      : 'No clips passed scoring'
+  setPipeline({ stage: 'ready', message, percent: 100 })
 
   // Intentionally reading latest state at execution time — notification
   // preferences should reflect the current settings.
   const state = getState()
   if (state.settings.enableNotifications && !document.hasFocus()) {
-    const maxScore = clips.length > 0 ? Math.max(...clips.map((c) => c.score)) : 0
+    const body =
+      clips.length > 0
+        ? `Found ${clips.length} clips with scores up to ${Math.max(...clips.map((c) => c.score))}`
+        : 'No clips passed scoring — try lowering the score threshold in Settings'
     window.api.sendNotification({
       title: 'Processing Complete',
-      body: `Found ${clips.length} clips with scores up to ${maxScore}`
+      body
     })
   }
 }

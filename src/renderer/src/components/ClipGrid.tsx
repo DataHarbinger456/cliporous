@@ -19,7 +19,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Inbox } from 'lucide-react'
+import { AlertTriangle, Inbox, SearchX } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -93,23 +93,43 @@ function ClipGridSkeleton(): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state — no clips at all. Centered shadcn Card with an Inbox icon
-// and a single one-line description (per /commit empty-state spec).
+// Empty state — no clips to show. Two distinct cases:
+//   • processed=false → no source has been run yet; prompt to drop a video.
+//   • processed=true  → a run finished but nothing passed scoring; explain why
+//                       and offer a concrete next step instead of telling the
+//                       user to do exactly what they just did.
 // ---------------------------------------------------------------------------
 
-function EmptyState(): React.JSX.Element {
+function EmptyState({ processed }: { processed: boolean }): React.JSX.Element {
   return (
     <div className="flex h-full w-full items-center justify-center p-6">
       <Card className="flex w-full max-w-sm flex-col items-center gap-3 px-6 py-10 text-center">
-        <Inbox
-          className="text-muted-foreground h-10 w-10"
-          strokeWidth={1.5}
-          aria-hidden
-        />
-        <p className="text-foreground text-sm font-medium">No clips yet</p>
-        <p className="text-muted-foreground text-xs">
-          Drop a video on the start screen to generate clips.
-        </p>
+        {processed ? (
+          <>
+            <SearchX
+              className="text-muted-foreground h-10 w-10"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+            <p className="text-foreground text-sm font-medium">No clips passed scoring</p>
+            <p className="text-muted-foreground text-xs">
+              Nothing cleared the score threshold. Try lowering the minimum score in
+              Settings, or run a longer or different source.
+            </p>
+          </>
+        ) : (
+          <>
+            <Inbox
+              className="text-muted-foreground h-10 w-10"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+            <p className="text-foreground text-sm font-medium">No clips yet</p>
+            <p className="text-muted-foreground text-xs">
+              Drop a video on the start screen to generate clips.
+            </p>
+          </>
+        )}
       </Card>
     </div>
   )
@@ -184,6 +204,14 @@ export function ClipGrid(): React.JSX.Element {
     stage === 'detecting-faces' ||
     stage === 'ai-editing' ||
     stage === 'segmenting'
+
+  // A run finished (source present + pipeline settled on a completed stage) but
+  // produced zero clips — e.g. nothing cleared the score threshold. Distinct
+  // from the cold start where no source has been processed yet.
+  const runCompletedEmpty =
+    !isLoading &&
+    source !== null &&
+    (stage === 'ready' || stage === 'done')
 
   const approvedCount =
     clips.filter((c) => c.status === 'approved').length +
@@ -297,7 +325,7 @@ export function ClipGrid(): React.JSX.Element {
         {isLoading && totalCount === 0 ? (
           <ClipGridSkeleton />
         ) : totalCount === 0 ? (
-          <EmptyState />
+          <EmptyState processed={runCompletedEmpty} />
         ) : (
           <div className={GRID_COLS}>
             {allItems.map((item) => (
