@@ -60,6 +60,19 @@ function isUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim())
 }
 
+// Only YouTube links are downloadable (see src/main/youtube.ts). Catch
+// non-YouTube URLs here so we never invite a link the pipeline can't process.
+function isYouTubeUrl(value: string): boolean {
+  const trimmed = value.trim()
+  if (/youtu\.be\/[A-Za-z0-9_-]{11}/i.test(trimmed)) return true
+  try {
+    const host = new URL(trimmed).hostname.replace(/^www\./i, '')
+    return host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be'
+  } catch {
+    return false
+  }
+}
+
 function isVideoFilename(name: string): boolean {
   const ext = name.split('.').pop()?.toLowerCase()
   return ext ? (VIDEO_EXTENSIONS as readonly string[]).includes(ext) : false
@@ -265,6 +278,12 @@ export function DropScreen(): React.JSX.Element {
     const trimmed = value.trim()
     if (!trimmed) return
     if (isUrl(trimmed)) {
+      if (!isYouTubeUrl(trimmed)) {
+        const msg = 'Only YouTube links are supported. Paste a YouTube URL, or drop a video file.'
+        toast.error(msg)
+        setIngestError(msg)
+        return
+      }
       void startFromUrl(trimmed)
     } else {
       // Treat as a local path. ffprobe will fail loudly if it isn't a video.
@@ -497,7 +516,7 @@ export function DropScreen(): React.JSX.Element {
                 Drop a video file or paste a URL
               </h2>
               <p className="text-muted-foreground text-sm">
-                MP4, MOV, MKV, WEBM — or a YouTube / TikTok / X link
+                MP4, MOV, MKV, WEBM — or a YouTube link
               </p>
             </div>
           </div>
