@@ -26,7 +26,7 @@ import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { Eye, EyeOff, Folder, Key, Save } from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, Folder, Key, Save } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
 // Persisted secret keys — all stored via the safeStorage-backed secret store.
@@ -81,6 +81,44 @@ interface SecretInputProps {
   value: string
   placeholder?: string
   onChange: (value: string) => void
+}
+
+// ---------------------------------------------------------------------------
+// FieldHelp — one-line purpose + required/optional marker + "Get a key" link.
+// The link opens in the user's default browser via the settings window's
+// `setWindowOpenHandler` (see src/main/settings-window.ts).
+// ---------------------------------------------------------------------------
+
+interface FieldHelpProps {
+  required?: boolean
+  children: React.ReactNode
+  href?: string
+}
+
+function FieldHelp({ required, children, href }: FieldHelpProps): React.JSX.Element {
+  return (
+    <p className="text-muted-foreground text-xs">
+      <span
+        className={`mr-1 font-medium ${required ? 'text-primary' : 'text-muted-foreground'}`}
+      >
+        {required ? 'Required.' : 'Optional.'}
+      </span>
+      {children}
+      {href ? (
+        <>
+          {' '}
+          <button
+            type="button"
+            onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}
+            className="text-primary inline-flex items-center gap-0.5 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+          >
+            Get a key
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        </>
+      ) : null}
+    </p>
+  )
 }
 
 function SecretInput({ id, value, placeholder, onChange }: SecretInputProps): React.JSX.Element {
@@ -253,6 +291,9 @@ export default function SettingsWindow(): React.JSX.Element {
                     placeholder="AIza…"
                     onChange={(v) => update('gemini', v)}
                   />
+                  <FieldHelp required href="https://aistudio.google.com/apikey">
+                    Powers clip scoring and AI features. Rendering is blocked without it.
+                  </FieldHelp>
                 </div>
                 <Separator />
                 <div className="space-y-2">
@@ -263,9 +304,9 @@ export default function SettingsWindow(): React.JSX.Element {
                     placeholder="563492…"
                     onChange={(v) => update('pexels', v)}
                   />
-                  <p className="text-muted-foreground text-xs">
+                  <FieldHelp href="https://www.pexels.com/api/">
                     Used for b-roll videos in split-image and fullscreen-image segments. Free at pexels.com/api.
-                  </p>
+                  </FieldHelp>
                 </div>
                 <Separator />
                 <div className="space-y-2">
@@ -276,6 +317,9 @@ export default function SettingsWindow(): React.JSX.Element {
                     placeholder="key_id:key_secret"
                     onChange={(v) => update('fal', v)}
                   />
+                  <FieldHelp href="https://fal.ai/dashboard/keys">
+                    Used for AI-generated b-roll imagery. Leave empty to skip those segments.
+                  </FieldHelp>
                 </div>
               </CardContent>
             </Card>
@@ -289,7 +333,8 @@ export default function SettingsWindow(): React.JSX.Element {
               <CardHeader>
                 <CardTitle className="text-lg">Output</CardTitle>
                 <CardDescription>
-                  Where rendered clips are written. Falls back to the system default when empty.
+                  Where rendered clips are written. When empty, clips are saved to a
+                  “BatchClip” folder in your Videos directory.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
