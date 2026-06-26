@@ -65,6 +65,10 @@ interface RowProgress {
   status: RowStatus
   percent: number
   error?: string
+  /** Suggested action shown alongside the error summary (RF-022). */
+  suggestion?: string
+  /** Raw engine output (stderr tail), shown behind a "details" expander. */
+  details?: string
   outputPath?: string
   /** Live status text shown during the prepare phase (B-Roll, filler removal, etc.) */
   prepareMessage?: string
@@ -89,6 +93,8 @@ function buildProgressMap(
       status: r.status,
       percent: r.percent,
       error: r.error,
+      suggestion: r.suggestion,
+      details: r.details,
       outputPath: r.outputPath,
       prepareMessage: r.prepareMessage,
     })
@@ -159,6 +165,36 @@ function StatusBadge({ status }: { status: RowStatus }): React.JSX.Element {
 // the long-form 16:9 pipeline, which renders a single whole-video job).
 // ---------------------------------------------------------------------------
 
+/** Error summary + suggested action + raw-output "details" expander (RF-022). */
+function RenderErrorDetails({ progress }: { progress: RowProgress }): React.JSX.Element | null {
+  if (progress.status !== 'error' || !progress.error) return null
+  return (
+    <div className="mt-1.5">
+      <p
+        className="text-destructive line-clamp-2 text-xs font-medium"
+        title={progress.error}
+      >
+        {progress.error}
+      </p>
+      {progress.suggestion && (
+        <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+          {progress.suggestion}
+        </p>
+      )}
+      {progress.details && progress.details !== progress.error && (
+        <details className="group mt-1">
+          <summary className="text-muted-foreground hover:text-foreground cursor-pointer list-none text-xs underline-offset-2 group-open:underline">
+            Details
+          </summary>
+          <pre className="text-muted-foreground bg-muted/40 mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded p-2 text-[11px] leading-snug">
+            {progress.details}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
 function GenericRow({
   label,
   progress,
@@ -205,11 +241,7 @@ function GenericRow({
             {progress.prepareMessage}
           </p>
         )}
-        {isError && progress.error && (
-          <p className="text-destructive mt-1.5 line-clamp-2 text-xs" title={progress.error}>
-            {progress.error}
-          </p>
-        )}
+        <RenderErrorDetails progress={progress} />
       </div>
     </Card>
   )
@@ -283,14 +315,7 @@ function ClipRow({ clip, progress }: ClipRowProps): React.JSX.Element {
           </p>
         )}
 
-        {isError && progress.error && (
-          <p
-            className="text-destructive mt-1.5 line-clamp-2 text-xs"
-            title={progress.error}
-          >
-            {progress.error}
-          </p>
-        )}
+        <RenderErrorDetails progress={progress} />
 
         {isDone && progress.outputPath && (
           <div className="mt-2 flex items-center gap-2">
@@ -387,6 +412,8 @@ export function RenderScreen(): React.JSX.Element {
           percent: patch.percent ?? 0,
           status: patch.status ?? 'queued',
           error: patch.error,
+          suggestion: patch.suggestion,
+          details: patch.details,
           outputPath: patch.outputPath,
           prepareMessage: patch.prepareMessage
         }
@@ -437,13 +464,23 @@ export function RenderScreen(): React.JSX.Element {
       setRenderError(data.clipId, data.error)
       upsertProgress(data.clipId, {
         status: 'error',
-        error: data.error
+        error: data.error,
+        suggestion: data.suggestion,
+        details: data.details,
       })
       // Mirror render failures into the global error log so the bottom
-      // <ErrorLog> panel reflects everything the main process reports.
+      // <ErrorLog> panel reflects everything the main process reports. Include
+      // the suggested action; keep the raw engine output (details) in the log
+      // too so the developer-facing panel stays complete.
       addError({
         source: 'render',
-        message: `Clip ${data.clipId} failed: ${data.error}`,
+        message: [
+          `Clip ${data.clipId} failed: ${data.error}`,
+          data.suggestion ? `Try: ${data.suggestion}` : '',
+          data.details && data.details !== data.error ? data.details : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
       })
     })
 
@@ -660,7 +697,13 @@ export function RenderScreen(): React.JSX.Element {
               key={r.clipId}
               label={activeSource ? `Long-form edit · ${activeSource.name}` : 'Long-form edit (16:9)'}
               poster={activeSource?.thumbnail}
-              progress={{ status: r.status, percent: r.percent, error: r.error ?? renderErrors[r.clipId] }}
+              progress={{
+                status: r.status,
+                percent: r.percent,
+                error: r.error ?? renderErrors[r.clipId],
+                suggestion: r.suggestion,
+                details: r.details,
+              }}
             />
           ))
         ) : (

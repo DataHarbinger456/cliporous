@@ -201,7 +201,12 @@ export interface IpcSendChannelMap {
   [SendChannels.RENDER_CLIP_DONE]: { clipId: string; outputPath: string }
   [SendChannels.RENDER_CLIP_ERROR]: {
     clipId: string
+    /** Short, human-readable summary of what went wrong (RF-022). */
     error: string
+    /** Suggested action the user can take, when the cause is recognised. */
+    suggestion?: string
+    /** Raw engine output (stderr tail), shown behind a "details" expander. */
+    details?: string
     ffmpegCommand?: string
   }
   [SendChannels.RENDER_BATCH_DONE]: {

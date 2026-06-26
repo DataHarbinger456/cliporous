@@ -28,6 +28,7 @@ import { buildLongformLayout } from '../layouts/longform-layouts'
 import { buildDriftZoom, buildSnapZoom } from '../zoom-filters'
 import { buildEditStyleColorGradeFilter } from './color-grade-filter'
 import { resolveQualityParams } from './quality'
+import { classifyRenderError } from './render-error-map'
 import { toFFmpegPath } from './helpers'
 import { encodeSpeakerSegment } from './longform-encode'
 import { renderBlockSegment } from './features/blocks.feature'
@@ -220,9 +221,12 @@ export async function renderLongformVideo(
   }
 
   const sendError = (message: string): void => {
+    const classified = classifyRenderError(message)
     window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
       clipId: job?.clipId ?? 'longform',
-      error: message
+      error: classified.message,
+      suggestion: classified.suggestion,
+      details: classified.details
     })
     window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 0, failed: 1, total: 1 })
   }

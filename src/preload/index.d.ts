@@ -481,7 +481,12 @@ interface RenderClipDoneEvent {
 
 interface RenderClipErrorEvent {
   clipId: string
+  /** Short, human-readable summary of what went wrong (RF-022). */
   error: string
+  /** Suggested action the user can take, when the cause is recognised. */
+  suggestion?: string
+  /** Raw engine output (stderr tail), shown behind a "details" expander. */
+  details?: string
   /** Full FFmpeg command string (always present; included on error and in developer mode). */
   ffmpegCommand?: string
 }

@@ -30,6 +30,7 @@ import type { SegmentRenderConfig, ResolvedSegment } from './segment-render'
 import { enforceSpeakerOpening } from './opening-guard'
 import { resolveQualityParams } from './quality'
 import { buildOutputPath } from './filename'
+import { classifyRenderError } from './render-error-map'
 import { getEditStyleById, DEFAULT_EDIT_STYLE_ID } from './../edit-styles/index'
 import { ARCHETYPE_DEFAULT_TRANSITION_IN, ARCHETYPE_TO_CATEGORY } from './../edit-styles/shared/archetypes'
 import { fetchSegmentVideos } from '../ai/segment-videos'
@@ -906,10 +907,15 @@ export async function startBatchRender(
       manifestResults.set(job.clipId, null)
       manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime)
       failed++
-      const message = err instanceof Error ? err.message : String(err)
+      const rawMessage = err instanceof Error ? err.message : String(err)
+      // Map raw engine output → human summary + suggested action (RF-022),
+      // keeping the raw stderr tail available behind a "details" expander.
+      const classified = classifyRenderError(rawMessage)
       window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
         clipId: job.clipId,
-        error: message,
+        error: classified.message,
+        suggestion: classified.suggestion,
+        details: classified.details,
         ffmpegCommand: capturedCommand
       })
     } finally {

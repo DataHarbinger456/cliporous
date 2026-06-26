@@ -272,6 +272,10 @@ export interface RenderProgress {
   percent: number
   status: 'queued' | 'preparing' | 'rendering' | 'done' | 'error'
   error?: string
+  /** Suggested action shown alongside the error summary (RF-022). */
+  suggestion?: string
+  /** Raw engine output (stderr tail), shown behind a "details" expander. */
+  details?: string
   outputPath?: string
   /** FFmpeg command string captured at render time (populated on error, or always in developer mode). */
   ffmpegCommand?: string
