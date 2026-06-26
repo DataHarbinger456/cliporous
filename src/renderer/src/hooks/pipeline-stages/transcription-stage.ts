@@ -52,6 +52,17 @@ export async function transcriptionStage(
     if (stage === 'downloading-model' && typeof percent === 'number') {
       resolvedPercent = Math.round(20 + (percent / 100) * 30)
     }
+    // Chunked ASR emits "Transcribing chunk i/N …" — the only real signal of
+    // forward progress for long videos. Map it into the 70→97 band so the bar
+    // actually advances instead of sitting pinned at the fixed 70.
+    if (stage === 'transcribing') {
+      const m = message.match(/chunk\s+(\d+)\s*\/\s*(\d+)/i)
+      if (m) {
+        const cur = Number(m[1])
+        const total = Number(m[2])
+        if (total > 0) resolvedPercent = Math.round(70 + (cur / total) * 27)
+      }
+    }
     reporter.update(message, resolvedPercent)
   })
 

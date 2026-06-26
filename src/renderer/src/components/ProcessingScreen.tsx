@@ -13,17 +13,22 @@
  * State comes entirely from the pipeline slice on the store.
  */
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
   Check,
+  Clapperboard,
+  Clock,
   Combine,
   Download,
   FileText,
   Loader2,
+  Repeat,
+  ScanFace,
   Settings as SettingsIcon,
   Sparkles,
+  Wand2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -35,7 +40,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
 import { useStore } from '@/store'
-import type { PipelineStage } from '@/store/types'
+import type { OutputMode, PipelineStage } from '@/store/types'
 import { usePipeline } from '@/hooks'
 import { isMissingGeminiKeyError } from '@/lib/gemini-key'
 import { RotateCcw } from 'lucide-react'
@@ -53,13 +58,51 @@ interface StageRow {
   label: string
   /** Lucide icon for the row. */
   icon: LucideIcon
+  /** Output modes this row appears in (gated like the YouTube Download row). */
+  modes: readonly OutputMode[]
+  /**
+   * Stages that can run for minutes with no fine-grained percent. Active rows
+   * flagged here surface an elapsed timer + reassurance so they never look hung.
+   */
+  longRunning?: boolean
 }
 
+// Order mirrors the real execution order in usePipeline (PIPELINE_STAGE_ORDER)
+// so the index-based "a later stage is active ⇒ this row is done" fallback in
+// deriveStatus stays correct. Rows are gated by output mode before display.
 const ALL_STAGES: readonly StageRow[] = [
-  { key: 'downloading', label: 'Download', icon: Download },
-  { key: 'transcribing', label: 'Transcribe', icon: FileText },
-  { key: 'scoring', label: 'Score', icon: Sparkles },
-  { key: 'stitching', label: 'Compose stitched clips', icon: Combine },
+  { key: 'downloading', label: 'Download', icon: Download, modes: ['short', 'longform'] },
+  { key: 'transcribing', label: 'Transcribe', icon: FileText, modes: ['short', 'longform'] },
+  { key: 'scoring', label: 'Score', icon: Sparkles, modes: ['short'] },
+  { key: 'stitching', label: 'Compose stitched clips', icon: Combine, modes: ['short'] },
+  {
+    key: 'optimizing-loops',
+    label: 'Optimize loops',
+    icon: Repeat,
+    modes: ['short'],
+    longRunning: true,
+  },
+  {
+    key: 'detecting-faces',
+    label: 'Detect faces',
+    icon: ScanFace,
+    modes: ['short'],
+    longRunning: true,
+  },
+  {
+    key: 'ai-editing',
+    label: 'Design edit',
+    icon: Clapperboard,
+    modes: ['longform'],
+    longRunning: true,
+  },
+  {
+    key: 'segmenting',
+    label: 'Style segments',
+    icon: Wand2,
+    modes: ['short'],
+    longRunning: true,
+  },
 ] as const
 
 const STAGE_ORDER: readonly PipelineStage[] = ALL_STAGES.map((s) => s.key)
@@ -84,6 +127,31 @@ function deriveStatus(
   const currentIdx = STAGE_ORDER.indexOf(currentStage)
   if (rowIdx >= 0 && currentIdx > rowIdx) return 'done'
   return 'pending'
+}
+
+/** Count whole seconds elapsed since `active` flipped true; resets when it does. */
+function useElapsedSeconds(active: boolean): number {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0)
+      return
+    }
+    const startedAt = Date.now()
+    setElapsed(0)
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [active])
+  return elapsed
+}
+
+/** Format a second count as m:ss. */
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60)
+  const s = totalSeconds % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
 }
 
 /**
@@ -138,6 +206,8 @@ function StageTimelineRow({ row, status, percent, message }: StageRowProps): Rea
   // For finished stages, fill the bar; for pending, leave it empty.
   const barValue = isActive ? Math.max(0, Math.min(100, percent)) : isDone ? 100 : 0
   const eta = isActive ? extractEta(message) : null
+  const showElapsed = isActive && Boolean(row.longRunning)
+  const elapsed = useElapsedSeconds(showElapsed)
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -183,6 +253,16 @@ function StageTimelineRow({ row, status, percent, message }: StageRowProps): Rea
             {eta && <span className="shrink-0">{eta}</span>}
           </div>
         )}
+
+        {showElapsed && (
+          <div className="text-muted-foreground/80 mt-1.5 flex items-center justify-between gap-3 text-xs">
+            <span className="flex items-center gap-1.5">
+              <Clock className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">This can take several minutes for long videos</span>
+            </span>
+            <span className="shrink-0 tabular-nums">{formatElapsed(elapsed)} elapsed</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -200,6 +280,7 @@ export function ProcessingScreen(): React.JSX.Element {
   const failedStage = useStore((s) => s.failedPipelineStage)
   const completed = useStore((s) => s.completedPipelineStages)
   const activeSource = useStore((s) => s.getActiveSource())
+  const outputMode = useStore((s) => s.settings.outputMode)
 
   const isError = stage === 'error'
 
@@ -230,11 +311,16 @@ export function ProcessingScreen(): React.JSX.Element {
     void window.api.openSettingsWindow()
   }
 
-  // Show the Download row only for YouTube sources.
+  // Gate rows by output mode (short vs long-form) — and the Download row by
+  // YouTube origin — so the checklist mirrors the stages that actually run.
   const visibleStages = useMemo<readonly StageRow[]>(() => {
-    if (activeSource?.origin === 'youtube') return ALL_STAGES
-    return ALL_STAGES.filter((s) => s.key !== 'downloading')
-  }, [activeSource?.origin])
+    const isYouTube = activeSource?.origin === 'youtube'
+    return ALL_STAGES.filter((s) => {
+      if (!s.modes.includes(outputMode)) return false
+      if (s.key === 'downloading' && !isYouTube) return false
+      return true
+    })
+  }, [activeSource?.origin, outputMode])
 
   const handleCancel = (): void => {
     // Reset pipeline + drop the active source — the App router will swap back

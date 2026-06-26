@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { useStore } from '../store'
 import type { SourceVideo } from '../store'
+import { LONGFORM_RENDER_DEFAULTS } from '../services/render-defaults'
 
 /**
  * useLongformPipeline — drives the Hormozi long-form (16:9) flow end-to-end:
@@ -117,6 +118,12 @@ export function useLongformPipeline(): {
           if (stage === 'downloading-model' && typeof percent === 'number') {
             p = Math.round(20 + (percent / 100) * 30)
           }
+          if (stage === 'transcribing') {
+            const m = message.match(/chunk\s+(\d+)\s*\/\s*(\d+)/i)
+            if (m && Number(m[2]) > 0) {
+              p = Math.round(70 + (Number(m[1]) / Number(m[2])) * 27)
+            }
+          }
           setPipeline({ stage: 'transcribing', message, percent: p })
         })
         let transcription: {
@@ -167,6 +174,13 @@ export function useLongformPipeline(): {
           outputDirectory,
           outputProfile: 'longform',
           longformEditPlan: plan,
+          // User's long-form skin + palette selection (separate axes). The main
+          // pipeline resolves these via the block-skin registry + getPaletteById,
+          // falling back to the brand palette / default skin when omitted.
+          longformSkinId: state.settings.longformSkin ?? LONGFORM_RENDER_DEFAULTS.longformSkinId,
+          longformPaletteId:
+            state.settings.longformPaletteId ?? LONGFORM_RENDER_DEFAULTS.longformPaletteId,
+          customPalettes: state.settings.customPalettes ?? LONGFORM_RENDER_DEFAULTS.customPalettes,
           renderQuality: state.settings.renderQuality,
           developerMode: state.settings.developerMode,
           geminiApiKey,
