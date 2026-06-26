@@ -13,6 +13,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -26,7 +33,8 @@ import { ProcessingScreen } from '@/components/screens/ProcessingScreen'
 import { ClipGrid } from '@/components/screens/ClipGrid'
 import { RenderScreen } from '@/components/screens/RenderScreen'
 
-import { useAutosave, usePythonSetup } from '@/hooks'
+import { useAutosave, useKeyboardShortcuts, usePythonSetup } from '@/hooks'
+import type { KeyboardShortcutCallbacks } from '@/hooks'
 import { useStore } from '@/store'
 import { selectScreen } from '@/store/selectors'
 import { listenForSettingsChanges } from '@/store/settings-sync'
@@ -273,6 +281,63 @@ function RecoveryPrompt(): React.JSX.Element | null {
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard shortcut help — a small dialog opened with `?` that documents the
+// four global shortcuts wired through useKeyboardShortcuts.
+// ---------------------------------------------------------------------------
+
+const IS_MAC =
+  typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
+const MOD_KEY = IS_MAC ? '⌘' : 'Ctrl'
+
+const SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: [MOD_KEY, 'S'], label: 'Save project' },
+  { keys: [MOD_KEY, 'O'], label: 'Open project' },
+  { keys: [MOD_KEY, ','], label: 'Settings' },
+  { keys: ['?'], label: 'Show this help' },
+]
+
+function HelpDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          <DialogDescription>
+            Speed up your workflow with these global shortcuts.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="flex flex-col gap-2">
+          {SHORTCUTS.map((s) => (
+            <li
+              key={s.label}
+              className="flex items-center justify-between gap-4 text-sm"
+            >
+              <span className="text-muted-foreground">{s.label}</span>
+              <span className="flex items-center gap-1">
+                {s.keys.map((k) => (
+                  <kbd
+                    key={k}
+                    className="bg-muted text-foreground border-border inline-flex min-w-6 items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs"
+                  >
+                    {k}
+                  </kbd>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -280,6 +345,33 @@ export default function App(): React.JSX.Element {
   const stage = useStore((s) => s.pipeline.stage)
   const activeSourceId = useStore((s) => s.activeSourceId)
   const hydrateSecretsFromMain = useStore((s) => s.hydrateSecretsFromMain)
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  // Global keyboard shortcuts. Mounted once at the App root; the hook attaches
+  // a single window keydown listener and re-binds when the callbacks change.
+  const shortcutCallbacks = useMemo<KeyboardShortcutCallbacks>(
+    () => ({
+      onSave: async () => {
+        const result = await saveProject()
+        if (result) toast.success('Project saved')
+      },
+      onLoad: async () => {
+        const ok = await loadProject()
+        if (ok) toast.success('Project loaded')
+      },
+      onOpenSettings: async () => {
+        try {
+          await window.api.openSettingsWindow()
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          toast.error(`Couldn't open settings: ${msg}`)
+        }
+      },
+      onShowHelp: () => setHelpOpen((prev) => !prev),
+    }),
+    []
+  )
+  useKeyboardShortcuts(shortcutCallbacks)
 
   // Wire python:setupProgress / python:setupDone listeners into the store so
   // DropScreen can render the first-run install card. Mounted once at the App
@@ -322,6 +414,7 @@ export default function App(): React.JSX.Element {
       <AutosaveToast />
       <Toaster />
       <RecoveryPrompt />
+      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </ErrorBoundary>
   )
 }
