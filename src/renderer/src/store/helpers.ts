@@ -220,7 +220,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   longformSkin: 'editorial'
 }
 
-export const DEFAULT_TARGET_AUDIENCE = 'Business owners interested in AI — making money, saving time, getting clients, handling marketing/sales, automating busy work. Content must deliver actionable value to entrepreneurs and founders.'
+export const DEFAULT_TARGET_AUDIENCE = ''
 
 export const DEFAULT_PROCESSING_CONFIG: ProcessingConfig = {
   targetDuration: 'auto',
