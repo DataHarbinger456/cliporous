@@ -85,6 +85,15 @@ export function installApiStub(overrides: Record<string, unknown> = {}): Record<
     setBadge: vi.fn(noop),
   }
 
+  // `secrets` is a namespace object on the bridge, not a bare fn. Assign it
+  // after the map so the shape matches the preload API the components call.
+  ;(stub as Record<string, unknown>).secrets = {
+    get: vi.fn(async () => null),
+    set: vi.fn(async () => undefined),
+    has: vi.fn(async () => false),
+    clear: vi.fn(async () => undefined),
+  }
+
   Object.assign(stub, overrides)
 
   const g = globalThis as unknown as { window?: { api?: unknown } }

@@ -22,6 +22,7 @@ import {
   Download,
   FileText,
   Loader2,
+  Settings as SettingsIcon,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -36,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { useStore } from '@/store'
 import type { PipelineStage } from '@/store/types'
 import { usePipeline } from '@/hooks'
+import { isMissingGeminiKeyError } from '@/lib/gemini-key'
 import { RotateCcw } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -213,11 +215,19 @@ export function ProcessingScreen(): React.JSX.Element {
   // Re-runs `processVideo` with `resumeFrom` set to the failed stage so prior
   // stages (download, transcribe) reuse their cached output and we pick up
   // exactly where it broke.
-  const canResume = isError && failedStage !== null && activeSource !== null
+  // A missing Gemini key can't be fixed by resuming — the key still won't be
+  // there. Offer a one-click jump to Settings instead and hide Resume until a
+  // key exists (re-running from the DropScreen re-checks on the next launch).
+  const missingKey = isError && isMissingGeminiKeyError(message)
+  const canResume = isError && !missingKey && failedStage !== null && activeSource !== null
 
   const handleResume = (): void => {
     if (!canResume || !activeSource || !failedStage) return
     void processVideo(activeSource, failedStage)
+  }
+
+  const handleOpenSettings = (): void => {
+    void window.api.openSettingsWindow()
   }
 
   // Show the Download row only for YouTube sources.
@@ -290,6 +300,12 @@ export function ProcessingScreen(): React.JSX.Element {
           <Button variant="ghost" size="sm" onClick={handleCancel}>
             {isError ? 'Back' : 'Cancel'}
           </Button>
+          {missingKey && (
+            <Button variant="default" size="sm" onClick={handleOpenSettings}>
+              <SettingsIcon className="mr-1 h-3.5 w-3.5" />
+              Open Settings
+            </Button>
+          )}
           {canResume && (
             <Button
               variant="default"

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { ClipCandidate } from '../../store'
 import { createStageReporter } from '../../lib/progress-reporter'
+import { MISSING_GEMINI_KEY_MESSAGE, resolveGeminiKey } from '../../lib/gemini-key'
 import type { PipelineContext } from './types'
 import type { TranscriptionStageResult } from './transcription-stage'
 
@@ -25,19 +26,10 @@ export async function clipMappingStage(
   // Last-chance hydration — if the key isn't in store yet, pull directly
   // from main-process safeStorage. Guards against a race where the user
   // saved a key in the Settings window seconds before clicking Run.
-  if (!geminiApiKey || !geminiApiKey.trim()) {
-    try {
-      const fromMain = await window.api?.secrets?.get('gemini')
-      if (fromMain && fromMain.trim()) geminiApiKey = fromMain
-    } catch {
-      // ignore — fall through to the explicit error below
-    }
-  }
+  geminiApiKey = await resolveGeminiKey(geminiApiKey)
 
-  if (!geminiApiKey || !geminiApiKey.trim()) {
-    throw new Error(
-      'Gemini API key is required for scoring. Open Settings and paste your key under "API Keys".'
-    )
+  if (!geminiApiKey) {
+    throw new Error(MISSING_GEMINI_KEY_MESSAGE)
   }
 
   reporter.start('Sending to Gemini…')

@@ -95,6 +95,8 @@ function makeDataTransfer(files: File[]): DataTransfer {
 
 describe('DropScreen', () => {
   it('accepts a file drop and dispatches the source action', async () => {
+    // Short-form scoring is gated on a Gemini key — seed one so the happy path runs.
+    useStore.setState((s) => ({ settings: { ...s.settings, geminiApiKey: 'test-key' } }))
     const { DropScreen } = await import('@/components/screens/DropScreen')
     render(<DropScreen />)
 
@@ -127,6 +129,7 @@ describe('DropScreen', () => {
   })
 
   it('accepts a URL paste + Enter and dispatches the YouTube action', async () => {
+    useStore.setState((s) => ({ settings: { ...s.settings, geminiApiKey: 'test-key' } }))
     const { DropScreen } = await import('@/components/screens/DropScreen')
     render(<DropScreen />)
 
@@ -148,6 +151,22 @@ describe('DropScreen', () => {
       name: url,
     })
     expect(state.activeSourceId).toBe(state.sources[0].id)
+  })
+
+  it('blocks a keyless short-form drop and surfaces the missing-key gate', async () => {
+    // No Gemini key in store and secrets.get returns null — the gate must fire.
+    useStore.setState((s) => ({ settings: { ...s.settings, geminiApiKey: '' } }))
+    const { DropScreen } = await import('@/components/screens/DropScreen')
+    render(<DropScreen />)
+
+    const dropZone = screen.getByRole('button', {
+      name: /drop a video file or paste a url/i,
+    })
+    fireEvent.drop(dropZone, { dataTransfer: makeDataTransfer([makeVideoFile('intro.mp4')]) })
+
+    expect(await screen.findByText(/gemini api key required/i)).toBeInTheDocument()
+    expect(processVideoMock).not.toHaveBeenCalled()
+    expect(useStore.getState().sources).toHaveLength(0)
   })
 
   it('renders recent projects when present', async () => {

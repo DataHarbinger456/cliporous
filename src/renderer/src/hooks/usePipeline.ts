@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react'
 import { useStore } from '../store'
+import { MISSING_GEMINI_KEY_MESSAGE, resolveGeminiKey } from '../lib/gemini-key'
 import type { SourceVideo, PipelineStage } from '../store'
 import type { PipelineContext } from './pipeline-stages/types'
 import {
@@ -89,6 +90,19 @@ export function usePipeline(): {
           const msg = 'No internet connection. AI scoring requires an internet connection.'
           setPipeline({ stage: 'error', message: msg, percent: 0 })
           addError({ source: 'pipeline', message: msg })
+          return
+        }
+
+        // Pre-flight: scoring needs a Gemini key. Fail in <1s here — BEFORE the
+        // multi-minute download/transcribe — so a keyless user isn't sent off to
+        // wait only to hit a wall at the scoring stage. Marks 'scoring' as the
+        // failed stage so the error UI offers "Open Settings" instead of Resume.
+        const preflightKey = await resolveGeminiKey(useStore.getState().settings.geminiApiKey)
+        if (!preflightKey) {
+          currentStage = 'scoring'
+          setFailedPipelineStage('scoring')
+          setPipeline({ stage: 'error', message: MISSING_GEMINI_KEY_MESSAGE, percent: 0 })
+          addError({ source: 'pipeline', message: MISSING_GEMINI_KEY_MESSAGE })
           return
         }
 

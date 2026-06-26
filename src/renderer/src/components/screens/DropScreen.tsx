@@ -20,7 +20,9 @@ import {
   FileVideo,
   FolderOpen,
   Inbox,
+  KeyRound,
   Link as LinkIcon,
+  Settings as SettingsIcon,
   Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -38,8 +40,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { PalettePicker } from '@/components/PalettePicker'
 
 import { useStore } from '@/store'
+import { resolveGeminiKey } from '@/lib/gemini-key'
 import { loadProject, loadProjectFromPath } from '@/services'
 import { usePipeline, useLongformPipeline } from '@/hooks'
 import type { SourceVideo } from '@/store'
@@ -109,8 +113,6 @@ export function DropScreen(): React.JSX.Element {
   const pythonStatus = useStore((s) => s.pythonStatus)
   const outputMode = useStore((s) => s.settings.outputMode)
   const setOutputMode = useStore((s) => s.setOutputMode)
-  const longformSkin = useStore((s) => s.settings.longformSkin)
-  const setLongformSkin = useStore((s) => s.setLongformSkin)
   const { processVideo } = usePipeline()
   const { processLongform } = useLongformPipeline()
 
@@ -128,7 +130,36 @@ export function DropScreen(): React.JSX.Element {
   const [isStarting, setIsStarting] = useState(false)
   const [recents, setRecents] = useState<RecentProjectEntry[]>([])
   const [ingestError, setIngestError] = useState<string | null>(null)
+  const [keyMissing, setKeyMissing] = useState(false)
   const dragDepth = useRef(0)
+
+  // Up-front gate: short-form scoring needs a Gemini key. Catch a keyless user
+  // here — before any download/transcribe — so they're told immediately with a
+  // one-click path to Settings instead of after minutes of wasted work. The
+  // long-form pipeline validates its own key separately, so skip the gate there.
+  const ensureScoringKey = useCallback(async (): Promise<boolean> => {
+    if (useStore.getState().settings.outputMode === 'longform') return true
+    const key = await resolveGeminiKey(useStore.getState().settings.geminiApiKey)
+    if (key) {
+      setKeyMissing(false)
+      return true
+    }
+    setKeyMissing(true)
+    setIngestError(null)
+    toast.error('Gemini API key required', {
+      description: 'Add your key in Settings before processing a video.',
+    })
+    return false
+  }, [])
+
+  const handleOpenSettings = useCallback(async (): Promise<void> => {
+    try {
+      await window.api.openSettingsWindow()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      toast.error(`Couldn't open settings: ${message}`)
+    }
+  }, [])
 
   // Detect input mode from the current value (URL vs file path vs neutral).
   const inputMode: 'url' | 'file' | 'neutral' = useMemo(() => {
@@ -169,6 +200,7 @@ export function DropScreen(): React.JSX.Element {
   const startFromFilePath = useCallback(
     async (filePath: string): Promise<void> => {
       if (isStarting) return
+      if (!(await ensureScoringKey())) return
       setIsStarting(true)
       try {
         const meta = await window.api.getMetadata(filePath)
@@ -198,12 +230,13 @@ export function DropScreen(): React.JSX.Element {
         setIsStarting(false)
       }
     },
-    [addError, addSource, isStarting, processLongform, processVideo, setActiveSource]
+    [addError, addSource, ensureScoringKey, isStarting, processLongform, processVideo, setActiveSource]
   )
 
   const startFromUrl = useCallback(
-    (url: string): void => {
+    async (url: string): Promise<void> => {
       if (isStarting) return
+      if (!(await ensureScoringKey())) return
       setIsStarting(true)
       const source: SourceVideo = {
         id: makeId(),
@@ -223,7 +256,7 @@ export function DropScreen(): React.JSX.Element {
         void processVideo(source)
       }
     },
-    [addSource, isStarting, processLongform, processVideo, setActiveSource]
+    [addSource, ensureScoringKey, isStarting, processLongform, processVideo, setActiveSource]
   )
 
   // ── Submit (Enter / blur) ───────────────────────────────────────────────────────
@@ -232,7 +265,7 @@ export function DropScreen(): React.JSX.Element {
     const trimmed = value.trim()
     if (!trimmed) return
     if (isUrl(trimmed)) {
-      startFromUrl(trimmed)
+      void startFromUrl(trimmed)
     } else {
       // Treat as a local path. ffprobe will fail loudly if it isn't a video.
       void startFromFilePath(trimmed)
@@ -349,6 +382,29 @@ export function DropScreen(): React.JSX.Element {
           when the content (mode selector + 60vh drop card + recents) overflows
           the window — otherwise items-center clips the top off-screen. */}
       <div className="my-auto flex w-full max-w-2xl flex-col gap-8">
+        {/* Missing-key gate — short-form scoring can't run without a Gemini
+            key. Surface it up front with a one-click jump to Settings. */}
+        {keyMissing && (
+          <Alert variant="destructive">
+            <KeyRound className="h-4 w-4" />
+            <AlertTitle>Gemini API key required</AlertTitle>
+            <AlertDescription className="break-words">
+              <p className="mb-2">
+                Scoring short clips needs a Gemini API key. Add it in Settings,
+                then drop your video again.
+              </p>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => void handleOpenSettings()}
+              >
+                <SettingsIcon className="mr-1 h-3.5 w-3.5" />
+                Open Settings
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Inline error — surfaces ingest / open failures so the user
             doesn't have to expand the bottom log to see what went wrong. */}
         {ingestError && (
@@ -391,34 +447,10 @@ export function DropScreen(): React.JSX.Element {
           </div>
         )}
 
-        {/* Block skin selector — long-form only. Picks the visual look applied
-            to every content block (one skin per video). */}
+        {/* Long-form look — color palette + block skin. Long-form only.
+            Palette controls colors; skin controls visual structure. */}
         {!showSetupCard && outputMode === 'longform' && (
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-foreground text-sm font-semibold tracking-tight">
-                Block skin
-              </h3>
-              <p className="text-muted-foreground text-xs">
-                Visual style for charts, lists, and stat cards
-              </p>
-            </div>
-            <Select
-              value={longformSkin}
-              onValueChange={(v) => setLongformSkin(v as typeof longformSkin)}
-              disabled={isStarting}
-            >
-              <SelectTrigger className="w-[200px]" aria-label="Block skin">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="editorial">Editorial</SelectItem>
-                <SelectItem value="aurora-glass">Aurora Glass</SelectItem>
-                <SelectItem value="bento">Bento</SelectItem>
-                <SelectItem value="terminal">Terminal</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <PalettePicker disabled={isStarting} />
         )}
 
         {/* Python first-run install card — replaces the drop zone while the
