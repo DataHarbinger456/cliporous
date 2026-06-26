@@ -208,6 +208,10 @@ export interface IpcSendChannelMap {
     completed: number
     failed: number
     total: number
+    /** Absolute path to the exported manifest.csv, when one was written. */
+    manifestCsvPath?: string
+    /** Absolute path to the exported manifest.json, when one was written. */
+    manifestJsonPath?: string
   }
   [SendChannels.RENDER_CANCELLED]: {
     completed: number

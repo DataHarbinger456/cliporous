@@ -32,6 +32,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  FileSpreadsheet,
   FileVideo,
   Folder,
   FolderOpen,
@@ -317,6 +318,7 @@ export function RenderScreen(): React.JSX.Element {
     completed: number
     failed: number
     total: number
+    manifestCsvPath?: string
   } | null>(null)
 
   // ── Derived: approved clips for the active source ──────────────────────
@@ -452,6 +454,21 @@ export function RenderScreen(): React.JSX.Element {
     }
   }
 
+  // ── Action: Open manifest.csv ────────────────────────────────
+  // Opens the exported caption/hashtag sheet in the OS default app.
+  const handleOpenCsv = async (): Promise<void> => {
+    const csvPath = batchSummary?.manifestCsvPath
+    if (!csvPath) return
+    try {
+      const result = await window.api.openPath(csvPath)
+      // shell.openPath returns '' on success and an error string on failure.
+      if (result) toast.error(`Couldn't open CSV: ${result}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`Couldn't open CSV: ${msg}`)
+    }
+  }
+
   // ── Action: Back to Clips ─────────────────────────────────────────────
   const handleBackToClips = (): void => {
     setBatchSummary(null)
@@ -566,18 +583,37 @@ export function RenderScreen(): React.JSX.Element {
 
       {/* ── Post-batch footer ──────────────────────────────────────── */}
       {isComplete && (
-        <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t pt-4">
-          {outputDirectory ? (
-            <p className="text-muted-foreground min-w-0 truncate text-xs" title={outputDirectory}>
-              Saved to <span className="text-foreground">{outputDirectory}</span>
-            </p>
-          ) : (
-            <span />
+        <div className="mt-4 shrink-0 space-y-3 border-t pt-4">
+          {/* Manifest note — tells the user the caption/hashtag sheet exists
+              and lets them open it in one click. */}
+          {batchSummary?.manifestCsvPath && (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">
+                <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="truncate">
+                  Captions &amp; hashtags exported to{' '}
+                  <span className="text-foreground">manifest.csv</span>
+                </span>
+              </p>
+              <Button size="sm" variant="outline" onClick={handleOpenCsv}>
+                <FileSpreadsheet />
+                Open CSV
+              </Button>
+            </div>
           )}
-          <Button size="sm" onClick={handleOpenFolder} disabled={!outputDirectory}>
-            <Folder />
-            Open Output Folder
-          </Button>
+          <div className="flex items-center justify-between gap-3">
+            {outputDirectory ? (
+              <p className="text-muted-foreground min-w-0 truncate text-xs" title={outputDirectory}>
+                Saved to <span className="text-foreground">{outputDirectory}</span>
+              </p>
+            ) : (
+              <span />
+            )}
+            <Button size="sm" onClick={handleOpenFolder} disabled={!outputDirectory}>
+              <Folder />
+              Open Output Folder
+            </Button>
+          </div>
         </div>
       )}
     </div>

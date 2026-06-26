@@ -157,7 +157,19 @@ export interface BatchDoneInfo {
   total: number
 }
 
-export type BatchDoneHandler = (info: BatchDoneInfo) => void | Promise<void>
+/**
+ * Result of the batch-done handler. The IPC layer writes the export manifest
+ * and reports back the on-disk paths so they can be forwarded to the renderer
+ * in the `render:batchDone` event (lets the UI offer an "Open CSV" action).
+ */
+export interface BatchDoneResult {
+  manifestCsvPath?: string
+  manifestJsonPath?: string
+}
+
+export type BatchDoneHandler = (
+  info: BatchDoneInfo
+) => void | BatchDoneResult | Promise<void | BatchDoneResult>
 
 export async function startBatchRender(
   options: RenderBatchOptions,
@@ -945,6 +957,8 @@ export async function startBatchRender(
   // The export manifest is written from `render-handlers.ts` on the
   // `render:batchDone` boundary rather than here, so this orchestrator stays
   // focused on rendering and IO concerns live at the IPC layer.
+  let manifestCsvPath: string | undefined
+  let manifestJsonPath: string | undefined
   if (onBatchDone) {
     try {
       const clipMeta: ManifestJobMeta[] = jobs.map((job) => ({
@@ -957,7 +971,7 @@ export async function startBatchRender(
         description: job.description
       }))
 
-      await onBatchDone({
+      const result = await onBatchDone({
         options,
         jobs,
         outputDirectory,
@@ -970,10 +984,20 @@ export async function startBatchRender(
         failed,
         total
       })
+      if (result) {
+        manifestCsvPath = result.manifestCsvPath
+        manifestJsonPath = result.manifestJsonPath
+      }
     } catch (err) {
       console.warn('[render-pipeline] onBatchDone handler threw:', err)
     }
   }
 
-  window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed, failed, total })
+  window.webContents.send(Ch.Send.RENDER_BATCH_DONE, {
+    completed,
+    failed,
+    total,
+    manifestCsvPath,
+    manifestJsonPath
+  })
 }

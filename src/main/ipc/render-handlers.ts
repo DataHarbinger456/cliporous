@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { Ch } from '@shared/ipc-channels'
 import { wrapHandler } from '../ipc-error-handler'
 import { startBatchRender, cancelRender } from '../render/pipeline'
-import type { BatchDoneInfo } from '../render/pipeline'
+import type { BatchDoneInfo, BatchDoneResult } from '../render/pipeline'
 import type { RenderBatchOptions } from '../render/types'
 import { generateRenderManifest, writeManifestFiles } from '../export-manifest'
 import { extractBRollKeywords } from '../broll-keywords'
@@ -267,11 +267,13 @@ export function registerRenderHandlers(): void {
       // Manifest writing is invoked here — at the IPC layer, on render:batchDone
       // — rather than from inside the render pipeline. The pipeline calls this
       // handler immediately before sending RENDER_BATCH_DONE to the renderer.
-      const writeBatchManifest = async (info: BatchDoneInfo): Promise<void> => {
+      const writeBatchManifest = async (
+        info: BatchDoneInfo
+      ): Promise<BatchDoneResult> => {
         if (!info.options.sourceMeta) {
           // Without source metadata we can't populate the top-level `source`
           // block of the manifest — skip rather than emit a half-filled file.
-          return
+          return {}
         }
         try {
           const manifest = generateRenderManifest({
@@ -288,8 +290,10 @@ export function registerRenderHandlers(): void {
           })
           const { jsonPath, csvPath } = writeManifestFiles(manifest, info.outputDirectory)
           console.log(`[Manifest] Written: ${jsonPath}, ${csvPath}`)
+          return { manifestCsvPath: csvPath, manifestJsonPath: jsonPath }
         } catch (manifestErr) {
           console.warn('[Manifest] Failed to write manifest files:', manifestErr)
+          return {}
         }
       }
 

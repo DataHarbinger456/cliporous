@@ -475,6 +475,10 @@ interface RenderBatchResultEvent {
   completed: number
   failed: number
   total: number
+  /** Absolute path to the exported manifest.csv, when one was written. */
+  manifestCsvPath?: string
+  /** Absolute path to the exported manifest.json, when one was written. */
+  manifestJsonPath?: string
 }
 
 // ---------------------------------------------------------------------------
