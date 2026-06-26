@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
 
 import { useStore } from '@/store'
 import type { ClipCandidate, SourceVideo } from '@/store/types'
@@ -20,6 +21,7 @@ vi.mock('sonner', () => ({
     error: vi.fn(),
     success: vi.fn(),
     message: vi.fn(),
+    warning: vi.fn(),
   }),
 }))
 
@@ -70,6 +72,7 @@ interface ForwardedJob {
 }
 interface ForwardedOptions {
   jobs: ForwardedJob[]
+  broll?: unknown
 }
 
 function firstCallOptions(): ForwardedOptions {
@@ -103,5 +106,37 @@ describe('startApprovedRender — per-clip caption mode (RF-011)', () => {
     expect(job).toBeDefined()
     // No override object → render path applies the global PRESTYJ default.
     expect(job?.clipOverrides?.captionMode).toBeUndefined()
+  })
+})
+
+describe('startApprovedRender — B-roll without Pexels key (RF-017)', () => {
+  it('warns and drops b-roll when enabled with no Pexels key', async () => {
+    useStore.getState().setClips(SOURCE.id, [makeClip()])
+    useStore.setState((s) => {
+      s.settings.broll.enabled = true
+      s.settings.pexelsApiKey = ''
+    })
+
+    const result = await startApprovedRender()
+    expect(result.started).toBe(true)
+
+    expect(toast.warning).toHaveBeenCalledWith(
+      'B-roll is on but no Pexels key is set — rendering without b-roll. Add a key in Settings.'
+    )
+    // B-roll is dropped from the forwarded options.
+    expect(firstCallOptions().broll).toBeUndefined()
+  })
+
+  it('does not warn when b-roll is enabled with a Pexels key', async () => {
+    useStore.getState().setClips(SOURCE.id, [makeClip()])
+    useStore.setState((s) => {
+      s.settings.broll.enabled = true
+      s.settings.pexelsApiKey = 'pexels-key-123'
+    })
+
+    await startApprovedRender()
+
+    expect(toast.warning).not.toHaveBeenCalled()
+    expect(firstCallOptions().broll).toBeDefined()
   })
 })

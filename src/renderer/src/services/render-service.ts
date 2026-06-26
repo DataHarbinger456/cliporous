@@ -131,11 +131,16 @@ export async function startApprovedRender(
   setPipeline({ stage: 'rendering', message: '', percent: 0 })
 
   // ── Build B-roll options ─────────────────────────────────────────────────
-  // Only include the broll block when enabled AND we have a key (or are in
-  // ai-generated mode where Pexels isn't required). The main-process render
-  // handler short-circuits when neither condition holds, but we mirror the
-  // gate here so the toast is meaningful when the user forgets a key.
+  // The broll block is only forwarded when the feature is enabled AND a Pexels
+  // key is present — without a key the render pipeline cannot fetch stock
+  // footage and silently drops b-roll. When the user has b-roll on but no key,
+  // warn them explicitly so they aren't surprised by a clip with no b-roll.
   const broll = settings.broll
+  if (broll.enabled && !settings.pexelsApiKey) {
+    toast.warning(
+      'B-roll is on but no Pexels key is set — rendering without b-roll. Add a key in Settings.'
+    )
+  }
   const brollOptions =
     broll.enabled && (settings.pexelsApiKey || false)
       ? {

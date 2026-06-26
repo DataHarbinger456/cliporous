@@ -305,7 +305,8 @@ export default function SettingsWindow(): React.JSX.Element {
                     onChange={(v) => update('pexels', v)}
                   />
                   <FieldHelp href="https://www.pexels.com/api/">
-                    Used for b-roll videos in split-image and fullscreen-image segments. Free at pexels.com/api.
+                    Required for b-roll. Without it, b-roll is skipped at render time even when the
+                    B-roll feature is enabled. Free at pexels.com/api.
                   </FieldHelp>
                 </div>
                 <Separator />
