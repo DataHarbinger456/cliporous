@@ -172,10 +172,11 @@ describe('ClipGrid', () => {
     // Sheet renders a dialog whose title is the clip's hookText.
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toBeInTheDocument()
-    // The hook text appears at least twice now (once in the grid card, once
-    // in the SheetTitle), so scope the title query to the dialog.
+    // The hook text appears multiple times inside the dialog now (the
+    // SheetTitle plus the framing-overlay hook pill), so assert presence via
+    // getAllByText rather than the uniqueness-enforcing getByText.
     expect(
-      within(dialog).getByText('First hook line')
-    ).toBeInTheDocument()
+      within(dialog).getAllByText('First hook line').length
+    ).toBeGreaterThanOrEqual(1)
   })
 })

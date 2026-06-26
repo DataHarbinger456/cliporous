@@ -60,7 +60,14 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store'
-import type { ClipCandidate, SourceVideo, StitchedClipCandidate } from '@/store/types'
+import type {
+  ClipCandidate,
+  CropRegion,
+  CropTimelineEntry,
+  SourceVideo,
+  StitchedClipCandidate,
+  TemplateLayout,
+} from '@/store/types'
 
 /** Either a regular or a stitched clip in the detail sheet. */
 export type DetailClip = ClipCandidate | StitchedClipCandidate
@@ -147,9 +154,181 @@ function parseTimecode(raw: string, fallback: number): number {
   }
   const nums = parts.map((p) => Number(p))
   if (nums.some((n) => !Number.isFinite(n))) return fallback
-  if (nums.length === 2) return nums[0] * 60 + nums[1]
-  if (nums.length === 3) return nums[0] * 3600 + nums[1] * 60 + nums[2]
+  const [a = 0, b = 0, c = 0] = nums
+  if (nums.length === 2) return a * 60 + b
+  if (nums.length === 3) return a * 3600 + b * 60 + c
   return fallback
+}
+
+// ---------------------------------------------------------------------------
+// Framing preview helpers
+//
+// The clip preview plays the raw 16:9 source letterboxed (object-contain). The
+// final burn-in, though, is a 9:16 crop of that source with captions + a hook
+// title overlaid. These helpers reconstruct an approximation of that framing so
+// a user can trust a clip before committing to a multi-minute render.
+// ---------------------------------------------------------------------------
+
+/** A crop rectangle in source-video pixels. */
+interface PixelRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** The target output aspect ratio (locked 9:16). */
+const OUTPUT_ASPECT = 9 / 16
+
+/** Centre 9:16 crop of a source frame, in source pixels — the render fallback. */
+function centerCropRect(sourceW: number, sourceH: number): PixelRect {
+  let width = sourceH * OUTPUT_ASPECT
+  let height = sourceH
+  if (width > sourceW) {
+    width = sourceW
+    height = sourceW / OUTPUT_ASPECT
+  }
+  return { x: (sourceW - width) / 2, y: (sourceH - height) / 2, width, height }
+}
+
+/**
+ * Resolve the crop rect active at `timeSec` (source-absolute seconds), matching
+ * the render pipeline's precedence: `cropTimeline` (per-scene) → `cropRegion`
+ * (static) → centre crop.
+ */
+function resolveCropRect(
+  timeSec: number,
+  sourceW: number,
+  sourceH: number,
+  cropRegion?: CropRegion,
+  cropTimeline?: CropTimelineEntry[]
+): PixelRect {
+  if (cropTimeline && cropTimeline.length > 0) {
+    const e =
+      cropTimeline.find((c) => timeSec >= c.startTime && timeSec < c.endTime) ??
+      cropTimeline[0]
+    if (e) return { x: e.x, y: e.y, width: e.width, height: e.height }
+  }
+  if (cropRegion) {
+    return {
+      x: cropRegion.x,
+      y: cropRegion.y,
+      width: cropRegion.width,
+      height: cropRegion.height,
+    }
+  }
+  return centerCropRect(sourceW, sourceH)
+}
+
+/**
+ * Map a source-pixel crop rect to a box expressed in percentages of the 9:16
+ * preview container, accounting for the object-contain letterboxing of the raw
+ * source inside that container.
+ */
+function computeCropBox(
+  sourceW: number,
+  sourceH: number,
+  crop: PixelRect
+): { left: number; top: number; width: number; height: number } {
+  const sourceAspect = sourceW / sourceH
+  let vW: number
+  let vH: number
+  let vLeft: number
+  let vTop: number
+  if (sourceAspect >= OUTPUT_ASPECT) {
+    // Wider than the container — letterboxed top/bottom (the 16:9 case).
+    vW = 100
+    vH = (OUTPUT_ASPECT / sourceAspect) * 100
+    vLeft = 0
+    vTop = (100 - vH) / 2
+  } else {
+    // Taller than the container — pillarboxed left/right.
+    vH = 100
+    vW = (sourceAspect / OUTPUT_ASPECT) * 100
+    vTop = 0
+    vLeft = (100 - vW) / 2
+  }
+  return {
+    left: vLeft + (crop.x / sourceW) * vW,
+    top: vTop + (crop.y / sourceH) * vH,
+    width: (crop.width / sourceW) * vW,
+    height: (crop.height / sourceH) * vH,
+  }
+}
+
+/** First few transcript words, used as a representative caption mock. */
+function captionSnippet(text: string): string[] {
+  return text.trim().split(/\s+/).filter(Boolean).slice(0, 3)
+}
+
+/**
+ * Overlay drawn on top of the letterboxed `<video>`: a 9:16 crop framing box
+ * (the rest of the frame dimmed) with a representative hook-title pill and a
+ * caption mock positioned by the current `templateLayout`.
+ */
+function FramingOverlay({
+  box,
+  layout,
+  hookText,
+  captionWords,
+  emphasize,
+}: {
+  box: { left: number; top: number; width: number; height: number }
+  layout: TemplateLayout
+  hookText: string
+  captionWords: string[]
+  emphasize: boolean
+}): React.JSX.Element {
+  return (
+    <div
+      className="pointer-events-none absolute z-10 rounded-[2px]"
+      style={{
+        left: `${box.left}%`,
+        top: `${box.top}%`,
+        width: `${box.width}%`,
+        height: `${box.height}%`,
+        // Dim everything outside the crop box so the 9:16 framing reads clearly.
+        boxShadow: '0 0 0 9999px rgba(35,16,12,0.55)',
+        outline: `1px solid ${BRAND_ACCENT}`,
+      }}
+    >
+      {hookText.trim() && (
+        <div
+          className="absolute flex w-[92%] -translate-x-1/2 -translate-y-1/2 justify-center"
+          style={{ left: `${layout.titleText.x}%`, top: `${layout.titleText.y}%` }}
+        >
+          <span
+            className="max-w-full truncate rounded-full px-1.5 py-0.5 text-center text-[7px] font-bold leading-tight text-white shadow"
+            style={{ backgroundColor: BRAND_ACCENT }}
+          >
+            {hookText}
+          </span>
+        </div>
+      )}
+      {captionWords.length > 0 && (
+        <div
+          className="absolute flex w-[96%] -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-x-1"
+          style={{ left: `${layout.subtitles.x}%`, top: `${layout.subtitles.y}%` }}
+        >
+          {captionWords.map((word, i) => (
+            <span
+              key={`${i}-${word}`}
+              className="text-[9px] font-extrabold uppercase leading-none tracking-tight"
+              style={{
+                color:
+                  emphasize && i === captionWords.length - 1
+                    ? BRAND_ACCENT
+                    : '#ffffff',
+                textShadow: '0 1px 2px rgba(0,0,0,0.9), 0 0 1px rgba(0,0,0,0.9)',
+              }}
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -178,9 +357,11 @@ export function ClipDetail({
   const updateClipStatus = useStore((s) => s.updateClipStatus)
   const setClipOverride = useStore((s) => s.setClipOverride)
   const updateStitchedClipStatus = useStore((s) => s.updateStitchedClipStatus)
+  const templateLayout = useStore((s) => s.settings.templateLayout)
 
   const stitched = clip !== null && isStitched(clip)
   const regularClip = clip !== null && !stitched ? (clip as ClipCandidate) : null
+  const stitchedClip = stitched ? (clip as StitchedClipCandidate) : null
 
   // Source bounds for the trim slider — fall back to clip range if no source.
   const sourceMax =
@@ -220,6 +401,34 @@ export function ClipDetail({
     [source]
   )
 
+  // Live playhead (source-absolute seconds) so the crop framing box can follow
+  // a per-scene `cropTimeline` as the preview plays.
+  const [playheadTime, setPlayheadTime] = useState(0)
+
+  // Whether we have usable source pixel dimensions to derive crop framing.
+  const hasSourceDims = !!source && source.width > 0 && source.height > 0
+
+  // Crop framing box (percentages of the preview container) for a regular clip.
+  const regularCropBox = useMemo(() => {
+    if (!regularClip || !source || !hasSourceDims) return null
+    const crop = resolveCropRect(
+      playheadTime || trim[0],
+      source.width,
+      source.height,
+      regularClip.cropRegion,
+      regularClip.cropTimeline
+    )
+    return computeCropBox(source.width, source.height, crop)
+  }, [
+    regularClip?.id,
+    regularClip?.cropRegion,
+    regularClip?.cropTimeline,
+    source,
+    hasSourceDims,
+    playheadTime,
+    trim[0],
+  ])
+
   // Keep refs to the active trim range so the video event listeners (attached
   // once below) always see the latest values without re-binding.
   const startRef = useRef(0)
@@ -242,6 +451,7 @@ export function ClipDetail({
     }
     if (v.readyState >= 1) seek()
     else v.addEventListener('loadedmetadata', seek, { once: true })
+    setPlayheadTime(trim[0])
   }, [regularClip?.id, trim[0]])
 
   // Clamp playback to [start, end]:
@@ -263,6 +473,7 @@ export function ClipDetail({
       }
     }
     const onTimeUpdate = (): void => {
+      setPlayheadTime(v.currentTime)
       const end = endRef.current
       if (v.currentTime >= end) {
         v.pause()
@@ -280,6 +491,116 @@ export function ClipDetail({
       v.removeEventListener('timeupdate', onTimeUpdate)
     }
   }, [sourceUrl])
+
+  // ---- Stitched preview (sequential range playback) -----------------------
+  // A stitched clip is composed of N non-contiguous source ranges. We play them
+  // back-to-back from one source <video>: seek to range[0].start, and on each
+  // range end advance to the next range's start, so the user can judge content.
+  const stitchedVideoRef = useRef<HTMLVideoElement | null>(null)
+  const [stitchedRangeIdx, setStitchedRangeIdx] = useState(0)
+  const stitchedRanges = stitchedClip?.sourceRanges ?? []
+  const stitchedRangesRef = useRef(stitchedRanges)
+  const stitchedIdxRef = useRef(0)
+  useEffect(() => {
+    stitchedRangesRef.current = stitchedRanges
+  }, [stitchedRanges])
+  useEffect(() => {
+    stitchedIdxRef.current = stitchedRangeIdx
+  }, [stitchedRangeIdx])
+
+  // Seek to the first range when the stitched clip changes / loads.
+  useEffect(() => {
+    const v = stitchedVideoRef.current
+    if (!v || !stitchedClip || stitchedRanges.length === 0) return
+    setStitchedRangeIdx(0)
+    const first = stitchedRanges[0]
+    if (!first) return
+    const seek = (): void => {
+      try {
+        v.currentTime = first.startTime
+      } catch {
+        /* metadata not ready — loadedmetadata will retry */
+      }
+    }
+    if (v.readyState >= 1) seek()
+    else v.addEventListener('loadedmetadata', seek, { once: true })
+  }, [stitchedClip?.id])
+
+  // Advance through ranges in sequence on each range end.
+  useEffect(() => {
+    const v = stitchedVideoRef.current
+    if (!v) return
+    const onPlay = (): void => {
+      const ranges = stitchedRangesRef.current
+      const r = ranges[stitchedIdxRef.current] ?? ranges[0]
+      if (!r) return
+      // Restart the sequence if we're outside the current range window.
+      if (v.currentTime < r.startTime - 0.05 || v.currentTime >= r.endTime) {
+        try {
+          v.currentTime = r.startTime
+        } catch {
+          /* noop */
+        }
+      }
+    }
+    const onTimeUpdate = (): void => {
+      const ranges = stitchedRangesRef.current
+      if (ranges.length === 0) return
+      const idx = stitchedIdxRef.current
+      const r = ranges[idx]
+      if (!r) return
+      if (v.currentTime >= r.endTime - 0.02) {
+        const nextIdx = idx + 1
+        const nextRange = ranges[nextIdx]
+        if (nextRange) {
+          stitchedIdxRef.current = nextIdx
+          setStitchedRangeIdx(nextIdx)
+          try {
+            v.currentTime = nextRange.startTime
+          } catch {
+            /* noop */
+          }
+        } else {
+          // Last range done — pause and rewind to the start for replay.
+          v.pause()
+          stitchedIdxRef.current = 0
+          setStitchedRangeIdx(0)
+          const first = ranges[0]
+          if (first) {
+            try {
+              v.currentTime = first.startTime
+            } catch {
+              /* noop */
+            }
+          }
+        }
+      }
+    }
+    v.addEventListener('play', onPlay)
+    v.addEventListener('timeupdate', onTimeUpdate)
+    return () => {
+      v.removeEventListener('play', onPlay)
+      v.removeEventListener('timeupdate', onTimeUpdate)
+    }
+  }, [sourceUrl, stitchedClip?.id])
+
+  // Crop framing box for the stitched preview — per-range rect when available,
+  // else the clip's fallback cropRegion, else centre crop.
+  const stitchedCropBox = useMemo(() => {
+    if (!stitchedClip || !source || !hasSourceDims) return null
+    const rangeRect = stitchedClip.rangeCropRects?.[stitchedRangeIdx]
+    const crop: PixelRect = rangeRect
+      ? rangeRect
+      : stitchedClip.cropRegion
+        ? {
+            x: stitchedClip.cropRegion.x,
+            y: stitchedClip.cropRegion.y,
+            width: stitchedClip.cropRegion.width,
+            height: stitchedClip.cropRegion.height,
+          }
+        : centerCropRect(source.width, source.height)
+    return computeCropBox(source.width, source.height, crop)
+  }, [stitchedClip?.id, stitchedClip?.cropRegion, source, hasSourceDims, stitchedRangeIdx])
 
   // ---- Commit helpers -----------------------------------------------------
   const commitTrim = (next: [number, number]): void => {
@@ -341,7 +662,6 @@ export function ClipDetail({
       ? (clip as StitchedClipCandidate).duration
       : (clip as ClipCandidate).endTime - (clip as ClipCandidate).startTime
     : 0
-  const stitchedClip = stitched ? (clip as StitchedClipCandidate) : null
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -385,6 +705,49 @@ export function ClipDetail({
           )}
 
           {stitchedClip && (
+            <>
+            {/* Sequential range preview ----------------------------------- */}
+            <div className="bg-black">
+              <div className="relative mx-auto aspect-[9/16] w-full max-w-[260px]">
+                {sourceUrl ? (
+                  <>
+                    <video
+                      ref={stitchedVideoRef}
+                      src={sourceUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="h-full w-full object-contain"
+                    />
+                    {stitchedCropBox && (
+                      <FramingOverlay
+                        box={stitchedCropBox}
+                        layout={templateLayout}
+                        hookText={stitchedClip.hookText}
+                        captionWords={captionSnippet(stitchedClip.text)}
+                        emphasize={
+                          (stitchedClip.overrides?.captionMode ??
+                            DEFAULT_CAPTIONS_MODE) !== 'standard'
+                        }
+                      />
+                    )}
+                    {stitchedRanges.length > 1 && (
+                      <span className="absolute right-1.5 top-1.5 z-20 rounded bg-background/80 px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-foreground">
+                        Range {stitchedRangeIdx + 1}/{stitchedRanges.length}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                    No source video
+                  </div>
+                )}
+              </div>
+              <p className="px-4 pb-2 text-center text-[10px] leading-tight text-muted-foreground">
+                Plays each source range in sequence with approximate 9:16
+                framing &amp; captions — final burn-in may vary slightly.
+              </p>
+            </div>
             <div className="flex flex-col gap-6 p-4">
               <section className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
@@ -418,7 +781,12 @@ export function ClipDetail({
                   {stitchedClip.sourceRanges.map((r, i) => (
                     <li
                       key={`${r.startTime}-${r.endTime}-${i}`}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs tabular-nums"
+                      className={cn(
+                        'flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs tabular-nums',
+                        i === stitchedRangeIdx
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border bg-muted/40'
+                      )}
                     >
                       <span className="font-mono text-muted-foreground">
                         {formatTimecode(r.startTime)} → {formatTimecode(r.endTime)}
@@ -434,28 +802,46 @@ export function ClipDetail({
                 </ul>
               </section>
             </div>
+            </>
           )}
 
           {regularClip && (
           <>
           {/* Video preview ------------------------------------------------ */}
           <div className="bg-black">
-            <div className="mx-auto aspect-[9/16] w-full max-w-[260px]">
+            <div className="relative mx-auto aspect-[9/16] w-full max-w-[260px]">
               {sourceUrl ? (
-                <video
-                  ref={videoRef}
-                  src={sourceUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="h-full w-full object-contain"
-                />
+                <>
+                  <video
+                    ref={videoRef}
+                    src={sourceUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-contain"
+                  />
+                  {regularCropBox && (
+                    <FramingOverlay
+                      box={regularCropBox}
+                      layout={templateLayout}
+                      hookText={hookText}
+                      captionWords={captionSnippet(regularClip.text)}
+                      emphasize={captionsMode !== 'standard'}
+                    />
+                  )}
+                </>
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
                   No source video
                 </div>
               )}
             </div>
+            {regularCropBox && (
+              <p className="px-4 pb-2 text-center text-[10px] leading-tight text-muted-foreground">
+                Approximate 9:16 framing, hook &amp; captions — final burn-in may
+                vary slightly.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-6 p-4">
@@ -477,8 +863,8 @@ export function ClipDetail({
                 minStepsBetweenThumbs={1}
                 onValueChange={(next) => {
                   if (next.length === 2) {
-                    const a = round1(next[0])
-                    const b = round1(next[1])
+                    const a = round1(next[0] ?? 0)
+                    const b = round1(next[1] ?? 0)
                     setTrim([a, b])
                     setStartInput(formatTimecode(a))
                     setEndInput(formatTimecode(b))
@@ -486,7 +872,7 @@ export function ClipDetail({
                 }}
                 onValueCommit={(next) => {
                   if (next.length === 2) {
-                    commitTrim([round1(next[0]), round1(next[1])])
+                    commitTrim([round1(next[0] ?? 0), round1(next[1] ?? 0)])
                   }
                 }}
                 aria-label="Clip start and end time"

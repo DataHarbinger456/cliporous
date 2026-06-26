@@ -154,4 +154,32 @@ describe('ClipDetail', () => {
     // Sheet header shows "Score N · 25.5s" — match the description text.
     expect(within(dialog).getByText(/Score 85 · 25\.5s/)).toBeInTheDocument()
   })
+
+  it('shows a 9:16 framing preview with hook + caption mock over the video', async () => {
+    const { ClipDetail } = await import('@/components/ClipDetail')
+    const clipWithCrop: ClipCandidate = {
+      ...CLIP,
+      text: 'this changes everything for you',
+      hookText: 'Watch this part',
+      cropRegion: { x: 540, y: 0, width: 608, height: 1080, faceDetected: true },
+    }
+    render(
+      <ClipDetail
+        clip={clipWithCrop}
+        source={SOURCE}
+        open
+        onOpenChange={() => {}}
+      />
+    )
+
+    const dialog = screen.getByRole('dialog')
+    // The hook text shows in both the header and the overlay pill.
+    expect(within(dialog).getAllByText('Watch this part').length).toBeGreaterThanOrEqual(2)
+    // A representative caption snippet (first words of the transcript) appears.
+    expect(within(dialog).getByText('this')).toBeInTheDocument()
+    // The "approximate framing" disclaimer accompanies the overlay.
+    expect(
+      within(dialog).getByText(/approximate 9:16 framing/i)
+    ).toBeInTheDocument()
+  })
 })
