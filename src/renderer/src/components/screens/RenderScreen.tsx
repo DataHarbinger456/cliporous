@@ -38,6 +38,7 @@ import {
   FolderOpen,
   Loader2,
   Play,
+  Plus,
   RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -161,9 +162,12 @@ function StatusBadge({ status }: { status: RowStatus }): React.JSX.Element {
 function GenericRow({
   label,
   progress,
+  poster,
 }: {
   label: string
   progress: RowProgress
+  /** Optional poster frame (e.g. the long-form source thumbnail). */
+  poster?: string
 }): React.JSX.Element {
   const isActive = progress.status === 'rendering' || progress.status === 'preparing'
   const isDone = progress.status === 'done'
@@ -174,7 +178,11 @@ function GenericRow({
   return (
     <Card className="flex items-center gap-3 p-3">
       <div className="bg-muted text-muted-foreground flex h-16 w-9 shrink-0 items-center justify-center overflow-hidden rounded">
-        <FileVideo className="h-4 w-4 opacity-60" />
+        {poster ? (
+          <img src={poster} alt="" draggable={false} className="h-full w-full object-cover" />
+        ) : (
+          <FileVideo className="h-4 w-4 opacity-60" />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
@@ -316,6 +324,7 @@ export function RenderScreen(): React.JSX.Element {
   // ── Store reads ────────────────────────────────────────────────────────
   const activeSourceId = useStore((s) => s.activeSourceId)
   const clipsBySource = useStore((s) => s.clips)
+  const sources = useStore((s) => s.sources)
   const renderProgress = useStore((s) => s.renderProgress)
   const renderErrors = useStore((s) => s.renderErrors)
   const isRendering = useStore((s) => s.isRendering)
@@ -327,6 +336,7 @@ export function RenderScreen(): React.JSX.Element {
   const setRenderError = useStore((s) => s.setRenderError)
   const clearRenderErrors = useStore((s) => s.clearRenderErrors)
   const setPipeline = useStore((s) => s.setPipeline)
+  const setActiveSource = useStore((s) => s.setActiveSource)
   const addError = useStore((s) => s.addError)
 
   // ── Local state ────────────────────────────────────────────────────────
@@ -338,6 +348,12 @@ export function RenderScreen(): React.JSX.Element {
     total: number
     manifestCsvPath?: string
   } | null>(null)
+
+  // Active source metadata — drives the long-form row label + poster frame.
+  const activeSource = useMemo(
+    () => sources.find((s) => s.id === activeSourceId) ?? null,
+    [sources, activeSourceId]
+  )
 
   // ── Derived: approved clips for the active source ──────────────────────
   const approvedClips = useMemo<ClipCandidate[]>(() => {
@@ -526,6 +542,17 @@ export function RenderScreen(): React.JSX.Element {
     setPipeline({ stage: 'ready', message: '', percent: 0 })
   }
 
+  // ── Action: New video (long-form) ─────────────────────────────────────
+  // Long-form has no clip grid to return to, so "Back to Clips" would strand
+  // the user on ClipGrid's empty state. Reset to a clean slate → DropScreen.
+  const handleNewVideo = (): void => {
+    setBatchSummary(null)
+    setRenderProgress([])
+    clearRenderErrors()
+    setActiveSource(null)
+    setPipeline({ stage: 'idle', message: '', percent: 0 })
+  }
+
   // ── Render ────────────────────────────────────────────────────────────
   const isComplete = batchSummary !== null && !isRendering
   // Long-form (16:9) renders a single whole-video job with no ClipCandidates,
@@ -552,16 +579,29 @@ export function RenderScreen(): React.JSX.Element {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleBackToClips}
-            disabled={isRendering}
-            title={isRendering ? 'Cancel the render first' : 'Back to clips'}
-          >
-            <ArrowLeft />
-            Back to Clips
-          </Button>
+          {isLongform ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleNewVideo}
+              disabled={isRendering}
+              title={isRendering ? 'Cancel the render first' : 'Start a new video'}
+            >
+              <Plus />
+              New video
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBackToClips}
+              disabled={isRendering}
+              title={isRendering ? 'Cancel the render first' : 'Back to clips'}
+            >
+              <ArrowLeft />
+              Back to Clips
+            </Button>
+          )}
           {!isRendering && <TemplateEditor />}
           {isRendering ? (
             <Button variant="destructive" size="sm" onClick={handleCancel}>
@@ -618,7 +658,8 @@ export function RenderScreen(): React.JSX.Element {
           renderProgress.map((r) => (
             <GenericRow
               key={r.clipId}
-              label="Long-form edit (16:9)"
+              label={activeSource ? `Long-form edit · ${activeSource.name}` : 'Long-form edit (16:9)'}
+              poster={activeSource?.thumbnail}
               progress={{ status: r.status, percent: r.percent, error: r.error ?? renderErrors[r.clipId] }}
             />
           ))

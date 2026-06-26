@@ -12,6 +12,13 @@ export interface RecentProjectEntry {
   lastOpened: number
   clipCount: number
   sourceCount: number
+  /**
+   * Output mode of the saved project. Long-form edits carry no short-form
+   * clips, so the recent-projects list shows "Long-form edit" instead of a
+   * misleading "0 clips". Optional for back-compat with entries written before
+   * this field existed.
+   */
+  kind?: 'short' | 'longform'
 }
 
 function getRecentProjectsFilePath(): string {
@@ -50,12 +57,18 @@ export function addRecentProject(entry: RecentProjectEntry): void {
 function buildRecentEntry(filePath: string, json: string): RecentProjectEntry {
   const project = JSON.parse(json)
   const name = filePath.split('/').pop()?.replace('.batchclip', '') ?? 'Untitled'
+  // Long-form projects either declare outputMode 'longform' or carry a saved
+  // Gemini edit plan (and no short-form clips). Either signal flips the label.
+  const isLongform =
+    project.settings?.outputMode === 'longform' ||
+    Object.keys(project.longformPlans ?? {}).length > 0
   return {
     path: filePath,
     name,
     lastOpened: Date.now(),
     clipCount: Object.values(project.clips ?? {}).flat().length,
-    sourceCount: (project.sources ?? []).length
+    sourceCount: (project.sources ?? []).length,
+    kind: isLongform ? 'longform' : 'short'
   }
 }
 

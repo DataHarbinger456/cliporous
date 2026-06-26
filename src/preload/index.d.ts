@@ -506,6 +506,7 @@ interface RecentProjectEntry {
   lastOpened: number
   clipCount: number
   sourceCount: number
+  kind?: 'short' | 'longform'
 }
 
 // ---------------------------------------------------------------------------

@@ -113,6 +113,7 @@ interface RecentProjectEntry {
   lastOpened: number
   clipCount: number
   sourceCount: number
+  kind?: 'short' | 'longform'
 }
 
 // ---------------------------------------------------------------------------
@@ -611,7 +612,9 @@ export function DropScreen(): React.JSX.Element {
                           {entry.name}
                         </span>
                         <span className="text-muted-foreground truncate text-xs">
-                          {entry.clipCount} clip{entry.clipCount === 1 ? '' : 's'}
+                          {entry.kind === 'longform'
+                            ? 'Long-form edit'
+                            : `${entry.clipCount} clip${entry.clipCount === 1 ? '' : 's'}`}
                           {' · '}
                           {entry.path}
                         </span>
