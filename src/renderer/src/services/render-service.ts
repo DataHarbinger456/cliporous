@@ -32,7 +32,19 @@ interface StartApprovedRenderResult {
   reason?: 'no-source' | 'no-clips' | 'no-output-dir' | 'invoke-failed'
 }
 
-export async function startApprovedRender(): Promise<StartApprovedRenderResult> {
+interface StartApprovedRenderOptions {
+  /**
+   * When provided, scope the batch to only these clip ids (still filtered to
+   * approved clips on the active source). Used by RenderScreen's "Retry Failed"
+   * button to re-encode only the clips that errored, instead of re-rendering
+   * every successful clip. Omit to render all approved clips.
+   */
+  clipIds?: readonly string[]
+}
+
+export async function startApprovedRender(
+  options: StartApprovedRenderOptions = {}
+): Promise<StartApprovedRenderResult> {
   const state = useStore.getState()
   const {
     activeSourceId,
@@ -56,15 +68,21 @@ export async function startApprovedRender(): Promise<StartApprovedRenderResult> 
     return { started: false, reason: 'no-source' }
   }
 
+  // Optional clipId scope (e.g. "Retry Failed" → only the errored clips). When
+  // present, the batch is narrowed to this set; otherwise every approved clip
+  // on the active source is rendered.
+  const scope = options.clipIds ? new Set(options.clipIds) : null
+  const inScope = (id: string): boolean => scope === null || scope.has(id)
+
   const approvedClips: ClipCandidate[] = (clips[activeSource.id] ?? []).filter(
-    (c) => c.status === 'approved'
+    (c) => c.status === 'approved' && inScope(c.id)
   )
   const approvedStitched: StitchedClipCandidate[] = (
     stitchedClips[activeSource.id] ?? []
-  ).filter((c) => c.status === 'approved')
+  ).filter((c) => c.status === 'approved' && inScope(c.id))
 
   if (approvedClips.length === 0 && approvedStitched.length === 0) {
-    toast.error('No approved clips to render')
+    toast.error(scope ? 'No failed clips to retry' : 'No approved clips to render')
     return { started: false, reason: 'no-clips' }
   }
 
@@ -91,13 +109,22 @@ export async function startApprovedRender(): Promise<StartApprovedRenderResult> 
   // Reset per-batch UI state before kicking off the next run. RenderScreen
   // also resets `batchSummary` locally; that's fine — this only owns store
   // state.
+  //
+  // For a scoped retry, preserve the progress of clips that aren't being
+  // retried (their already-`done` rows should keep showing "Done", not revert
+  // to "Pending") and re-queue only the scoped clips. A full run replaces the
+  // whole array.
   clearRenderErrors()
-  setRenderProgress(
-    [
-      ...approvedClips.map((c) => ({ clipId: c.id, percent: 0, status: 'queued' as const })),
-      ...approvedStitched.map((c) => ({ clipId: c.id, percent: 0, status: 'queued' as const })),
-    ]
-  )
+  const queued = [
+    ...approvedClips.map((c) => ({ clipId: c.id, percent: 0, status: 'queued' as const })),
+    ...approvedStitched.map((c) => ({ clipId: c.id, percent: 0, status: 'queued' as const })),
+  ]
+  if (scope) {
+    const preserved = state.renderProgress.filter((r) => !scope.has(r.clipId))
+    setRenderProgress([...preserved, ...queued])
+  } else {
+    setRenderProgress(queued)
+  }
   setIsRendering(true)
   // Flipping to 'rendering' routes the user to RenderScreen via
   // selectScreen() in store/selectors.ts.

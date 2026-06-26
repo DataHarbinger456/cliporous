@@ -38,6 +38,7 @@ import {
   FolderOpen,
   Loader2,
   Play,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -432,6 +433,19 @@ export function RenderScreen(): React.JSX.Element {
     await startApprovedRender()
   }
 
+  // ── Action: Retry Failed ──────────────────────────────────────────────
+  // Re-runs only the clips whose renderProgress status is 'error', so a
+  // partial failure doesn't force a full re-encode of the successful clips.
+  const handleRetryFailed = async (): Promise<void> => {
+    const failedIds = useStore
+      .getState()
+      .renderProgress.filter((r) => r.status === 'error')
+      .map((r) => r.clipId)
+    if (failedIds.length === 0) return
+    setBatchSummary(null)
+    await startApprovedRender({ clipIds: failedIds })
+  }
+
   // ── Action: Cancel ────────────────────────────────────────────────────
   const handleCancel = async (): Promise<void> => {
     try {
@@ -609,10 +623,18 @@ export function RenderScreen(): React.JSX.Element {
             ) : (
               <span />
             )}
-            <Button size="sm" onClick={handleOpenFolder} disabled={!outputDirectory}>
-              <Folder />
-              Open Output Folder
-            </Button>
+            <div className="flex items-center gap-2">
+              {failedCount > 0 && (
+                <Button size="sm" variant="outline" onClick={handleRetryFailed}>
+                  <RotateCcw />
+                  Retry Failed ({failedCount})
+                </Button>
+              )}
+              <Button size="sm" onClick={handleOpenFolder} disabled={!outputDirectory}>
+                <Folder />
+                Open Output Folder
+              </Button>
+            </div>
           </div>
         </div>
       )}
