@@ -26,6 +26,11 @@ vi.mock('sonner', () => ({
   }),
 }))
 
+const startApprovedRender = vi.fn(async () => ({ started: true }) as const)
+vi.mock('@/services/render-service', () => ({
+  startApprovedRender: () => startApprovedRender(),
+}))
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -80,6 +85,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  startApprovedRender.mockClear()
 })
 
 // ---------------------------------------------------------------------------
@@ -104,6 +110,54 @@ describe('ClipGrid', () => {
 
     // The clip-count label reflects the fixture size.
     expect(screen.getByText(`${CLIPS.length} clips`)).toBeInTheDocument()
+  })
+
+  it('confirms before Render All when any clip is rejected, then renders on accept', async () => {
+    // Reject one clip — committing it via Render All is destructive.
+    useStore.getState().updateClipStatus(SOURCE.id, 'c3', 'rejected')
+
+    const { ClipGrid } = await import('@/components/ClipGrid')
+    render(<ClipGrid />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Render All/ }))
+
+    // Render must NOT start yet — a confirmation dialog is shown instead,
+    // surfacing both the total committed and the rejected count.
+    expect(startApprovedRender).not.toHaveBeenCalled()
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText(/Render all 4 clips\?/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/including 1 you rejected/)).toBeInTheDocument()
+
+    // Accepting commits every clip and starts the render.
+    fireEvent.click(within(dialog).getByRole('button', { name: /Render all 4/ }))
+    expect(startApprovedRender).toHaveBeenCalledTimes(1)
+    const statuses = useStore.getState().clips[SOURCE.id].map((c) => c.status)
+    expect(statuses.every((s) => s === 'approved')).toBe(true)
+  })
+
+  it('cancelling the Render All confirmation preserves rejected status and renders nothing', async () => {
+    useStore.getState().updateClipStatus(SOURCE.id, 'c3', 'rejected')
+
+    const { ClipGrid } = await import('@/components/ClipGrid')
+    render(<ClipGrid />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Render All/ }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /Cancel/ }))
+
+    expect(startApprovedRender).not.toHaveBeenCalled()
+    const c3 = useStore.getState().clips[SOURCE.id].find((c) => c.id === 'c3')
+    expect(c3?.status).toBe('rejected')
+  })
+
+  it('renders directly without confirmation when no clip is rejected', async () => {
+    const { ClipGrid } = await import('@/components/ClipGrid')
+    render(<ClipGrid />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Render All/ }))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(startApprovedRender).toHaveBeenCalledTimes(1)
   })
 
   it('opens the ClipDetail Sheet when a card is clicked', async () => {

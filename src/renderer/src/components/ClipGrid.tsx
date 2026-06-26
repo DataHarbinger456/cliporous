@@ -22,6 +22,16 @@ import { useMemo, useState } from 'react'
 import { AlertTriangle, Inbox } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -178,8 +188,12 @@ export function ClipGrid(): React.JSX.Element {
   const approvedCount =
     clips.filter((c) => c.status === 'approved').length +
     stitchedClips.filter((c) => c.status === 'approved').length
+  const rejectedCount =
+    clips.filter((c) => c.status === 'rejected').length +
+    stitchedClips.filter((c) => c.status === 'rejected').length
   const totalCount = clips.length + stitchedClips.length
   const [isStartingRender, setIsStartingRender] = useState(false)
+  const [confirmRenderAll, setConfirmRenderAll] = useState(false)
 
   const handleRenderApproved = async (): Promise<void> => {
     if (isStartingRender || approvedCount === 0) return
@@ -195,7 +209,13 @@ export function ClipGrid(): React.JSX.Element {
   // (pending or rejected) to 'approved' first so startApprovedRender picks
   // them up — the render service is the single entry point and only
   // dispatches approved jobs.
-  const handleRenderAll = async (): Promise<void> => {
+  //
+  // Because this commits EVERY clip — including ones the user explicitly
+  // rejected — it is destructive: there's no undo once rejected decisions are
+  // overwritten and the render starts. So the button doesn't run this
+  // directly; it routes through `requestRenderAll`, which asks for
+  // confirmation when any clip is rejected.
+  const runRenderAll = async (): Promise<void> => {
     if (isStartingRender || totalCount === 0 || !activeSourceId) return
     setIsStartingRender(true)
     try {
@@ -215,6 +235,22 @@ export function ClipGrid(): React.JSX.Element {
     }
   }
 
+  // Button entry point. When the user has rejected clips, committing them is
+  // irreversible, so confirm first; otherwise render straight away.
+  const requestRenderAll = (): void => {
+    if (isStartingRender || totalCount === 0 || !activeSourceId) return
+    if (rejectedCount > 0) {
+      setConfirmRenderAll(true)
+      return
+    }
+    void runRenderAll()
+  }
+
+  const handleConfirmRenderAll = (): void => {
+    setConfirmRenderAll(false)
+    void runRenderAll()
+  }
+
   return (
     <div className="flex h-full w-full flex-col">
       {/* Top bar — clip count + Render Approved primary action */}
@@ -229,7 +265,7 @@ export function ClipGrid(): React.JSX.Element {
             size="sm"
             variant="outline"
             disabled={totalCount === 0 || isStartingRender}
-            onClick={handleRenderAll}
+            onClick={requestRenderAll}
           >
             Render All {totalCount > 0 && `(${totalCount})`}
           </Button>
@@ -290,6 +326,28 @@ export function ClipGrid(): React.JSX.Element {
           if (!o) setOpenClipId(null)
         }}
       />
+
+      {/* Render All commits every clip — including rejected ones — and starts
+          an irreversible render. Confirm when rejected decisions would be
+          overwritten, surfacing the exact count being committed. */}
+      <AlertDialog open={confirmRenderAll} onOpenChange={setConfirmRenderAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Render all {totalCount} clips?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will render {totalCount} {totalCount === 1 ? 'clip' : 'clips'}, including{' '}
+              {rejectedCount} you rejected. Approving them can&apos;t be undone once the
+              render starts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmRenderAll}>
+              Render all {totalCount}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
