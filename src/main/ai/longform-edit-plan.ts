@@ -725,6 +725,11 @@ export interface GenerateLongformEditPlanOptions {
   videoDuration: number
   /** Window size override in seconds (default 300). */
   windowSeconds?: number
+  /**
+   * Invoked once per window before its Gemini call so the UI can advance with
+   * "window N/total" granularity instead of freezing across the whole batch.
+   */
+  onProgress?: (progress: { window: number; total: number }) => void
 }
 
 /**
@@ -765,13 +770,18 @@ export async function generateLongformEditPlan(
   }
 
   const totalDuration = Math.max(videoDuration, words[words.length - 1]?.end ?? 0)
+  const totalWindows = Math.ceil(totalDuration / windowSeconds)
   const allPhrases: PhraseEmphasis[] = []
   const allBlocks: BlockPlacement[] = []
 
+  let windowIndex = 0
   for (let windowStart = 0; windowStart < totalDuration; windowStart += windowSeconds) {
+    windowIndex += 1
     const windowEnd = Math.min(windowStart + windowSeconds, totalDuration)
     const windowWords = words.filter((w) => w.start >= windowStart && w.start < windowEnd)
     if (windowWords.length === 0) continue
+
+    options.onProgress?.({ window: windowIndex, total: totalWindows })
 
     const prompt = buildLongformPrompt(
       formatWindow(windowWords),

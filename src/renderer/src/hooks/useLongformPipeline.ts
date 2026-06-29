@@ -156,11 +156,24 @@ export function useLongformPipeline(): {
 
         // ── Step 3: AI long-form edit plan ──────────────────────────────
         setPipeline({ stage: 'ai-editing', message: 'Designing the edit…', percent: 30 })
-        const plan = await window.api.generateLongformEditPlan(
-          geminiApiKey,
-          transcription.words,
-          duration
-        )
+        const unsubE = window.api.onLongformEditProgress(({ window: w, total }) => {
+          const p = total > 0 ? Math.round(30 + (w / total) * 30) : 30
+          setPipeline({
+            stage: 'ai-editing',
+            message: `Designing the edit… (window ${w}/${total})`,
+            percent: p
+          })
+        })
+        let plan: Awaited<ReturnType<typeof window.api.generateLongformEditPlan>>
+        try {
+          plan = await window.api.generateLongformEditPlan(
+            geminiApiKey,
+            transcription.words,
+            duration
+          )
+        } finally {
+          unsubE()
+        }
         check()
 
         // Persist the (expensive) plan keyed by source so a save/recovery can

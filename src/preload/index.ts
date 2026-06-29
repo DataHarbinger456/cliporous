@@ -80,6 +80,7 @@ const api = {
 
   // Long-form (Hormozi 16:9) edit plan
   generateLongformEditPlan: invoke(I.AI_GENERATE_LONGFORM_EDIT_PLAN),
+  onLongformEditProgress: listen(S.AI_LONGFORM_EDIT_PROGRESS),
 
   // Face detection
   detectFaceCrops: invoke(I.FACE_DETECT_CROPS),

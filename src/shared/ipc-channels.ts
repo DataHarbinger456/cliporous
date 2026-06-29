@@ -144,6 +144,7 @@ export const SendChannels = {
   SETTINGS_WINDOW_CLOSED: 'settings-window:closed',
   SEGMENT_FALLBACK: 'render:segmentFallback',
   AI_STITCH_PROGRESS: 'ai:stitchProgress',
+  AI_LONGFORM_EDIT_PROGRESS: 'ai:longformEditProgress',
 } as const
 
 // ---- Combined shorthand -------------------------------------------------
@@ -255,6 +256,13 @@ export interface IpcSendChannelMap {
   [SendChannels.AI_STITCH_PROGRESS]: {
     stage: 'sending' | 'analyzing' | 'validating'
     message: string
+  }
+  [SendChannels.AI_LONGFORM_EDIT_PROGRESS]: {
+    stage: 'ai-editing'
+    /** 1-based index of the window currently being designed. */
+    window: number
+    /** Total number of windows in the edit plan. */
+    total: number
   }
 }
 

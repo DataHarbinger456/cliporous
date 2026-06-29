@@ -657,6 +657,9 @@ interface Api {
     words: WordTimestamp[],
     videoDuration: number
   ) => Promise<LongformEditPlan>
+  onLongformEditProgress: (
+    callback: (data: { stage: 'ai-editing'; window: number; total: number }) => void
+  ) => () => void
 
   // Face detection
   detectFaceCrops: (

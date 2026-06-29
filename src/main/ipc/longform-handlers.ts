@@ -14,12 +14,23 @@ export function registerLongformHandlers(): void {
     wrapHandler(
       Ch.Invoke.AI_GENERATE_LONGFORM_EDIT_PLAN,
       async (
-        _event,
+        event,
         apiKey: string,
         words: WordTimestamp[],
         videoDuration: number
       ): Promise<LongformEditPlan> => {
-        return generateLongformEditPlan({ apiKey, words, videoDuration })
+        return generateLongformEditPlan({
+          apiKey,
+          words,
+          videoDuration,
+          onProgress: ({ window, total }) => {
+            event.sender.send(Ch.Send.AI_LONGFORM_EDIT_PROGRESS, {
+              stage: 'ai-editing',
+              window,
+              total
+            })
+          }
+        })
       }
     )
   )
