@@ -147,12 +147,11 @@ export function DropScreen(): React.JSX.Element {
   const [keyMissing, setKeyMissing] = useState(false)
   const dragDepth = useRef(0)
 
-  // Up-front gate: short-form scoring needs a Gemini key. Catch a keyless user
-  // here — before any download/transcribe — so they're told immediately with a
-  // one-click path to Settings instead of after minutes of wasted work. The
-  // long-form pipeline validates its own key separately, so skip the gate there.
+  // Up-front gate: both short-form scoring and long-form editing need a Gemini
+  // key. Catch a keyless user here — before any download/transcribe — so they're
+  // told immediately with a one-click path to Settings instead of after minutes
+  // of wasted work.
   const ensureScoringKey = useCallback(async (): Promise<boolean> => {
-    if (useStore.getState().settings.outputMode === 'longform') return true
     const key = await resolveGeminiKey(useStore.getState().settings.geminiApiKey)
     if (key) {
       setKeyMissing(false)

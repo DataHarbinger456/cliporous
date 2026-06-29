@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import type { SourceVideo } from '../store'
 import type { LongformEditPlan } from '@shared/types'
 import { LONGFORM_RENDER_DEFAULTS } from '../services/render-defaults'
+import { MISSING_GEMINI_KEY_MESSAGE, resolveGeminiKey } from '../lib/gemini-key'
 
 /**
  * useLongformPipeline — drives the Hormozi long-form (16:9) flow end-to-end:
@@ -57,11 +58,11 @@ export function useLongformPipeline(): {
         }
 
         const state = useStore.getState()
-        const geminiApiKey = state.settings.geminiApiKey
+        const geminiApiKey = await resolveGeminiKey(state.settings.geminiApiKey)
         const outputDirectory = state.settings.outputDirectory
 
         if (!geminiApiKey) {
-          const msg = 'Set a Gemini API key in Settings before running a long-form edit.'
+          const msg = MISSING_GEMINI_KEY_MESSAGE
           setPipeline({ stage: 'error', message: msg, percent: 0 })
           addError({ source: 'pipeline', message: msg })
           toast.error(msg)
