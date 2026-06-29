@@ -26,7 +26,7 @@
  * dedicated render-service and is out of scope for this screen.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
@@ -51,9 +51,12 @@ import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 
 import { startApprovedRender } from '@/services/render-service'
+import { LONGFORM_RENDER_DEFAULTS } from '@/services/render-defaults'
+import { PalettePicker } from '@/components/PalettePicker'
 import { TemplateEditor } from '@/components/TemplateEditor'
 import { useStore } from '@/store'
-import type { ClipCandidate, RenderProgress } from '@/store/types'
+import type { ClipCandidate, RenderProgress, SourceVideo } from '@/store/types'
+import type { LongformPlanRecord } from '@/store/longform-slice'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -342,6 +345,51 @@ function ClipRow({ clip, progress }: ClipRowProps): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
+// Long-form re-render setup — shown when a restored long-form project (saved
+// Gemini edit plan, no short-form clips) is opened. Lets the user change the
+// skin/palette, then render straight from the persisted plan (no AI re-run).
+// ---------------------------------------------------------------------------
+
+function LongformSetup({
+  record,
+  source,
+  disabled,
+}: {
+  record: LongformPlanRecord
+  source: SourceVideo | null
+  disabled: boolean
+}): React.JSX.Element {
+  const phrases = record.plan.phrases.length
+  const blocks = record.plan.blocks.length
+  return (
+    <div className="space-y-4">
+      <Card className="flex items-start gap-3 p-4">
+        <div className="bg-muted text-muted-foreground flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded">
+          {source?.thumbnail ? (
+            <img src={source.thumbnail} alt="" draggable={false} className="h-full w-full object-cover" />
+          ) : (
+            <FileVideo className="h-4 w-4 opacity-60" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="text-foreground text-sm font-medium leading-snug">
+            {source ? `Long-form edit · ${source.name}` : 'Long-form edit (16:9)'}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+            Saved edit plan · {phrases} phrase{phrases === 1 ? '' : 's'}, {blocks} block
+            {blocks === 1 ? '' : 's'}. Renders straight from the saved plan — no transcription or
+            AI re-analysis.
+          </p>
+        </div>
+      </Card>
+      <Card className="p-4">
+        <PalettePicker disabled={disabled} />
+      </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // RenderScreen
 // ---------------------------------------------------------------------------
 
@@ -349,6 +397,8 @@ export function RenderScreen(): React.JSX.Element {
   // ── Store reads ────────────────────────────────────────────────────────
   const activeSourceId = useStore((s) => s.activeSourceId)
   const clipsBySource = useStore((s) => s.clips)
+  const longformPlans = useStore((s) => s.longformPlans)
+  const getLongformPlan = useStore((s) => s.getLongformPlan)
   const sources = useStore((s) => s.sources)
   const renderProgress = useStore((s) => s.renderProgress)
   const renderErrors = useStore((s) => s.renderErrors)
@@ -379,6 +429,29 @@ export function RenderScreen(): React.JSX.Element {
     () => sources.find((s) => s.id === activeSourceId) ?? null,
     [sources, activeSourceId]
   )
+
+  // Persisted long-form edit plan for the active source (RF-001). A restored
+  // long-form project has this but no short-form clips; we re-render straight
+  // from it without re-calling Gemini. Subscribe to `longformPlans` so the
+  // lookup stays reactive while still reading through the store getter.
+  const longformPlanRecord = useMemo(
+    () => (activeSourceId ? getLongformPlan(activeSourceId) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- longformPlans drives reactivity
+    [activeSourceId, longformPlans, getLongformPlan]
+  )
+
+  // Seed the palette/skin picker with the axes the plan was saved with, so a
+  // reopened project shows what it was rendered with. Seed once per source so
+  // we don't clobber the user's in-session changes on every re-render.
+  const seededSourceRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!longformPlanRecord || !activeSourceId) return
+    if (seededSourceRef.current === activeSourceId) return
+    seededSourceRef.current = activeSourceId
+    const store = useStore.getState()
+    store.setLongformSkin(longformPlanRecord.skin)
+    store.setLongformPaletteId(longformPlanRecord.paletteId)
+  }, [activeSourceId, longformPlanRecord])
 
   // ── Derived: approved clips for the active source ──────────────────────
   const approvedClips = useMemo<ClipCandidate[]>(() => {
@@ -521,6 +594,89 @@ export function RenderScreen(): React.JSX.Element {
     await startApprovedRender()
   }
 
+  // ── Action: Render long-form from the saved plan (RF-001) ─────────────
+  // Re-runs the persisted Gemini edit plan via startBatchRender — no
+  // transcription, no Gemini re-call. Uses the skin/palette currently picked
+  // (seeded from the saved record, editable via PalettePicker above).
+  const handleLongformRender = async (): Promise<void> => {
+    if (!activeSource || !activeSourceId) return
+    const state = useStore.getState()
+    const record = state.getLongformPlan(activeSourceId)
+    if (!record) {
+      toast.error('No saved edit plan to render')
+      return
+    }
+
+    // Zero-config floor — fall back to the app default output dir if unset.
+    let outputDirectory = state.settings.outputDirectory
+    if (!outputDirectory) {
+      outputDirectory = (await window.api.getDefaultOutputDirectory().catch(() => null)) ?? null
+      if (!outputDirectory) {
+        toast.error('Couldn’t resolve a default output directory')
+        return
+      }
+      const resolved = outputDirectory
+      useStore.setState((s) => {
+        s.settings.outputDirectory = resolved
+      })
+    }
+
+    setBatchSummary(null)
+    clearRenderErrors()
+    setRenderProgress([{ clipId: activeSourceId, percent: 0, status: 'queued' }])
+    setIsRendering(true)
+    setPipeline({ stage: 'rendering', message: '', percent: 0 })
+
+    try {
+      await window.api.startBatchRender({
+        outputDirectory,
+        outputProfile: 'longform',
+        // The persisted plan is the shared canonical shape; the preload mirror
+        // is structurally identical, so bridge it across the IPC boundary.
+        longformEditPlan: record.plan as unknown as NonNullable<
+          Parameters<typeof window.api.startBatchRender>[0]['longformEditPlan']
+        >,
+        longformSkinId: state.settings.longformSkin,
+        longformPaletteId: state.settings.longformPaletteId,
+        customPalettes: state.settings.customPalettes ?? LONGFORM_RENDER_DEFAULTS.customPalettes,
+        renderQuality: state.settings.renderQuality,
+        developerMode: state.settings.developerMode,
+        // Forwarded for in-render asset generation (e.g. pop-up cards); the plan
+        // already exists, so no plan/transcription work is re-triggered.
+        geminiApiKey: state.settings.geminiApiKey,
+        sourceMeta: {
+          name: activeSource.name,
+          path: activeSource.path,
+          duration: activeSource.duration,
+        },
+        jobs: [
+          {
+            clipId: activeSourceId,
+            sourceVideoPath: activeSource.path,
+            startTime: 0,
+            endTime: activeSource.duration,
+          },
+        ],
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setIsRendering(false)
+      setPipeline({ stage: 'error', message: msg, percent: 0 })
+      toast.error(`Couldn't start render: ${msg}`)
+      addError({ source: 'render', message: `Couldn't start render: ${msg}` })
+    }
+  }
+
+  // ── Action: Render long-form again ────────────────────────────
+  // Clears the finished batch so the LongformSetup surface (PalettePicker)
+  // reappears, letting the user change skin/palette before another render.
+  const handleLongformReset = (): void => {
+    setBatchSummary(null)
+    setRenderProgress([])
+    clearRenderErrors()
+    setPipeline({ stage: 'ready', message: '', percent: 0 })
+  }
+
   // ── Action: Retry Failed ──────────────────────────────────────────────
   // Re-runs only the clips whose renderProgress status is 'error', so a
   // partial failure doesn't force a full re-encode of the successful clips.
@@ -592,10 +748,23 @@ export function RenderScreen(): React.JSX.Element {
 
   // ── Render ────────────────────────────────────────────────────────────
   const isComplete = batchSummary !== null && !isRendering
+  // A restored long-form project (RF-001): persisted Gemini edit plan, no
+  // short-form clips. Before a render is kicked off it shows the skin/palette
+  // setup surface; afterwards it shares the long-form progress rows below.
+  const showLongformSetup =
+    longformPlanRecord !== null &&
+    approvedClips.length === 0 &&
+    renderProgress.length === 0 &&
+    !isComplete
   // Long-form (16:9) renders a single whole-video job with no ClipCandidates,
   // so fall back to the live render-progress rows for the count + labels.
-  const isLongform = approvedClips.length === 0 && renderProgress.length > 0
-  const totalCount = isLongform ? renderProgress.length : approvedClips.length
+  const isLongform =
+    approvedClips.length === 0 && (renderProgress.length > 0 || longformPlanRecord !== null)
+  const totalCount = showLongformSetup
+    ? 1
+    : isLongform
+      ? renderProgress.length
+      : approvedClips.length
   const doneCount = renderProgress.filter((r) => r.status === 'done').length
   const failedCount = renderProgress.filter((r) => r.status === 'error').length
   const itemNoun = isLongform ? 'video' : 'clip'
@@ -639,10 +808,15 @@ export function RenderScreen(): React.JSX.Element {
               Back to Clips
             </Button>
           )}
-          {!isRendering && <TemplateEditor />}
+          {!isRendering && !showLongformSetup && <TemplateEditor />}
           {isRendering ? (
             <Button variant="destructive" size="sm" onClick={handleCancel}>
               Cancel
+            </Button>
+          ) : showLongformSetup ? (
+            <Button size="sm" onClick={handleLongformRender} disabled={!activeSource}>
+              <Play />
+              Render
             </Button>
           ) : (
             <Button
@@ -673,7 +847,15 @@ export function RenderScreen(): React.JSX.Element {
 
       {/* ── Clip list ───────────────────────────────────────────────── */}
       <div className="-mx-1 flex-1 space-y-2 overflow-y-auto px-1">
-        {approvedClips.length === 0 && renderProgress.length === 0 ? (
+        {showLongformSetup && longformPlanRecord ? (
+          // Restored long-form project (RF-001) — pick skin/palette, then render
+          // straight from the saved plan (no Gemini re-call).
+          <LongformSetup
+            record={longformPlanRecord}
+            source={activeSource}
+            disabled={isRendering}
+          />
+        ) : approvedClips.length === 0 && renderProgress.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center p-6">
             <Card className="flex w-full max-w-sm flex-col items-center gap-3 px-6 py-10 text-center">
               <FileVideo
@@ -743,11 +925,21 @@ export function RenderScreen(): React.JSX.Element {
               <span />
             )}
             <div className="flex items-center gap-2">
-              {failedCount > 0 && (
-                <Button size="sm" variant="outline" onClick={handleRetryFailed}>
+              {longformPlanRecord ? (
+                // Long-form re-render (RF-001): "Render again" returns to the
+                // skin/palette setup so the user can tweak axes, then render
+                // straight from the saved plan again (no Gemini re-call).
+                <Button size="sm" variant="outline" onClick={handleLongformReset}>
                   <RotateCcw />
-                  Retry Failed ({failedCount})
+                  Render again
                 </Button>
+              ) : (
+                failedCount > 0 && (
+                  <Button size="sm" variant="outline" onClick={handleRetryFailed}>
+                    <RotateCcw />
+                    Retry Failed ({failedCount})
+                  </Button>
+                )
               )}
               <Button size="sm" onClick={handleOpenFolder} disabled={!outputDirectory}>
                 <Folder />

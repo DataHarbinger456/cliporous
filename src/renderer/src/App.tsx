@@ -36,7 +36,7 @@ import { RenderScreen } from '@/components/screens/RenderScreen'
 import { useAutosave, useKeyboardShortcuts, usePythonSetup } from '@/hooks'
 import type { KeyboardShortcutCallbacks } from '@/hooks'
 import { useStore } from '@/store'
-import { selectScreen } from '@/store/selectors'
+import { selectScreen, selectIsLongformOnly } from '@/store/selectors'
 import { listenForSettingsChanges } from '@/store/settings-sync'
 import { saveProject, loadProject, loadRecovery, clearRecovery } from '@/services'
 
@@ -407,9 +407,10 @@ export default function App(): React.JSX.Element {
     return listenForSettingsChanges(() => void hydrateSecretsFromMain())
   }, [hydrateSecretsFromMain])
 
+  const isLongformOnly = useStore(selectIsLongformOnly)
   const screen = useMemo(
-    () => selectScreen(stage, activeSourceId !== null),
-    [stage, activeSourceId]
+    () => selectScreen(stage, activeSourceId !== null, isLongformOnly),
+    [stage, activeSourceId, isLongformOnly]
   )
 
   return (

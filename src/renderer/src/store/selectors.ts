@@ -76,21 +76,52 @@ export const PROCESSING_STAGES: ReadonlySet<PipelineStage> = new Set<PipelineSta
  * Rules (from ux.md §6):
  *   - idle                                    → drop
  *   - downloading…segmenting (PROCESSING)     → processing
- *   - ready                                   → clips (or drop if no source)
+ *   - ready                                   → clips (or drop if no source);
+ *     a restored long-form-only project (saved edit plan, no short-form clips)
+ *     routes to render instead — ClipGrid would only show an empty state.
  *   - rendering | done                        → render
  *   - error                                   → stays on the screen that owns
  *     the failed stage. With an active source this is processing;
  *     without one it falls back to drop.
  */
-export function selectScreen(stage: PipelineStage, hasActiveSource: boolean): ScreenName {
+export function selectScreen(
+  stage: PipelineStage,
+  hasActiveSource: boolean,
+  isLongformOnly = false
+): ScreenName {
   if (PROCESSING_STAGES.has(stage)) return 'processing'
-  if (stage === 'ready') return hasActiveSource ? 'clips' : 'drop'
+  if (stage === 'ready') {
+    if (!hasActiveSource) return 'drop'
+    // A restored long-form project carries a persisted (expensive) Gemini edit
+    // plan but no short-form clips. Route it to the render surface so it can
+    // re-render straight from the saved plan instead of stranding the user on
+    // ClipGrid's "No clips yet" empty state.
+    return isLongformOnly ? 'render' : 'clips'
+  }
   if (stage === 'rendering' || stage === 'done') return 'render'
   if (stage === 'error' && hasActiveSource) return 'processing'
   return 'drop'
 }
 
+/**
+ * True when the active source is a restored long-form project: it has a
+ * persisted edit plan but no short-form (9:16) clips. Such a project has
+ * nothing to show on ClipGrid and must route to the render surface.
+ */
+export function selectIsLongformOnly(state: AppState): boolean {
+  const { activeSourceId, longformPlans, clips, stitchedClips } = state
+  if (!activeSourceId) return false
+  if (!longformPlans[activeSourceId]) return false
+  const hasClips = (clips[activeSourceId]?.length ?? 0) > 0
+  const hasStitched = (stitchedClips[activeSourceId]?.length ?? 0) > 0
+  return !hasClips && !hasStitched
+}
+
 /** Convenience selector — derives the active screen from full app state. */
 export function selectActiveScreen(state: AppState): ScreenName {
-  return selectScreen(state.pipeline.stage, state.activeSourceId !== null)
+  return selectScreen(
+    state.pipeline.stage,
+    state.activeSourceId !== null,
+    selectIsLongformOnly(state)
+  )
 }

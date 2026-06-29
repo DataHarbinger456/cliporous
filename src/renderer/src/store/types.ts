@@ -673,6 +673,14 @@ export interface AppState {
   setFilenameTemplate: (template: string) => void
   setRenderConcurrency: (concurrency: number) => void
 
+  // Actions — Output mode + long-form skin / palette (16:9 path)
+  setOutputMode: (mode: OutputMode) => void
+  setLongformSkin: (skin: LongformSkinId) => void
+  setLongformPaletteId: (id: string) => void
+  addCustomPalette: (palette: Palette) => void
+  updateCustomPalette: (id: string, patch: Partial<Palette>) => void
+  removeCustomPalette: (id: string) => void
+
   // Actions — Template Layout (on-screen text positioning)
   setTemplateLayout: (layout: TemplateLayout) => void
   setTargetPlatform: (platform: Platform) => void
