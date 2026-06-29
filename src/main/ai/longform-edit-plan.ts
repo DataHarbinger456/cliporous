@@ -13,13 +13,16 @@
 // ---------------------------------------------------------------------------
 
 import { GoogleGenAI } from '@google/genai'
+import { log } from '../logger'
 import { callGeminiWithRetry, MODELS, type GeminiCall } from './gemini-client'
 import type {
   WordTimestamp,
   LongformEditPlan,
   PhraseEmphasis,
   BlockPlacement,
-  LongformBlockKind
+  LongformBlockKind,
+  DelosCardKind,
+  DelosCardPlacement
 } from '@shared/types'
 
 // ---------------------------------------------------------------------------
@@ -714,6 +717,125 @@ export function diversifyBlocks(blocks: BlockPlacement[]): BlockPlacement[] {
 }
 
 // ---------------------------------------------------------------------------
+// Delos pop-up card placement (approach A — transcript post-process)
+//
+// Cards are the additive lower-center overlay layer that keeps the speaker on
+// screen while adding visual interest. We do NOT spend extra Gemini tokens on
+// placement: we walk the transcript in fixed strides and emit one candidate
+// card per stride, choosing the kind from cheap keyword signals. Content is
+// filled later by `buildCardContent()` against each card's spoken window, and
+// the render-side timeline is the SINGLE source of truth for rejecting any card
+// that would overlap a full-frame content block.
+// ---------------------------------------------------------------------------
+
+/** Target spacing between card STARTS (seconds). One card per ~15–20s. */
+export const SECONDS_PER_CARD = 17
+/** How long each card stays on screen (seconds). */
+export const CARD_DISPLAY_SECONDS = 5
+/** A card needs at least this many spoken words in its window to be worth it. */
+const MIN_CARD_WORDS = 4
+
+/**
+ * Text-forward card kinds, in rotation order. These distil the spoken words
+ * into real on-screen text (findings / messages / labelled metrics / service
+ * names), so they read as relevant rather than random. Pure-number cards
+ * (`delos-biometric`, `delos-tracking-map`, `delos-matrix`) are intentionally
+ * left OUT of the default rotation — their slots are decorative pseudo-data.
+ */
+const TEXT_FORWARD_KINDS: DelosCardKind[] = [
+  'delos-scan-result',
+  'delos-console',
+  'delos-system-diagnostics',
+  'delos-alert'
+]
+
+/** Hard default card kind (text-forward) used when rotation lookup is empty. */
+const DEFAULT_CARD_KIND: DelosCardKind = 'delos-scan-result'
+
+/**
+ * Pick a card kind for a spoken window. Strong keyword signals win (so an
+ * alert-sounding window gets an alert card, a numbers-heavy window gets a
+ * console); otherwise rotate through the text-forward kinds for variety while
+ * avoiding an immediate repeat of `prevKind`.
+ */
+export function selectCardKind(
+  windowText: string,
+  rotationIndex: number,
+  prevKind?: DelosCardKind
+): DelosCardKind {
+  const t = windowText.toLowerCase()
+
+  let chosen: DelosCardKind | undefined
+  if (/\b(alert|critical|danger|warning|risk|threat|fail|failure|breach|emergency|problem|issue)\b/.test(t)) {
+    chosen = 'delos-alert'
+  } else if (/\b(system|status|health|uptime|online|offline|server|service|infrastructure|stack)\b/.test(t)) {
+    chosen = 'delos-system-diagnostics'
+  } else if (/\b(percent|%|number|metric|rate|growth|revenue|profit|roi|conversion|data|stat|average)\b/.test(t)) {
+    chosen = 'delos-console'
+  } else if (/\b(step|first|second|third|next|then|process|checklist|list|result|finding|found|scan)\b/.test(t)) {
+    chosen = 'delos-scan-result'
+  }
+
+  // Avoid repeating the previous kind back-to-back — fall through to rotation.
+  if (!chosen || chosen === prevKind) {
+    const n = TEXT_FORWARD_KINDS.length
+    const first = TEXT_FORWARD_KINDS[rotationIndex % n] ?? DEFAULT_CARD_KIND
+    const next = TEXT_FORWARD_KINDS[(rotationIndex + 1) % n] ?? DEFAULT_CARD_KIND
+    chosen = first === prevKind ? next : first
+  }
+  return chosen
+}
+
+/**
+ * Walk the transcript in ~`SECONDS_PER_CARD` strides and emit one candidate
+ * Delos card per stride that carries enough speech. Cards are anchored to the
+ * first spoken word at/after each stride boundary and span `CARD_DISPLAY_SECONDS`
+ * (clamped to the video). These are CANDIDATES only — the render-side timeline
+ * drops any that overlap a full-frame block, so this pass is block-agnostic.
+ */
+export function planDelosCards(
+  words: WordTimestamp[],
+  videoDuration: number,
+  secondsPerCard: number = SECONDS_PER_CARD,
+  displaySeconds: number = CARD_DISPLAY_SECONDS
+): DelosCardPlacement[] {
+  if (words.length === 0) return []
+  const totalDuration = Math.max(videoDuration, words[words.length - 1]?.end ?? 0)
+  if (totalDuration <= 0) return []
+
+  const cards: DelosCardPlacement[] = []
+  let rotationIndex = 0
+  let prevKind: DelosCardKind | undefined
+  let lastEnd = -Infinity
+
+  for (let stride = 0; stride < totalDuration; stride += secondsPerCard) {
+    // Anchor to the first word at/after the stride boundary so a card never
+    // opens on silence.
+    const anchor = words.find((w) => w.start >= stride && w.start < stride + secondsPerCard)
+    if (!anchor) continue
+
+    const startTime = anchor.start
+    // Never overlap the previous card (defensive — strides are already spaced).
+    if (startTime < lastEnd) continue
+    const endTime = Math.min(startTime + displaySeconds, totalDuration)
+    if (endTime - startTime < 1) continue
+
+    const windowWords = words.filter((w) => w.end > startTime && w.start < endTime)
+    if (windowWords.length < MIN_CARD_WORDS) continue
+
+    const sourceText = windowWords.map((w) => w.text).join(' ')
+    const kind = selectCardKind(sourceText, rotationIndex, prevKind)
+
+    cards.push({ kind, startTime, endTime, sourceText })
+    prevKind = kind
+    rotationIndex++
+    lastEnd = endTime
+  }
+
+  return cards
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -757,6 +879,7 @@ export async function generateLongformEditPlan(
     return {
       phrases: [],
       blocks: [],
+      cards: [],
       reasoning: 'No transcript words available.',
       generatedAt
     }
@@ -775,6 +898,11 @@ export async function generateLongformEditPlan(
   const allBlocks: BlockPlacement[] = []
 
   let windowIndex = 0
+  // Count windows we actually attempted (had speech) and how many threw, so a
+  // single bad window (SAFETY block, spent rate-limit, malformed JSON) is
+  // skipped instead of discarding every prior window's accumulated work.
+  let attemptedWindows = 0
+  let failedWindows = 0
   for (let windowStart = 0; windowStart < totalDuration; windowStart += windowSeconds) {
     windowIndex += 1
     const windowEnd = Math.min(windowStart + windowSeconds, totalDuration)
@@ -782,16 +910,35 @@ export async function generateLongformEditPlan(
     if (windowWords.length === 0) continue
 
     options.onProgress?.({ window: windowIndex, total: totalWindows })
+    attemptedWindows += 1
 
     const prompt = buildLongformPrompt(
       formatWindow(windowWords),
       windowEnd - windowStart,
       windowStart
     )
-    const raw = await callGeminiWithRetry(ai, call, prompt, 'longform-edit-plan')
-    const { phrases, blocks } = parseWindowResponse(raw, windowStart, windowEnd)
-    allPhrases.push(...phrases)
-    allBlocks.push(...blocks)
+    try {
+      const raw = await callGeminiWithRetry(ai, call, prompt, 'longform-edit-plan')
+      const { phrases, blocks } = parseWindowResponse(raw, windowStart, windowEnd)
+      allPhrases.push(...phrases)
+      allBlocks.push(...blocks)
+    } catch (err) {
+      // Keep the accumulated phrases/blocks from prior windows and carry on; one
+      // failed window must not sink the whole plan.
+      failedWindows += 1
+      log(
+        'warn',
+        'longform-edit-plan',
+        `window ${windowIndex}/${totalWindows} failed, skipping: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+
+  // Every attempted window failed → there is no plan to salvage; surface it.
+  if (attemptedWindows > 0 && failedWindows === attemptedWindows) {
+    throw new Error(
+      `Long-form edit plan failed: all ${attemptedWindows} window(s) errored during generation.`
+    )
   }
 
   // Sort everything chronologically. Blocks additionally pass through a global
@@ -802,10 +949,18 @@ export async function generateLongformEditPlan(
 
   const diversifiedBlocks = diversifyBlocks(allBlocks)
 
+  // Delos pop-up cards are candidates across the whole transcript; the render
+  // timeline drops any that land during a full-frame block.
+  const cards = planDelosCards(words, totalDuration)
+
+  const partialNote =
+    failedWindows > 0 ? ` ${failedWindows} of ${attemptedWindows} windows failed.` : ''
+
   return {
     phrases: [...allPhrases].sort(byStart),
     blocks: diversifiedBlocks,
-    reasoning: `Generated from ${words.length} words across ${Math.ceil(totalDuration / windowSeconds)} window(s). ${diversifiedBlocks.length} block(s).`,
+    cards,
+    reasoning: `Generated from ${words.length} words across ${Math.ceil(totalDuration / windowSeconds)} window(s). ${diversifiedBlocks.length} block(s), ${cards.length} card(s).${partialNote}`,
     generatedAt
   }
 }

@@ -214,6 +214,54 @@ describe('generateLongformEditPlan — content blocks', () => {
     expect(onProgress).not.toHaveBeenCalled()
   })
 
+  it('keeps prior windows when one window fails, and notes it in reasoning (RF-009)', async () => {
+    // words() spans 0–121s; a 100s window over 200s yields two windows with speech.
+    // Window 1 succeeds with a valid block; window 2 throws (e.g. SAFETY block).
+    callMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          blocks: [
+            {
+              kind: 'bar-chart',
+              start: 10,
+              end: 14,
+              kicker: 'K',
+              heading: 'Kept',
+              bars: [
+                { label: 'A', value: 0.4, valueLabel: '1' },
+                { label: 'B', value: 0.6, valueLabel: '2' }
+              ]
+            }
+          ]
+        })
+      )
+      .mockRejectedValueOnce(new Error('SAFETY: blocked'))
+
+    const plan = await generateLongformEditPlan({
+      apiKey: 'fake',
+      words: words(),
+      videoDuration: 200,
+      windowSeconds: 100
+    })
+
+    // Window 1's block survives even though window 2 failed.
+    expect(plan.blocks.map((b) => b.kind)).toEqual(['bar-chart'])
+    expect(plan.reasoning).toContain('1 of 2 windows failed')
+  })
+
+  it('throws when every attempted window fails (RF-009)', async () => {
+    callMock.mockRejectedValue(new Error('rate limit exhausted'))
+
+    await expect(
+      generateLongformEditPlan({
+        apiKey: 'fake',
+        words: words(),
+        videoDuration: 200,
+        windowSeconds: 100
+      })
+    ).rejects.toThrow(/all 2 window\(s\) errored/)
+  })
+
   it('drops a currency prefix whose suffix is a non-money unit (% / s / kg)', async () => {
     callMock.mockResolvedValue(
       JSON.stringify({
