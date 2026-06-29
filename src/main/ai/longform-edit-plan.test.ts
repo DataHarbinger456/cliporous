@@ -188,6 +188,32 @@ describe('generateLongformEditPlan — content blocks', () => {
     expect(prompt).toContain('INTRO PHRASES')
   })
 
+  it('reports per-window progress (window N/total) for each designed window (RF-007)', async () => {
+    callMock.mockResolvedValue(JSON.stringify({ phrases: [], blocks: [] }))
+
+    // words() spans 0–121s; a 100s window over a 200s video yields two windows,
+    // each carrying speech, so onProgress fires once per window before its call.
+    const onProgress = vi.fn<(p: { window: number; total: number }) => void>()
+    await generateLongformEditPlan({
+      apiKey: 'fake',
+      words: words(),
+      videoDuration: 200,
+      windowSeconds: 100,
+      onProgress
+    })
+
+    expect(onProgress.mock.calls.map((c) => c[0])).toEqual([
+      { window: 1, total: 2 },
+      { window: 2, total: 2 }
+    ])
+  })
+
+  it('does not report progress when there are no words', async () => {
+    const onProgress = vi.fn<(p: { window: number; total: number }) => void>()
+    await generateLongformEditPlan({ apiKey: 'fake', words: [], videoDuration: 0, onProgress })
+    expect(onProgress).not.toHaveBeenCalled()
+  })
+
   it('drops a currency prefix whose suffix is a non-money unit (% / s / kg)', async () => {
     callMock.mockResolvedValue(
       JSON.stringify({
