@@ -336,9 +336,16 @@ export async function renderLongformVideo(
       job.wordTimestamps
     )
 
+    // Surface how many planned blocks actually survived buildTimeline's
+    // overlap/spacing pass (RF-012): the plan can carry many more blocks than
+    // the timeline keeps, and that drop was previously invisible to the user.
+    const placedBlocks = timeline.filter((b) => b.kind === 'block').length
+    const plannedBlocks = plan.blocks?.length ?? 0
     window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
       clipId: job.clipId,
-      message: `Planning ${timeline.length} long-form segment(s)…`,
+      message:
+        `Planning ${timeline.length} long-form segment(s) — ` +
+        `${placedBlocks}/${plannedBlocks} block(s) placed`,
       percent: 5
     })
 

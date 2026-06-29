@@ -57,6 +57,7 @@ import { TemplateEditor } from '@/components/TemplateEditor'
 import { useStore } from '@/store'
 import type { ClipCandidate, RenderProgress, SourceVideo } from '@/store/types'
 import type { LongformPlanRecord } from '@/store/longform-slice'
+import type { LongformEditPlan } from '@shared/types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +83,37 @@ interface RowProgress {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Summarize a long-form AI edit plan for the render status surface (RF-012).
+ * The plan flows straight into the render with no approval step, so this is the
+ * only place the user sees what the plan actually contains: the block-kind
+ * breakdown, the (otherwise never-surfaced) card count, and the phrase count.
+ * `buildTimeline` + speaker-range gating silently drop a chunk of these, so the
+ * counts here are the PLANNED totals — the rendered survivors are reported
+ * separately via the prepare message from the long-form pipeline.
+ *
+ * Example: "5 blocks (2 bar-chart, 2 stat-grid, 1 callout) · 3 cards · 12 phrases".
+ */
+function summarizeLongformPlan(plan: LongformEditPlan): string {
+  const blocks = plan.blocks ?? []
+  const cards = plan.cards ?? []
+  const phrases = plan.phrases ?? []
+
+  const kindCounts = new Map<string, number>()
+  for (const b of blocks) kindCounts.set(b.kind, (kindCounts.get(b.kind) ?? 0) + 1)
+  const breakdown = Array.from(kindCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([kind, n]) => `${n} ${kind}`)
+    .join(', ')
+
+  const parts = [
+    `${blocks.length} block${blocks.length === 1 ? '' : 's'}${breakdown ? ` (${breakdown})` : ''}`,
+    `${cards.length} card${cards.length === 1 ? '' : 's'}`,
+    `${phrases.length} phrase${phrases.length === 1 ? '' : 's'}`,
+  ]
+  return parts.join(' · ')
+}
 
 /** Build a stable map of clipId → progress, defaulting unseen clips to queued. */
 function buildProgressMap(
@@ -205,11 +237,19 @@ function GenericRow({
   label,
   progress,
   poster,
+  planSummary,
 }: {
   label: string
   progress: RowProgress
   /** Optional poster frame (e.g. the long-form source thumbnail). */
   poster?: string
+  /**
+   * Persistent plan-composition line (RF-012): block-kind breakdown + card +
+   * phrase counts for the active long-form plan. Always visible (unlike the
+   * transient prepare message) so the rendered result is traceable to a plan
+   * the user actually saw.
+   */
+  planSummary?: string
 }): React.JSX.Element {
   const isActive = progress.status === 'rendering' || progress.status === 'preparing'
   const isDone = progress.status === 'done'
@@ -241,6 +281,11 @@ function GenericRow({
             value={barValue}
             className={cn('mt-2 h-1.5', isError && '[&>div]:bg-destructive')}
           />
+        )}
+        {planSummary && (
+          <p className="text-muted-foreground mt-1.5 line-clamp-2 text-xs" title={planSummary}>
+            {planSummary}
+          </p>
         )}
         {progress.status === 'preparing' && progress.prepareMessage && (
           <p className="text-muted-foreground mt-1.5 line-clamp-1 text-xs" title={progress.prepareMessage}>
@@ -891,6 +936,9 @@ export function RenderScreen(): React.JSX.Element {
               key={r.clipId}
               label={activeSource ? `Long-form edit · ${activeSource.name}` : 'Long-form edit (16:9)'}
               poster={activeSource?.thumbnail}
+              planSummary={
+                longformPlanRecord ? summarizeLongformPlan(longformPlanRecord.plan) : undefined
+              }
               progress={{
                 status: r.status,
                 percent: r.percent,
