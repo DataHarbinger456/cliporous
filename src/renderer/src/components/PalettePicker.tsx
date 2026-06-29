@@ -13,7 +13,7 @@
  * (`longformPaletteId` / `longformSkin` + the `customPalettes` array).
  */
 
-import { BUILTIN_PALETTES, type Palette } from '@shared/palettes';
+import { BUILTIN_PALETTES, DEFAULT_PALETTE_ID, type Palette } from '@shared/palettes';
 import type { LongformSkinId } from '@shared/types';
 import { Check, Pencil, Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
@@ -91,7 +91,14 @@ function SwatchCard({
           >
             Aa headline
           </span>
-          <span className="h-1.5 w-8 rounded-full" style={{ backgroundColor: palette.accent }} />
+          {/* Both accents — rendered blocks use accent2 for charts/gradients. */}
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-8 rounded-full" style={{ backgroundColor: palette.accent }} />
+            <span
+              className="h-1.5 w-4 rounded-full"
+              style={{ backgroundColor: palette.accent2 ?? palette.accent }}
+            />
+          </span>
           {selected && (
             <span
               className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full"
@@ -102,6 +109,11 @@ function SwatchCard({
           )}
         </div>
         <span className="mt-1 block truncate px-0.5 text-xs text-foreground">{palette.name}</span>
+        {palette.id === DEFAULT_PALETTE_ID && (
+          <span className="block truncate px-0.5 text-[10px] leading-tight text-muted-foreground">
+            Matches the app brand colors
+          </span>
+        )}
       </button>
 
       {isCustom && (onEdit || onDelete) && (
