@@ -199,7 +199,12 @@ export interface IpcSendChannelMap {
     encoderIsHardware: boolean
   }
   [SendChannels.RENDER_CLIP_PROGRESS]: { clipId: string; percent: number }
-  [SendChannels.RENDER_CLIP_DONE]: { clipId: string; outputPath: string }
+  [SendChannels.RENDER_CLIP_DONE]: {
+    clipId: string
+    outputPath: string
+    /** One-line "what rendered vs. unavailable" note shown on the done row (RF-008). */
+    summary?: string
+  }
   [SendChannels.RENDER_CLIP_ERROR]: {
     clipId: string
     /** Short, human-readable summary of what went wrong (RF-022). */

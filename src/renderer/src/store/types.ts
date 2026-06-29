@@ -281,6 +281,8 @@ export interface RenderProgress {
   ffmpegCommand?: string
   /** Message shown during the prepare phase (B-Roll generation, filler removal, etc.) */
   prepareMessage?: string
+  /** One-line post-render note: what rendered vs. what was unavailable (RF-008). */
+  summary?: string
 }
 
 export interface ZoomSettings {

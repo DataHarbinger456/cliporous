@@ -75,6 +75,8 @@ interface RowProgress {
   outputPath?: string
   /** Live status text shown during the prepare phase (B-Roll, filler removal, etc.) */
   prepareMessage?: string
+  /** One-line post-render note: what rendered vs. what was unavailable (RF-008). */
+  summary?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,7 @@ function buildProgressMap(
       details: r.details,
       outputPath: r.outputPath,
       prepareMessage: r.prepareMessage,
+      summary: r.summary,
     })
   }
   return map
@@ -242,6 +245,11 @@ function GenericRow({
         {progress.status === 'preparing' && progress.prepareMessage && (
           <p className="text-muted-foreground mt-1.5 line-clamp-1 text-xs" title={progress.prepareMessage}>
             {progress.prepareMessage}
+          </p>
+        )}
+        {isDone && progress.summary && (
+          <p className="text-muted-foreground mt-1.5 line-clamp-1 text-xs" title={progress.summary}>
+            {progress.summary}
           </p>
         )}
         <RenderErrorDetails progress={progress} />
@@ -488,7 +496,8 @@ export function RenderScreen(): React.JSX.Element {
           suggestion: patch.suggestion,
           details: patch.details,
           outputPath: patch.outputPath,
-          prepareMessage: patch.prepareMessage
+          prepareMessage: patch.prepareMessage,
+          summary: patch.summary
         }
         setRenderProgress([...current, next])
       } else {
@@ -529,7 +538,10 @@ export function RenderScreen(): React.JSX.Element {
       upsertProgress(data.clipId, {
         status: 'done',
         percent: 100,
-        outputPath: data.outputPath
+        outputPath: data.outputPath,
+        // Only attach when present so the done patch stays free of an
+        // `undefined`-typed field under exactOptionalPropertyTypes.
+        ...(data.summary ? { summary: data.summary } : {})
       })
     })
 
@@ -885,6 +897,8 @@ export function RenderScreen(): React.JSX.Element {
                 error: r.error ?? renderErrors[r.clipId],
                 suggestion: r.suggestion,
                 details: r.details,
+                outputPath: r.outputPath,
+                summary: r.summary,
               }}
             />
           ))

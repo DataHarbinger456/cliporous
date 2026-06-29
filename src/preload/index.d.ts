@@ -477,6 +477,8 @@ interface RenderClipProgressEvent {
 interface RenderClipDoneEvent {
   clipId: string
   outputPath: string
+  /** One-line "what rendered vs. unavailable" note shown on the done row (RF-008). */
+  summary?: string
 }
 
 interface RenderClipErrorEvent {

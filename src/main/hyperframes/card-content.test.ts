@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   buildCardContent,
+  buildCardContentWithSource,
   type CardWord,
   type ScanResultContent,
   type ConsoleContent,
@@ -162,5 +163,44 @@ describe('buildCardContent — fallback never returns placeholders or empties', 
       apiKey: 'test-key'
     })) as ScanResultContent
     expect(content.findings.length).toBeGreaterThan(0)
+  })
+})
+
+describe('buildCardContentWithSource — reports AI vs offline origin (RF-008)', () => {
+  it('reports source: ai when the Gemini pass succeeds', async () => {
+    callMock.mockResolvedValueOnce(
+      JSON.stringify({ title: 'OK', findings: ['a', 'b', 'c'], progress: 100 })
+    )
+    const { source } = await buildCardContentWithSource('delos-scan-result', TRANSCRIPT, WORDS, {
+      apiKey: 'test-key'
+    })
+    expect(source).toBe('ai')
+  })
+
+  it('reports source: fallback when no API key is supplied', async () => {
+    const { source } = await buildCardContentWithSource('delos-scan-result', TRANSCRIPT, WORDS)
+    expect(callMock).not.toHaveBeenCalled()
+    expect(source).toBe('fallback')
+  })
+
+  it('reports source: fallback when the Gemini pass fails (e.g. rate-limit)', async () => {
+    callMock.mockRejectedValueOnce(new Error('429 rate limit'))
+    const { source, content } = await buildCardContentWithSource(
+      'delos-scan-result',
+      TRANSCRIPT,
+      WORDS,
+      { apiKey: 'test-key' }
+    )
+    expect(source).toBe('fallback')
+    expect((content as ScanResultContent).findings.length).toBeGreaterThan(0)
+  })
+
+  it('reports source: fallback when forceFallback is set even with a key', async () => {
+    const { source } = await buildCardContentWithSource('delos-scan-result', TRANSCRIPT, WORDS, {
+      apiKey: 'test-key',
+      forceFallback: true
+    })
+    expect(callMock).not.toHaveBeenCalled()
+    expect(source).toBe('fallback')
   })
 })

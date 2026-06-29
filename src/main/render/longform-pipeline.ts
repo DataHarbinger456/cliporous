@@ -41,7 +41,8 @@ import {
 } from './features/phrase-emphasis.feature'
 import {
   applyDelosCards,
-  filterCardsToSpeakerRanges
+  filterCardsToSpeakerRanges,
+  type DelosCardStats
 } from './features/delos-card.feature'
 
 import type { RenderBatchOptions } from './types'
@@ -546,6 +547,7 @@ export async function renderLongformVideo(
     }
 
     let cardTempFiles: string[] = []
+    let cardStats: DelosCardStats | null = null
     if (haveCards) {
       window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
         clipId: job.clipId,
@@ -567,6 +569,7 @@ export async function renderLongformVideo(
         apiKey: options.geminiApiKey
       })
       cardTempFiles = result.tempFiles
+      cardStats = result.stats
       if (result.outputPath !== outputPath) {
         // Every card render failed → nothing was written to the final path.
         // Finalize the card pass's base instead so the render still completes.
@@ -578,8 +581,17 @@ export async function renderLongformVideo(
       }
     }
 
+    // Surface what actually rendered vs. what was unavailable, once, on the
+    // existing done channel (RF-008). Without this the user gets a clean "Done"
+    // even when content blocks were dropped or cards fell back to offline text.
+    const summary = buildLongformRenderSummary(droppedBlocks, cardStats)
+
     window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 100 })
-    window.webContents.send(Ch.Send.RENDER_CLIP_DONE, { clipId: job.clipId, outputPath })
+    window.webContents.send(Ch.Send.RENDER_CLIP_DONE, {
+      clipId: job.clipId,
+      outputPath,
+      ...(summary ? { summary } : {})
+    })
     window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 1, failed: 0, total: 1 })
 
     cleanupPhraseOverlayTempFiles(overlayTempFiles)
@@ -596,6 +608,37 @@ export async function renderLongformVideo(
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Render summary (RF-008)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose a one-line "what rendered vs. what was unavailable" summary from the
+ * long-form pass counts, shown once on the done row instead of a silent "Done".
+ * Returns `undefined` when there is nothing noteworthy to report (no cards, no
+ * dropped blocks) so the UI stays quiet on a fully clean render.
+ *
+ * Examples: "9 cards · 2 unavailable", "7 cards · 3 offline text", "1 block dropped".
+ */
+export function buildLongformRenderSummary(
+  droppedBlocks: number,
+  cardStats: DelosCardStats | null
+): string | undefined {
+  const parts: string[] = []
+
+  if (cardStats && (cardStats.rendered > 0 || cardStats.dropped > 0)) {
+    parts.push(`${cardStats.rendered} card${cardStats.rendered === 1 ? '' : 's'}`)
+    if (cardStats.dropped > 0) parts.push(`${cardStats.dropped} unavailable`)
+    if (cardStats.fallbackText > 0) parts.push(`${cardStats.fallbackText} offline text`)
+  }
+
+  if (droppedBlocks > 0) {
+    parts.push(`${droppedBlocks} block${droppedBlocks === 1 ? '' : 's'} dropped`)
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : undefined
 }
 
 // ---------------------------------------------------------------------------

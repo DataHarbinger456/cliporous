@@ -110,6 +110,21 @@ export type CardContent =
 /** Maps a card kind to its concrete content type. */
 export type CardContentOf<K extends CardKind> = Extract<CardContent, { kind: K }>
 
+/**
+ * Where a card's content actually came from. `ai` means the Gemini pass
+ * succeeded; `fallback` means the deterministic offline text was used (no key,
+ * forced, or a Gemini failure such as a rate-limit mid-render). Surfaced so the
+ * render layer can report "N cards used offline text" instead of silently mixing
+ * AI and fallback copy (RF-008).
+ */
+export type CardContentSource = 'ai' | 'fallback'
+
+/** A built card's content plus where it came from. */
+export interface CardContentResult<K extends CardKind> {
+  content: CardContentOf<K>
+  source: CardContentSource
+}
+
 /** Word timing entry, matching wordTimestamps in src/main/render/types.ts. */
 export interface CardWord {
   text: string
@@ -712,18 +727,33 @@ export async function buildCardContent<K extends CardKind>(
   words: CardWord[] = [],
   opts: BuildCardContentOptions = {}
 ): Promise<CardContentOf<K>> {
+  return (await buildCardContentWithSource(kind, transcriptText, words, opts)).content
+}
+
+/**
+ * Same as {@link buildCardContent} but also reports whether the content came
+ * from the Gemini pass (`source: 'ai'`) or the deterministic offline fallback
+ * (`source: 'fallback'`). Used by the render layer to count AI-vs-offline cards
+ * so a rate-limit mid-render is reported rather than silently mixed (RF-008).
+ */
+export async function buildCardContentWithSource<K extends CardKind>(
+  kind: K,
+  transcriptText: string,
+  words: CardWord[] = [],
+  opts: BuildCardContentOptions = {}
+): Promise<CardContentResult<K>> {
   const text = resolveText(transcriptText, words)
   const phrases = extractKeyPhrases(text)
   const fallback = fallbackContent(kind, text, phrases)
 
   const apiKey = opts.apiKey?.trim()
   if (!apiKey || opts.forceFallback) {
-    return fallback as CardContentOf<K>
+    return { content: fallback as CardContentOf<K>, source: 'fallback' }
   }
 
   try {
     const raw = await callGeminiJSON(apiKey, buildPrompt(kind, text))
-    return normalizeContent(kind, raw, fallback) as CardContentOf<K>
+    return { content: normalizeContent(kind, raw, fallback) as CardContentOf<K>, source: 'ai' }
   } catch (err) {
     log(
       'warn',
@@ -732,6 +762,6 @@ export async function buildCardContent<K extends CardKind>(
         err instanceof Error ? err.message : String(err)
       }`
     )
-    return fallback as CardContentOf<K>
+    return { content: fallback as CardContentOf<K>, source: 'fallback' }
   }
 }
