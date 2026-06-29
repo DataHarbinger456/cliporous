@@ -26,6 +26,12 @@ export interface ApplyPhraseOverlaysOptions {
   height: number
   fps: number
   qualityParams: QualityParams
+  /**
+   * Color for the phrase text, resolved from the user-selected palette
+   * (`palette.accent`). Used for any phrase that does not carry its own
+   * `accentColor`. When omitted, the composition falls back to brand cream.
+   */
+  phraseColor?: string
 }
 
 /**
@@ -38,7 +44,8 @@ export interface ApplyPhraseOverlaysOptions {
 export async function applyPhraseOverlays(
   opts: ApplyPhraseOverlaysOptions
 ): Promise<{ outputPath: string; tempFiles: string[] }> {
-  const { inputPath, outputPath, phrases, width, height, fps, qualityParams } = opts
+  const { inputPath, outputPath, phrases, width, height, fps, qualityParams, phraseColor } =
+    opts
 
   if (phrases.length === 0) {
     return { outputPath: inputPath, tempFiles: [] }
@@ -55,26 +62,42 @@ export async function applyPhraseOverlays(
     const duration = Math.max(0.4, phrase.endTime - phrase.startTime)
     const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`
     const overlayPath = join(tmpdir(), `batchcontent-phrase-${stamp}.mov`)
-    await renderRemotionSegment({
-      compositionId: 'HormoziPhraseOverlay',
-      inputProps: {
-        text: phrase.text,
-        accentColor: phrase.accentColor,
-        animationType: 'scale-in'
-      },
-      durationSec: duration,
-      fps,
-      width,
-      height,
-      transparent: true,
-      outputPath: overlayPath
-    })
+    try {
+      await renderRemotionSegment({
+        compositionId: 'HormoziPhraseOverlay',
+        inputProps: {
+          text: phrase.text,
+          // Per-phrase override wins; otherwise follow the chosen palette.
+          accentColor: phrase.accentColor ?? phraseColor,
+          animationType: 'scale-in'
+        },
+        durationSec: duration,
+        fps,
+        width,
+        height,
+        transparent: true,
+        outputPath: overlayPath
+      })
+    } catch (err) {
+      // Graceful degrade (RF-003): a single phrase overlay failing to render
+      // (or Remotion being unavailable) must not kill the whole render. Skip
+      // this overlay and keep compositing the rest.
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`[longform] Phrase overlay render failed ("${phrase.text}"): ${message}`)
+      continue
+    }
     tempFiles.push(overlayPath)
     overlays.push({
       overlayPath,
       startTime: phrase.startTime,
       endTime: phrase.startTime + duration
     })
+  }
+
+  // Every phrase overlay failed to render → leave the base untouched so the
+  // caller can finalize the speaker cut instead (mirrors the Delos-card path).
+  if (overlays.length === 0) {
+    return { outputPath: inputPath, tempFiles }
   }
 
   await compositePhraseOverlays({ inputPath, outputPath, overlays, qualityParams })

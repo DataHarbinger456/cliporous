@@ -14,9 +14,9 @@ import { BrowserWindow } from 'electron'
 import { Ch } from '@shared/ipc-channels'
 import { basename, extname, join } from 'path'
 import { tmpdir } from 'os'
-import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync, unlinkSync, copyFileSync } from 'fs'
 
-import { ffmpeg, getEncoder, getVideoMetadata } from '../ffmpeg'
+import { ffmpeg, getEncoder, getVideoMetadata, isHardwareEncoder } from '../ffmpeg'
 import {
   LANDSCAPE_WIDTH,
   LANDSCAPE_HEIGHT,
@@ -31,12 +31,18 @@ import { resolveQualityParams } from './quality'
 import { classifyRenderError } from './render-error-map'
 import { toFFmpegPath } from './helpers'
 import { encodeSpeakerSegment } from './longform-encode'
-import { renderBlockSegment } from './features/blocks.feature'
+import { renderBlockSegment, extendBlockPlacementEndTime } from './features/blocks.feature'
+import type { WordTimestamp } from './point-coverage'
 import { DEFAULT_LONGFORM_BLOCK_SKIN } from '../remotion/registry'
+import { getPaletteById } from '@shared/palettes'
 import {
   applyPhraseOverlays,
   cleanupPhraseOverlayTempFiles
 } from './features/phrase-emphasis.feature'
+import {
+  applyDelosCards,
+  filterCardsToSpeakerRanges
+} from './features/delos-card.feature'
 
 import type { RenderBatchOptions } from './types'
 import type {
@@ -69,35 +75,83 @@ type TimelineBlock = SpeakerBlock | BlockBlock
 const MIN_BLOCK_SECONDS = 0.4
 
 /**
+ * Minimum SPEAKER time (seconds) required between the END of one content block
+ * and the START of the next. Guarantees the speaker is visible — and the prior
+ * block has time to breathe — before another full-frame insert lands, so blocks
+ * never read as back-to-back. Inserts that start sooner than this after the
+ * previous accepted block ends are dropped (the earlier block wins).
+ *
+ * This is the BODY pace (after the intro). Roughly one block per ~8–10s of
+ * speech once a block's own ~3–4s span is added.
+ */
+export const MIN_GAP_BETWEEN_BLOCKS = 6
+
+/**
+ * Length of the opening "hook" window where blocks land more frequently. The
+ * first impression decides whether a viewer stays, so the intro runs at a
+ * quicker visual cadence than the body, then settles into MIN_GAP_BETWEEN_BLOCKS.
+ */
+export const INTRO_SECONDS = 60
+
+/**
+ * Tighter speaker gap applied while a block STARTS inside the intro window —
+ * a new block roughly every ~5s of speech to keep the open engaging. With a
+ * typical ~3–4s block span this 1.5s speaker gap puts block STARTS ~5s apart,
+ * so the first 30s can host ~6 beats instead of ~2. After INTRO_SECONDS the
+ * gap relaxes to MIN_GAP_BETWEEN_BLOCKS.
+ */
+export const INTRO_GAP_BETWEEN_BLOCKS = 1.5
+
+/**
  * Build a non-overlapping, chronological timeline. Content blocks are inserts
  * that replace the speaker visual for their range; speaker blocks fill every
- * gap. Overlapping inserts are dropped (first one wins).
+ * gap. Overlapping inserts are dropped (first one wins), and inserts that start
+ * within `minGapBetweenBlocks` of the previous accepted block's end are dropped
+ * too so blocks stay spaced out.
  */
-export function buildTimeline(plan: LongformEditPlan, videoDuration: number): TimelineBlock[] {
+export function buildTimeline(
+  plan: LongformEditPlan,
+  videoDuration: number,
+  minGapBetweenBlocks: number = MIN_GAP_BETWEEN_BLOCKS,
+  introGapBetweenBlocks: number = INTRO_GAP_BETWEEN_BLOCKS,
+  introSeconds: number = INTRO_SECONDS,
+  words?: WordTimestamp[]
+): TimelineBlock[] {
   type Insert = BlockBlock
   const inserts: Insert[] = []
 
   for (const placement of plan.blocks ?? []) {
+    // Keep multi-row list blocks on screen until the last row is spoken. The
+    // overlap/spacing pass below still protects against collisions, so this
+    // only ever shortens the gap to the next block, never overlaps it.
+    const endTime = extendBlockPlacementEndTime(placement, words, videoDuration)
     inserts.push({
       kind: 'block',
       startTime: placement.startTime,
-      endTime: placement.endTime,
-      placement
+      endTime,
+      placement: { ...placement, endTime }
     })
   }
 
   inserts.sort((a, b) => a.startTime - b.startTime)
 
-  // Drop overlaps + clamp to [0, videoDuration].
+  // Drop overlaps + too-close inserts, clamp to [0, videoDuration].
   const accepted: Insert[] = []
   let lastEnd = 0
+  let haveAccepted = false
   for (const ins of inserts) {
     const start = Math.max(0, ins.startTime)
     const end = Math.min(videoDuration, ins.endTime)
     if (end - start < MIN_BLOCK_SECONDS) continue
     if (start < lastEnd) continue // overlaps a prior insert — skip
+    // Enforce breathing room: require a minimum of speaker time between the
+    // previous accepted block's end and this one's start. The intro window runs
+    // a tighter gap so the open is more visually engaging, then relaxes.
+    const requiredGap = start < introSeconds ? introGapBetweenBlocks : minGapBetweenBlocks
+    if (haveAccepted && start - lastEnd < requiredGap) continue
     accepted.push({ ...ins, startTime: start, endTime: end })
     lastEnd = end
+    haveAccepted = true
   }
 
   const timeline: TimelineBlock[] = []
@@ -243,8 +297,7 @@ export async function renderLongformVideo(
 
   const qualityParams = resolveQualityParams(options.renderQuality)
   const encoder = getEncoder(qualityParams)
-  const encoderIsHardware =
-    encoder.encoder === 'h264_nvenc' || encoder.encoder === 'h264_qsv'
+  const encoderIsHardware = isHardwareEncoder(encoder.encoder)
 
   window.webContents.send(Ch.Send.RENDER_CLIP_START, {
     clipId: job.clipId,
@@ -269,7 +322,18 @@ export async function renderLongformVideo(
       ? buildEditStyleColorGradeFilter(editStyle.colorGrade)
       : null
 
-    const timeline = buildTimeline(plan, videoDuration)
+    // Resolve the chosen skin + palette once for every content block.
+    const skinId = options.longformSkinId ?? options.longformSkin ?? DEFAULT_LONGFORM_BLOCK_SKIN
+    const palette = getPaletteById(options.longformPaletteId, options.customPalettes)
+
+    const timeline = buildTimeline(
+      plan,
+      videoDuration,
+      MIN_GAP_BETWEEN_BLOCKS,
+      INTRO_GAP_BETWEEN_BLOCKS,
+      INTRO_SECONDS,
+      job.wordTimestamps
+    )
 
     window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
       clipId: job.clipId,
@@ -277,36 +341,56 @@ export async function renderLongformVideo(
       percent: 5
     })
 
+    // Encode a speaker segment for an arbitrary [startTime, endTime] range,
+    // applying the same landscape layout + zoom/grade used for real speaker
+    // blocks. Reused as the graceful fallback when a content block fails to
+    // render: substituting the underlying speaker shot keeps the concat
+    // timeline gap-free (every segment still maps 1:1 onto source time).
+    const encodeSpeakerForRange = async (
+      startTime: number,
+      endTime: number,
+      index: number
+    ): Promise<string> => {
+      const duration = endTime - startTime
+      const layout = buildLongformLayout('speaker', {
+        width: LANDSCAPE_WIDTH,
+        height: LANDSCAPE_HEIGHT,
+        segmentDuration: duration,
+        fps: LANDSCAPE_FPS,
+        sourceWidth: meta.width,
+        sourceHeight: meta.height,
+        cropRect: job.cropRegion
+      })
+      const zoomFilter = buildSpeakerZoom(
+        { kind: 'speaker', startTime, endTime },
+        zoomIntensity,
+        zoomStyle,
+        plan.phrases
+      )
+      const extraFilters = [zoomFilter, colorGradeFilter ?? ''].filter(Boolean)
+      const out = join(tmpdir(), `batchcontent-lf-speaker-${Date.now()}-${index}.mp4`)
+      await encodeSpeakerSegment({
+        sourceVideoPath: job.sourceVideoPath,
+        outputPath: out,
+        startTime,
+        duration,
+        fps: LANDSCAPE_FPS,
+        layout,
+        extraFilters
+      })
+      return out
+    }
+
     // ── Encode every timeline block to a normalized segment ────────────────
     const segmentFiles: string[] = []
+    let droppedBlocks = 0
     for (let i = 0; i < timeline.length; i++) {
       const block = timeline[i]
       const base = 5 + Math.round((i / timeline.length) * 65) // 5 → 70%
 
       if (block.kind === 'speaker') {
         window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: base })
-        const duration = block.endTime - block.startTime
-        const layout = buildLongformLayout('speaker', {
-          width: LANDSCAPE_WIDTH,
-          height: LANDSCAPE_HEIGHT,
-          segmentDuration: duration,
-          fps: LANDSCAPE_FPS,
-          sourceWidth: meta.width,
-          sourceHeight: meta.height,
-          cropRect: job.cropRegion
-        })
-        const zoomFilter = buildSpeakerZoom(block, zoomIntensity, zoomStyle, plan.phrases)
-        const extraFilters = [zoomFilter, colorGradeFilter ?? ''].filter(Boolean)
-        const out = join(tmpdir(), `batchcontent-lf-speaker-${Date.now()}-${i}.mp4`)
-        await encodeSpeakerSegment({
-          sourceVideoPath: job.sourceVideoPath,
-          outputPath: out,
-          startTime: block.startTime,
-          duration,
-          fps: LANDSCAPE_FPS,
-          layout,
-          extraFilters
-        })
+        const out = await encodeSpeakerForRange(block.startTime, block.endTime, i)
         segmentFiles.push(out)
         tempFiles.push(out)
       } else {
@@ -315,21 +399,45 @@ export async function renderLongformVideo(
           message: `Rendering ${block.placement.kind} block…`,
           percent: base
         })
-        const out = await renderBlockSegment({
-          placement: block.placement,
-          skinId: options.longformSkin ?? DEFAULT_LONGFORM_BLOCK_SKIN,
-          sourceVideoPath: job.sourceVideoPath,
-          width: LANDSCAPE_WIDTH,
-          height: LANDSCAPE_HEIGHT,
-          fps: LANDSCAPE_FPS
-        })
-        segmentFiles.push(out)
-        tempFiles.push(out)
+        try {
+          const out = await renderBlockSegment({
+            placement: block.placement,
+            skinId,
+            palette,
+            sourceVideoPath: job.sourceVideoPath,
+            width: LANDSCAPE_WIDTH,
+            height: LANDSCAPE_HEIGHT,
+            fps: LANDSCAPE_FPS
+          })
+          segmentFiles.push(out)
+          tempFiles.push(out)
+        } catch (err) {
+          // Graceful degrade (RF-003): a single content-block render failure
+          // must not kill the whole long-form render. Fall back to the plain
+          // speaker shot for this block's exact range so the timeline stays
+          // gap-free, and keep going.
+          const message = err instanceof Error ? err.message : String(err)
+          console.warn(
+            `[longform] Block render failed (${block.placement.kind}); ` +
+              `substituting speaker shot for ${block.startTime}s–${block.endTime}s: ${message}`
+          )
+          droppedBlocks++
+          const out = await encodeSpeakerForRange(block.startTime, block.endTime, i)
+          segmentFiles.push(out)
+          tempFiles.push(out)
+        }
       }
     }
 
     if (segmentFiles.length === 0) {
       throw new Error('Long-form timeline produced no segments.')
+    }
+
+    if (droppedBlocks > 0) {
+      console.warn(
+        `[longform] ${droppedBlocks} content block(s) failed to render and were ` +
+          `replaced by the underlying speaker shot; the final video is gap-free.`
+      )
     }
 
     // ── Concat ─────────────────────────────────────────────────────────────
@@ -358,27 +466,91 @@ export async function renderLongformVideo(
       (p) => p.endTime > p.startTime && p.startTime < videoDuration && inSpeakerBlock(p.startTime)
     )
 
+    // ── Delos pop-up cards ───────────────────────────────────────────────────
+    // Candidates from the plan, gated to SPEAKER time so a pop-up never lands
+    // on top of a full-frame content block (this is the single source of truth
+    // for that rule). These composite lower-center over the speaker.
+    const cards = filterCardsToSpeakerRanges(plan.cards ?? [], speakerRanges)
+    const haveCards = cards.length > 0
+
     window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
       clipId: job.clipId,
       message: `Compositing ${phrases.length} phrase overlay(s)…`,
       percent: 78
     })
 
+    // Phrase pass writes straight to the final path when there are no cards to
+    // add; otherwise it produces an intermediate the card pass composites onto.
+    const phraseTarget = haveCards
+      ? join(tmpdir(), `batchcontent-lf-phrased-${Date.now()}.mp4`)
+      : outputPath
+    if (haveCards) tempFiles.push(phraseTarget)
+
     let overlayTempFiles: string[] = []
+    let cardBase = concatPath
     if (phrases.length > 0) {
       const result = await applyPhraseOverlays({
         inputPath: concatPath,
-        outputPath,
+        outputPath: phraseTarget,
         phrases,
         width: LANDSCAPE_WIDTH,
         height: LANDSCAPE_HEIGHT,
         fps: LANDSCAPE_FPS,
-        qualityParams
+        qualityParams,
+        // Phrase emphasis text follows the user-selected palette, same axis as
+        // the content blocks (resolved at line ~320).
+        phraseColor: palette.accent
       })
       overlayTempFiles = result.tempFiles
-    } else {
-      // No phrases — re-encode the concat to the user's quality at the final path.
+      if (result.outputPath === phraseTarget) {
+        // Overlays composited onto phraseTarget → cards build on top of it.
+        cardBase = phraseTarget
+      } else {
+        // Every phrase overlay failed (e.g. Remotion wholly unavailable) →
+        // phraseTarget was never written. Fall back to the speaker concat as
+        // the card base; if there are no cards either, finalize it directly so
+        // the render still completes (RF-003).
+        cardBase = concatPath
+        if (!haveCards) {
+          await reencodeToFinal(concatPath, outputPath, qualityParams)
+        }
+      }
+    } else if (!haveCards) {
+      // No phrases and no cards — re-encode the concat to the user's quality.
       await reencodeToFinal(concatPath, outputPath, qualityParams)
+    }
+
+    let cardTempFiles: string[] = []
+    if (haveCards) {
+      window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
+        clipId: job.clipId,
+        message: `Compositing ${cards.length} pop-up card(s)…`,
+        percent: 88
+      })
+      const result = await applyDelosCards({
+        inputPath: cardBase,
+        outputPath,
+        cards,
+        speakerRanges,
+        words: job.wordTimestamps,
+        width: LANDSCAPE_WIDTH,
+        height: LANDSCAPE_HEIGHT,
+        fps: LANDSCAPE_FPS,
+        qualityParams,
+        // Cards follow the same palette accent as phrases and blocks.
+        accentColor: palette.accent,
+        apiKey: options.geminiApiKey
+      })
+      cardTempFiles = result.tempFiles
+      if (result.outputPath !== outputPath) {
+        // Every card render failed → nothing was written to the final path.
+        // Finalize the card pass's base instead so the render still completes.
+        if (cardBase === concatPath) {
+          await reencodeToFinal(concatPath, outputPath, qualityParams)
+        } else {
+          copyFileSync(cardBase, outputPath)
+        }
+      }
     }
 
     window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 100 })
@@ -386,6 +558,7 @@ export async function renderLongformVideo(
     window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 1, failed: 0, total: 1 })
 
     cleanupPhraseOverlayTempFiles(overlayTempFiles)
+    cleanupPhraseOverlayTempFiles(cardTempFiles)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     sendError(`Long-form render failed: ${message}`)
