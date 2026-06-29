@@ -179,6 +179,7 @@ export function PalettePicker({ disabled, className }: PalettePickerProps): Reac
       {/* ----- Style (skin) ----- */}
       <div className="flex flex-col gap-2">
         <Label className="text-sm font-semibold tracking-tight text-foreground">Style</Label>
+        <p className="text-xs text-muted-foreground">Structure of your content blocks</p>
         {/* biome-ignore lint/a11y/useSemanticElements: a labelled group of toggle buttons, not a fieldset of form fields */}
         <div role="group" aria-label="Block skin" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {SKINS.map((skin) => {
@@ -221,6 +222,7 @@ export function PalettePicker({ disabled, className }: PalettePickerProps): Reac
       {/* ----- Built-in palettes ----- */}
       <div className="flex flex-col gap-2">
         <Label className="text-sm font-semibold tracking-tight text-foreground">Palette</Label>
+        <p className="text-xs text-muted-foreground">Colors used across all blocks</p>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {BUILTIN_PALETTES.map((palette) => (
             <SwatchCard
