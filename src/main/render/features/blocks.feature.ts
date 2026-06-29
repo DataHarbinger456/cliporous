@@ -14,9 +14,11 @@
 import { join } from 'path'
 import { tmpdir } from 'os'
 import type { BlockPlacement, LongformSkinId } from '@shared/types'
+import type { Palette } from '@shared/palettes'
+import { getPaletteById } from '@shared/palettes'
 import { resolveLongformBlockCompositionId } from '../../remotion/registry'
-import { HORMOZI_ACCENT } from '../../edit-styles/hormozi'
 import { muxRemotionVisualWithAudio } from '../longform-encode'
+import { extendEndTimeForLastPoint, type WordTimestamp } from '../point-coverage'
 import type { RenderFeature, PrepareResult } from './feature'
 import type { RenderClipJob, RenderBatchOptions } from '../types'
 import type {
@@ -32,10 +34,16 @@ import type {
   ProgressBarsProps,
   KpiTickerProps,
   QuoteCardProps,
+  PortraitQuoteProps,
   TweetCardProps,
   DefinitionCardProps,
   TimelineCardsProps,
-  FeatureGridProps
+  FeatureGridProps,
+  LeaderboardProps,
+  DonutProps,
+  FunnelProps,
+  CalloutProps,
+  MapBlockProps
 } from '../../remotion/compositions/blocks/types'
 import type { TimelineProps } from '../../remotion/compositions/blocks/Timeline'
 
@@ -50,14 +58,25 @@ import type { TimelineProps } from '../../remotion/compositions/blocks/Timeline'
 
 /**
  * Map a block placement to the Remotion composition inputProps for `skinId`.
- * `accentColor` defaults to the Hormozi yellow when the plan omits it.
+ * No accent is forced: when the plan omits `accentColor`, blocks fall through
+ * to the resolved `palette` accent (brand purple) inside each composition. The
+ * resolved color `palette` (background / foreground / accent axis) is merged
+ * into every composition's inputProps so all block kinds color from it.
  */
 export function buildBlockInputProps(
   placement: BlockPlacement,
-  skinId: LongformSkinId
+  skinId: LongformSkinId,
+  palette?: Palette
 ): Record<string, unknown> {
-  const accentColor = placement.accentColor ?? HORMOZI_ACCENT
-  const base = { skinId, accentColor }
+  const accentColor = placement.accentColor
+  const resolvedPalette = palette ?? placement.palette
+  // `exactOptionalPropertyTypes` forbids `accentColor: undefined` /
+  // `palette: undefined`, so only attach each key when it is actually present.
+  const base = {
+    skinId,
+    ...(accentColor ? { accentColor } : {}),
+    ...(resolvedPalette ? { palette: resolvedPalette } : {})
+  }
 
   switch (placement.kind) {
     case 'bar-chart':
@@ -159,6 +178,16 @@ export function buildBlockInputProps(
         role: placement.role,
         avatarUrl: placement.avatarUrl
       } satisfies QuoteCardProps
+    case 'portrait-quote':
+      return {
+        ...base,
+        kicker: placement.kicker,
+        ...(placement.heading ? { heading: placement.heading } : {}),
+        quote: placement.quote,
+        name: placement.name,
+        ...(placement.role ? { role: placement.role } : {}),
+        ...(placement.imageUrl ? { imageUrl: placement.imageUrl } : {})
+      } satisfies PortraitQuoteProps
     case 'tweet-card':
       return {
         ...base,
@@ -203,7 +232,107 @@ export function buildBlockInputProps(
         heading: placement.heading,
         items: placement.items
       } satisfies FeatureGridProps
+    case 'leaderboard':
+      return {
+        ...base,
+        kicker: placement.kicker,
+        heading: placement.heading,
+        rows: placement.rows
+      } satisfies LeaderboardProps
+    case 'donut':
+      return {
+        ...base,
+        kicker: placement.kicker,
+        heading: placement.heading,
+        slices: placement.slices
+      } satisfies DonutProps
+    case 'funnel':
+      return {
+        ...base,
+        kicker: placement.kicker,
+        heading: placement.heading,
+        stages: placement.stages
+      } satisfies FunnelProps
+    case 'callout':
+      return {
+        ...base,
+        kicker: placement.kicker,
+        ...(placement.heading ? { heading: placement.heading } : {}),
+        body: placement.body,
+        ...(placement.attribution ? { attribution: placement.attribution } : {})
+      } satisfies CalloutProps
+    case 'map':
+      return {
+        ...base,
+        kicker: placement.kicker,
+        heading: placement.heading,
+        pins: placement.pins
+      } satisfies MapBlockProps
   }
+}
+
+// ---------------------------------------------------------------------------
+// Point coverage (shared with the vertical hyperframes path)
+//
+// List-style content blocks render N rows at once; keep them on screen until
+// the last row has been spoken. Reuses the shared fuzzy matcher in
+// `point-coverage.ts`. Times here are absolute source-video seconds, matching
+// `BlockPlacement.startTime/endTime` and `job.wordTimestamps`.
+// ---------------------------------------------------------------------------
+
+/** Prop fields (priority order) that carry a block's list of points. */
+const BLOCK_LIST_FIELDS = [
+  'items',
+  'rightItems',
+  'leftItems',
+  'stats',
+  'bars',
+  'rows',
+  'steps',
+  'slices',
+  'stages'
+] as const
+
+function blockItemToText(entry: unknown): string {
+  if (typeof entry === 'string') return entry
+  if (entry && typeof entry === 'object') {
+    const o = entry as Record<string, unknown>
+    const value = o.text ?? o.label ?? o.title ?? o.name ?? o.value
+    if (typeof value === 'string') return value
+    if (typeof value === 'number') return String(value)
+  }
+  return ''
+}
+
+/** Pull the longest text list out of a block placement (its main content). */
+export function extractBlockItemTexts(placement: BlockPlacement): string[] {
+  const record = placement as unknown as Record<string, unknown>
+  let best: string[] = []
+  for (const field of BLOCK_LIST_FIELDS) {
+    const value = record[field]
+    if (!Array.isArray(value)) continue
+    const texts = value.map(blockItemToText).filter((t) => t.length > 0)
+    if (texts.length > best.length) best = texts
+  }
+  return best
+}
+
+/**
+ * Extend a list-style block's `endTime` so it stays on screen until its last
+ * row is spoken. Returns the (possibly unchanged) end time; never extends past
+ * `clipEnd` and never shrinks. Non-list blocks pass through untouched.
+ */
+export function extendBlockPlacementEndTime(
+  placement: BlockPlacement,
+  words: WordTimestamp[] | undefined,
+  clipEnd: number
+): number {
+  return extendEndTimeForLastPoint({
+    items: extractBlockItemTexts(placement),
+    currentEndTime: placement.endTime,
+    clipEnd,
+    words
+  })
 }
 
 export interface RenderBlockOptions {
@@ -213,6 +342,15 @@ export interface RenderBlockOptions {
   width: number
   height: number
   fps: number
+  /** Resolved color palette to color the block with. Wins over `paletteId`. */
+  palette?: Palette
+  /** Palette id to resolve when a concrete `palette` is not supplied. */
+  paletteId?: string
+  /**
+   * Per-segment progress callback (0–100), RF-006. The slow Remotion render
+   * drives 0–95; the final audio mux completes the segment at 100.
+   */
+  onProgress?: ((percent: number) => void) | undefined
 }
 
 /**
@@ -220,12 +358,14 @@ export interface RenderBlockOptions {
  * Returns the output path. Temp files are written under the OS temp dir.
  */
 export async function renderBlockSegment(opts: RenderBlockOptions): Promise<string> {
-  const { placement, skinId, sourceVideoPath, width, height, fps } = opts
+  const { placement, skinId, sourceVideoPath, width, height, fps, onProgress } = opts
   const duration = Math.max(0.5, placement.endTime - placement.startTime)
   const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`
 
+  // Default to the brand palette when no concrete palette / id is supplied.
+  const palette = opts.palette ?? getPaletteById(opts.paletteId)
   const compositionId = resolveLongformBlockCompositionId(placement.kind, skinId)
-  const inputProps = buildBlockInputProps(placement, skinId)
+  const inputProps = buildBlockInputProps(placement, skinId, palette)
 
   // Dynamic import keeps @remotion/bundler (esbuild) out of the static module
   // graph so importing the render pipeline in tests never loads it.
@@ -240,7 +380,10 @@ export async function renderBlockSegment(opts: RenderBlockOptions): Promise<stri
     width,
     height,
     transparent: false,
-    outputPath: visualPath
+    outputPath: visualPath,
+    // Remotion render is the slow phase — map its 0..1 onto 0..95 of the
+    // segment band; the trailing mux completes the last 5%.
+    onProgress: onProgress ? (p) => onProgress(Math.min(95, p * 100)) : undefined
   })
 
   const outputPath = join(tmpdir(), `batchcontent-block-seg-${stamp}.mp4`)
@@ -255,6 +398,7 @@ export async function renderBlockSegment(opts: RenderBlockOptions): Promise<stri
     fps
   })
 
+  onProgress?.(100)
   return outputPath
 }
 

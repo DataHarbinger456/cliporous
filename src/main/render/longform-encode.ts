@@ -73,6 +73,13 @@ export interface EncodeSpeakerSegmentOptions {
    * color grade). Each entry is a bare filter string (no input/output labels).
    */
   extraFilters?: string[]
+  /**
+   * Per-encode progress callback. Receives 0–100 within THIS segment, derived
+   * from FFmpeg's `time=` against the known `duration` (RF-006). Lets the
+   * caller advance the bar smoothly mid-encode instead of jumping once per
+   * segment.
+   */
+  onProgress?: ((percent: number) => void) | undefined
 }
 
 /**
@@ -80,7 +87,8 @@ export interface EncodeSpeakerSegmentOptions {
  * landscape layout + optional zoom/grade, and write a normalized intermediate.
  */
 export function encodeSpeakerSegment(opts: EncodeSpeakerSegmentOptions): Promise<void> {
-  const { sourceVideoPath, outputPath, startTime, duration, fps, layout, extraFilters } = opts
+  const { sourceVideoPath, outputPath, startTime, duration, fps, layout, extraFilters, onProgress } =
+    opts
 
   // Chain extras after the layout's [outv] → [fx0] → [fx1] … → [finalv].
   let currentLabel = 'outv'
@@ -118,7 +126,14 @@ export function encodeSpeakerSegment(opts: EncodeSpeakerSegmentOptions): Promise
           ...intermediateSink(encoder, presetFlag, fps)
         ])
         .on('stderr', (line: string) => { stderr += line + '\n' })
-        .on('end', () => resolve())
+        // FFmpeg's percent here is meaningful because `cmd.duration(duration)`
+        // above sets the segment length the wrapper divides `time=` by. Cap at
+        // 99 so the band only reaches its ceiling on the `end` event.
+        .on('progress', (p: { percent?: number }) => onProgress?.(Math.min(99, p.percent ?? 0)))
+        .on('end', () => {
+          onProgress?.(100)
+          resolve()
+        })
         .on('error', (err: Error) => {
           if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderr)) {
             fallbackAttempted = true
@@ -296,6 +311,124 @@ export function compositePhraseOverlays(opts: CompositePhraseOverlaysOptions): P
         })
         .save(toFFmpegPath(outputPath))
     }
+
+    const gpuDisabled = isGpuEncoderDisabled()
+    const { encoder, presetFlag } = gpuDisabled
+      ? getSoftwareEncoder(qualityParams)
+      : getEncoder(qualityParams)
+    run(encoder, presetFlag, true)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Delos pop-up card compositing (lower-center, additive overlay layer)
+// ---------------------------------------------------------------------------
+
+export interface DelosCardOverlayInput {
+  /** Alpha ProRes (.mov) clip for this card (authored portrait, card-centered). */
+  overlayPath: string
+  /** Absolute timeline start (seconds) on the concatenated video. */
+  startTime: number
+  /** Absolute timeline end (seconds). */
+  endTime: number
+}
+
+export interface CompositeDelosCardsOptions {
+  inputPath: string
+  outputPath: string
+  overlays: DelosCardOverlayInput[]
+  /** Output frame width (landscape, e.g. 1920). */
+  width: number
+  /** Output frame height (landscape, e.g. 1080). */
+  height: number
+  /** Final encode quality (the user's selected preset). */
+  qualityParams: QualityParams
+}
+
+/**
+ * Horizontal nudge (pixels) applied to the otherwise-centered card so it drifts
+ * slightly right of dead-center — a softer, less symmetrical look.
+ */
+const CARD_RIGHT_DRIFT_PX = 70
+
+/**
+ * Composite N alpha Delos cards onto the base video in a single encode.
+ *
+ * Each card's portrait MOV is scaled so its full authored canvas matches the
+ * output frame HEIGHT, then overlaid at the lower-center (slightly right). The
+ * card's vertical position within that canvas is baked in at render time via
+ * its `yPos` variable (kept in the lower band, below the speaker's eye-line),
+ * so scaling the canvas to frame height makes `yPos%` map 1:1 onto the frame.
+ * Each input is time-shifted with `-itsoffset` and gated with `enable=between`.
+ */
+export function compositeDelosCards(opts: CompositeDelosCardsOptions): Promise<void> {
+  const { inputPath, outputPath, overlays, width, height, qualityParams } = opts
+
+  // Center the scaled overlay horizontally, then nudge right. The overlay width
+  // (`w`) is unknown until scale runs, so compute x in-filter via (W-w)/2.
+  const overlayX = `(W-w)/2+${CARD_RIGHT_DRIFT_PX}`
+
+  return new Promise<void>((resolve, reject) => {
+    let fallbackAttempted = false
+
+    const run = (encoder: string, presetFlag: string[], useHwAccel: boolean): void => {
+      const cmd = ffmpeg(toFFmpegPath(inputPath))
+      let stderr = ''
+      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto'])
+
+      for (const ov of overlays) {
+        cmd.input(toFFmpegPath(ov.overlayPath))
+        cmd.inputOptions(['-itsoffset', ov.startTime.toFixed(3)])
+      }
+
+      // Scale each card canvas to the frame height, then overlay lower-center.
+      const steps: string[] = []
+      let prev = '0:v'
+      overlays.forEach((ov, i) => {
+        const inIdx = i + 1
+        const scaled = `c${i}`
+        const outLabel = `v${i + 1}`
+        const enable = `between(t\\,${ov.startTime.toFixed(3)}\\,${ov.endTime.toFixed(3)})`
+        steps.push(`[${inIdx}:v]scale=-2:${height}[${scaled}]`)
+        steps.push(
+          `[${prev}][${scaled}]overlay=${overlayX}:0:eof_action=pass:enable='${enable}'[${outLabel}]`
+        )
+        prev = outLabel
+      })
+      steps.push(`[${prev}]format=yuv420p[outv]`)
+      const filterComplex = steps.join(';')
+
+      cmd
+        .outputOptions([
+          '-filter_complex', filterComplex,
+          '-map', '[outv]',
+          '-map', '0:a',
+          '-c:v', encoder,
+          ...presetFlag,
+          '-pix_fmt', 'yuv420p',
+          '-c:a', 'copy',
+          '-movflags', '+faststart',
+          '-y'
+        ])
+        .on('stderr', (line: string) => { stderr += line + '\n' })
+        .on('end', () => resolve())
+        .on('error', (err: Error) => {
+          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderr)) {
+            fallbackAttempted = true
+            disableGpuEncoderForSession()
+            const fb = getSoftwareEncoder(qualityParams)
+            run(fb.encoder, fb.presetFlag, false)
+          } else {
+            const tail = stderr.split('\n').slice(-10).join('\n')
+            reject(new Error(`${err.message}\n[stderr tail] ${tail}`))
+          }
+        })
+        .save(toFFmpegPath(outputPath))
+    }
+
+    // Mark `width` as intentionally part of the contract even though the
+    // horizontal position is computed in-filter from the main input width.
+    void width
 
     const gpuDisabled = isGpuEncoderDisabled()
     const { encoder, presetFlag } = gpuDisabled

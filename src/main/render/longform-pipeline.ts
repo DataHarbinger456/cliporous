@@ -349,7 +349,8 @@ export async function renderLongformVideo(
     const encodeSpeakerForRange = async (
       startTime: number,
       endTime: number,
-      index: number
+      index: number,
+      onProgress?: ((percent: number) => void) | undefined
     ): Promise<string> => {
       const duration = endTime - startTime
       const layout = buildLongformLayout('speaker', {
@@ -376,7 +377,8 @@ export async function renderLongformVideo(
         duration,
         fps: LANDSCAPE_FPS,
         layout,
-        extraFilters
+        extraFilters,
+        onProgress
       })
       return out
     }
@@ -386,11 +388,28 @@ export async function renderLongformVideo(
     let droppedBlocks = 0
     for (let i = 0; i < timeline.length; i++) {
       const block = timeline[i]
+      // Each segment owns the progress band [base, nextBase]; per-segment
+      // progress (0–100) maps into it so the bar advances smoothly mid-encode
+      // instead of jumping once per segment (RF-006).
       const base = 5 + Math.round((i / timeline.length) * 65) // 5 → 70%
+      const nextBase = 5 + Math.round(((i + 1) / timeline.length) * 65)
+      const emitSegmentProgress = (pct: number): void => {
+        const clamped = Math.max(0, Math.min(100, pct))
+        const mapped = Math.round(base + (clamped / 100) * (nextBase - base))
+        window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, {
+          clipId: job.clipId,
+          percent: mapped
+        })
+      }
 
       if (block.kind === 'speaker') {
         window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: base })
-        const out = await encodeSpeakerForRange(block.startTime, block.endTime, i)
+        const out = await encodeSpeakerForRange(
+          block.startTime,
+          block.endTime,
+          i,
+          emitSegmentProgress
+        )
         segmentFiles.push(out)
         tempFiles.push(out)
       } else {
@@ -407,7 +426,8 @@ export async function renderLongformVideo(
             sourceVideoPath: job.sourceVideoPath,
             width: LANDSCAPE_WIDTH,
             height: LANDSCAPE_HEIGHT,
-            fps: LANDSCAPE_FPS
+            fps: LANDSCAPE_FPS,
+            onProgress: emitSegmentProgress
           })
           segmentFiles.push(out)
           tempFiles.push(out)
@@ -422,7 +442,12 @@ export async function renderLongformVideo(
               `substituting speaker shot for ${block.startTime}s–${block.endTime}s: ${message}`
           )
           droppedBlocks++
-          const out = await encodeSpeakerForRange(block.startTime, block.endTime, i)
+          const out = await encodeSpeakerForRange(
+            block.startTime,
+            block.endTime,
+            i,
+            emitSegmentProgress
+          )
           segmentFiles.push(out)
           tempFiles.push(out)
         }

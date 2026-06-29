@@ -46,6 +46,32 @@ function resolveRemotionEntry(): string {
   return candidates[0]
 }
 
+/**
+ * Resolve the directory that `staticFile('fonts/...')` should serve from.
+ *
+ * `Config.setPublicDir('./resources')` in `remotion.config.ts` ONLY configures
+ * the Remotion CLI / Studio — the programmatic `bundle()` API ignores it and
+ * defaults to a `public/` folder beside the entry point (which does not exist
+ * here). Without an explicit `publicDir`, `staticFile('fonts/Geist-Bold.ttf')`
+ * resolves to a URL the headless Chromium can't fetch, so `document.fonts.load()`
+ * rejects with a NetworkError and aborts the whole clip render.
+ *
+ * The directory we want is the one whose child `fonts/` holds the bundled TTFs:
+ *   - dev:      `<appPath>/resources`            (repo `resources/fonts/`)
+ *   - packaged: `process.resourcesPath`          (extraResources copies
+ *               `resources/fonts` → `<resourcesPath>/fonts`)
+ */
+function resolveRemotionPublicDir(): string {
+  const candidates = [
+    join(app.getAppPath(), 'resources'),
+    process.resourcesPath
+  ].filter((p): p is string => Boolean(p))
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, 'fonts'))) return candidate
+  }
+  return candidates[0] ?? join(app.getAppPath(), 'resources')
+}
+
 async function getBundle(): Promise<string> {
   if (!bundlePromise) {
     bundlePromise = bundle({
@@ -55,6 +81,11 @@ async function getBundle(): Promise<string> {
       // root is the app path (project root in dev, asar root when packaged),
       // which is where the bundled `src/` tree lives.
       webpackOverride: createWebpackOverride(app.getAppPath()),
+      // The programmatic bundler does NOT read `Config.setPublicDir` from
+      // remotion.config.ts — pass it explicitly so the bundled fonts under
+      // `resources/fonts/` are served and `staticFile('fonts/...')` resolves
+      // during a headless render (not just in Studio).
+      publicDir: resolveRemotionPublicDir(),
       onProgress: () => undefined
     })
   }
@@ -76,6 +107,12 @@ export interface RenderRemotionOptions {
    * otherwise. If omitted, a temp path is generated.
    */
   outputPath?: string
+  /**
+   * Per-frame render progress callback (RF-006). Receives a 0–1 fraction from
+   * Remotion's `renderMedia` so callers can advance a progress bar smoothly
+   * during long block renders instead of freezing until the segment finishes.
+   */
+  onProgress?: ((progress: number) => void) | undefined
 }
 
 export async function renderRemotionSegment(
@@ -108,10 +145,20 @@ export async function renderRemotionSegment(
     },
     codec: opts.transparent ? 'prores' : 'h264',
     proResProfile: opts.transparent ? '4444' : undefined,
+    // ProRes defaults to yuv420p (no alpha). Without an alpha-carrying pixel
+    // format the "transparent" areas bake to black and composite as a black
+    // screen behind the overlay. yuva444p10le is the alpha-capable ProRes 4444
+    // format; paired with the PNG image format this preserves the alpha channel.
+    pixelFormat: opts.transparent ? 'yuva444p10le' : undefined,
     outputLocation: outPath,
     inputProps: opts.inputProps,
     imageFormat: 'png',
-    chromiumOptions: { gl: 'angle' }
+    chromiumOptions: { gl: 'angle' },
+    // Forward Remotion's per-frame progress (0..1) so block segments advance
+    // the render bar smoothly rather than stalling for the whole encode. The
+    // wrapper is always defined (no-ops via optional chaining when the caller
+    // passed nothing) to stay clean under exactOptionalPropertyTypes.
+    onProgress: ({ progress }) => opts.onProgress?.(progress)
   })
 
   return outPath
