@@ -178,10 +178,22 @@ export function useLongformPipeline(): {
           skin: longformSkin,
           paletteId: longformPaletteId
         })
-        toast.message(
-          `Edit plan: ${plan.phrases.length} phrase${plan.phrases.length === 1 ? '' : 's'}, ` +
-            `${plan.blocks.length} block${plan.blocks.length === 1 ? '' : 's'}`
-        )
+        if (plan.blocks.length === 0 && plan.phrases.length === 0) {
+          // Degenerate plan: Gemini found no structured moments. The render
+          // below still proceeds (a plain speaker cut), but make that explicit
+          // and distinct from a normal plan so the user doesn't think the
+          // feature silently failed.
+          // `cards` exists on the canonical plan but not the preload's loose
+          // IPC mirror, so read it through the same bridge cast used above.
+          const cardCount = (plan as unknown as LongformEditPlan).cards?.length ?? 0
+          const cardNote = cardCount > 0 ? ` (${cardCount} card${cardCount === 1 ? '' : 's'})` : ''
+          toast.warning(`AI found no structured moments — rendering plain speaker video${cardNote}`)
+        } else {
+          toast.message(
+            `Edit plan: ${plan.phrases.length} phrase${plan.phrases.length === 1 ? '' : 's'}, ` +
+              `${plan.blocks.length} block${plan.blocks.length === 1 ? '' : 's'}`
+          )
+        }
 
         // ── Step 4: Render ──────────────────────────────────────────────
         clearRenderErrors()
