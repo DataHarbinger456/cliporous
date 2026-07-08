@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html data-width="720" data-height="1280">
+<head>
+  <meta charset="utf-8">
+  <title>HyperFrames — Promo Chat Exchange</title>
+  <link rel="stylesheet" href="shared/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Media Master chat exchange — faithful to the app's "How it works" cards.
+       Light Rice-Paper surface, Deep Indigo user bubble, Bamboo-green success
+       check on the agent reply. Palette mirrors landing/app/globals.css. */
+    :root {
+      --mm-shell: #f9f9fa;   --mm-white: #ffffff;
+      --mm-bean: #1a1a24;    --mm-umber: #4b6284;
+      --mm-indigo: #1d3557;  --mm-indigo-shadow: #0f1d34;
+      --mm-bamboo: #2a9d8f;
+      --mm-border: rgba(29,53,87,0.12);
+      --mm-font: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      --mm-heading: 'Oswald', 'Arial Narrow', sans-serif;
+    }
+    .mm-chat { display: flex; flex-direction: column; gap: 22px; width: 660px; will-change: transform, opacity; }
+
+    /* User prompt — Deep Indigo, aligned right, tail on bottom-right. */
+    .mm-user-wrap { display: flex; flex-direction: column; align-items: flex-end; }
+    .mm-user {
+      max-width: 86%; padding: 22px 26px;
+      border-radius: 26px 26px 10px 26px;
+      background: var(--mm-indigo); color: var(--mm-white);
+      font-family: var(--mm-font); font-weight: 500; font-size: 30px; line-height: 1.32;
+      box-shadow: 0 10px 26px -8px rgba(15,29,52,0.5);
+      will-change: transform, opacity;
+    }
+    .mm-user-meta { margin-top: 10px; font-family: var(--mm-font); font-size: 17px; color: var(--mm-umber); }
+
+    /* Agent reply — Sparkles avatar + white card, tail on bottom-left. */
+    .mm-agent-row { display: flex; align-items: flex-end; gap: 14px; will-change: transform, opacity; }
+    /* Agent PFP = the real Media Master app icon. */
+    .mm-avatar {
+      flex: none; width: 56px; height: 56px; border-radius: 16px;
+      overflow: hidden; background: var(--mm-indigo);
+      box-shadow: 0 6px 16px -6px rgba(15,29,52,0.5);
+    }
+    .mm-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }
+    .mm-agent {
+      flex: 1; padding: 22px 26px;
+      border-radius: 26px 26px 26px 10px;
+      background: var(--mm-white); border: 1px solid var(--mm-border);
+      box-shadow: 0 18px 40px -22px rgba(15,29,52,0.4);
+    }
+    .mm-agent-label {
+      font-family: var(--mm-font); font-weight: 600; font-size: 15px;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--mm-umber);
+      margin-bottom: 12px;
+    }
+    .mm-agent-line {
+      display: flex; align-items: center; gap: 12px;
+      font-family: var(--mm-font); font-weight: 500; font-size: 27px; line-height: 1.3; color: var(--mm-bean);
+    }
+    .mm-check {
+      flex: none; width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(42,157,143,0.14);
+    }
+    .mm-check svg { width: 16px; height: 16px; }
+    .mm-check-path {
+      stroke: var(--mm-bamboo); stroke-width: 3.2; fill: none;
+      stroke-linecap: round; stroke-linejoin: round;
+      stroke-dasharray: 30; stroke-dashoffset: 30;
+    }
+
+    /* Typing indicator shown before the reply resolves. */
+    .mm-typing { display: inline-flex; gap: 8px; align-items: center; height: 30px; }
+    .mm-typing span { width: 11px; height: 11px; border-radius: 50%; background: rgba(75,98,132,0.5); will-change: transform, opacity; }
+
+    .mm-cursor { display: inline-block; width: 3px; height: 1.05em; margin-left: 3px; background: rgba(255,255,255,0.9); vertical-align: text-bottom; }
+  </style>
+</head>
+<body>
+  <div class="hf-center mm-chat" id="chat" data-composition-id="promo-chat-exchange" data-start="0" data-duration="4" data-track-index="0">
+    <div class="mm-user-wrap" id="userWrap">
+      <div class="mm-user"><span id="userText"></span><span class="mm-cursor" id="userCursor"></span></div>
+      <div class="mm-user-meta">You · just now</div>
+    </div>
+    <div class="mm-agent-row" id="agentRow">
+      <div class="mm-avatar" id="avatar">
+        <img src="shared/mm-logo.png" alt="Media Master">
+      </div>
+      <div class="mm-agent">
+        <div class="mm-agent-label" id="appName"></div>
+        <div class="mm-typing" id="typing"><span></span><span></span><span></span></div>
+        <div class="mm-agent-line" id="agentLine" style="display:none">
+          <span class="mm-check"><svg viewBox="0 0 24 24"><path class="mm-check-path" id="checkPath" d="M5 12.5 L10 17.5 L19 6.5"/></svg></span>
+          <span id="agentText"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script>
+    const v = window.__hyperframes?.getVariables?.() ?? {};
+    const accent = v.accentColor ?? v.color ?? '#1d3557';
+    const yPos = v.yPos ?? 50;
+    const userText = v.userText ?? v.text ?? 'Write 5 captions in our tone of voice';
+    const agentText = v.agentText ?? 'Wrote 5 captions in your tone';
+    const appName = v.appName ?? 'Media Master';
+
+    const chatEl = document.getElementById('chat');
+    chatEl.style.top = yPos + '%';
+    document.getElementById('appName').textContent = appName;
+    document.getElementById('agentText').textContent = agentText;
+    document.querySelector('.mm-user').style.background = accent;
+    // Avatar keeps its own indigo icon backdrop (fallback if the PNG is missing).
+    document.getElementById('avatar').style.background = accent;
+
+    const userEl = document.getElementById('userText');
+    const userCursor = document.getElementById('userCursor');
+    const typingEl = document.getElementById('typing');
+    const agentLine = document.getElementById('agentLine');
+    const userWrap = document.getElementById('userWrap');
+    const agentRow = document.getElementById('agentRow');
+
+    gsap.set(agentRow, { opacity: 0, y: 22, scale: 0.97 });
+
+    const dur = parseFloat(v.timingDuration ?? 4);
+    const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+
+    // 1) User prompt bubble slides in.
+    tl.fromTo(userWrap, { opacity: 0, y: 28, scale: 0.95 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: 'back.out(1.3)' }, 0);
+
+    // 2) Type the user prompt.
+    const typeState = { n: 0 };
+    tl.to(typeState, { n: userText.length, duration: 0.9, ease: 'none',
+      onUpdate: () => { userEl.textContent = userText.slice(0, Math.round(typeState.n)); } }, 0.25);
+    tl.to(userCursor, { opacity: 0, duration: 0.2 }, '>');
+
+    // 3) Agent bubble appears with typing dots.
+    tl.to(agentRow, { opacity: 1, y: 0, scale: 1, duration: 0.3, ease: 'back.out(1.3)' }, '>-0.05');
+    tl.fromTo('#typing span', { opacity: 0.4, y: 0 },
+      { opacity: 1, y: -6, duration: 0.4, stagger: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut' }, '<');
+
+    // 4) Typing dots swap for the completed reply line.
+    tl.to(typingEl, { opacity: 0, duration: 0.15, onComplete: () => {
+      typingEl.style.display = 'none'; agentLine.style.display = 'flex'; } }, '>');
+    tl.fromTo(agentLine, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.3 }, '>');
+    tl.to('#checkPath', { strokeDashoffset: 0, duration: 0.35, ease: 'power2.out' }, '<');
+
+    // 5) Exit.
+    tl.to(chatEl, { opacity: 0, y: -20, scale: 0.97, duration: 0.35, ease: 'power2.in' },
+      Math.max(dur - 0.45, 1.0));
+  </script>
+</body>
+</html>

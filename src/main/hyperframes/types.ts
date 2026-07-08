@@ -16,6 +16,8 @@ export type OverlayBlockName =
   | 'hologram-orb' | 'neural-network' | 'data-sphere' | 'glowing-cube' | 'energy-ring'
   // Tablet pop-ups (legacy `delos-*` IDs; brand shown on screen is PRESTYJ)
   | 'delos-console' | 'delos-alert' | 'delos-scan-result'
+  // Promo Mode — Media Master evidence templates
+  | 'promo-agent-toast' | 'promo-chat-exchange' | 'promo-publish' | 'promo-feature-flash'
 
 export type PresetCategory =
   | 'money' | 'time' | 'ai' | 'comparison' | 'list' | 'setup' | 'transition'

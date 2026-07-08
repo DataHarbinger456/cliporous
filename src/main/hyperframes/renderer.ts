@@ -155,6 +155,33 @@ function buildVariables(request: OverlayRequest): Record<string, unknown> {
       vars.glow = (props as Record<string, unknown>).glow ?? true
       break
 
+    case 'promo-agent-toast':
+      vars.message = (props as Record<string, unknown>).message ?? props.text ?? 'Generated 15 on-brand images'
+      vars.appName = (props as Record<string, unknown>).appName ?? 'Media Master'
+      vars.accentColor = (props as Record<string, unknown>).accentColor ?? vars.color
+      break
+
+    case 'promo-chat-exchange':
+      // Media Master brand: Deep Indigo primary (#1d3557), not the app violet.
+      vars.userText = (props as Record<string, unknown>).userText ?? props.text ?? 'Write 5 captions in our tone of voice'
+      vars.agentText = (props as Record<string, unknown>).agentText ?? 'Wrote 5 captions in your tone'
+      vars.appName = (props as Record<string, unknown>).appName ?? 'Media Master'
+      vars.accentColor = (props as Record<string, unknown>).accentColor ?? '#1d3557'
+      break
+
+    case 'promo-publish':
+      vars.label = (props as Record<string, unknown>).label ?? props.text ?? 'Publish to 9 platforms'
+      vars.platforms = (props as Record<string, unknown>).platforms ?? []
+      vars.accentColor = (props as Record<string, unknown>).accentColor ?? '#1d3557'
+      break
+
+    case 'promo-feature-flash':
+      vars.icon = (props as Record<string, unknown>).icon ?? 'sparkles'
+      vars.title = (props as Record<string, unknown>).title ?? props.text ?? 'Swipe Ads'
+      vars.description = (props as Record<string, unknown>).description ?? 'Turn winning competitor ads into on-brand posts'
+      vars.accentColor = (props as Record<string, unknown>).accentColor ?? '#1d3557'
+      break
+
     case 'before-after':
       vars.leftLabel = (props as Record<string, unknown>).leftLabel ?? 'BEFORE'
       vars.leftValue = (props as Record<string, unknown>).leftValue ?? ''
