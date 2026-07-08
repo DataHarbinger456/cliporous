@@ -35,6 +35,19 @@ describe('brand-pack — default pack', () => {
     }
   });
 
+  it('ships the three new Media Master app-ui templates', () => {
+    const pack = buildDefaultBrandPack();
+    const templateIds = new Set(pack.assets.map((a) => a.templateId));
+    expect(templateIds.has('promo-chat-exchange')).toBe(true);
+    expect(templateIds.has('promo-publish')).toBe(true);
+    expect(templateIds.has('promo-feature-flash')).toBe(true);
+    // All three register under the app-ui category.
+    for (const id of ['promo-chat-exchange', 'promo-publish', 'promo-feature-flash']) {
+      const asset = pack.assets.find((a) => a.templateId === id);
+      expect(asset?.category).toBe('app-ui');
+    }
+  });
+
   it('applies category display defaults to each asset', () => {
     const pack = buildDefaultBrandPack();
     for (const a of pack.assets) {
