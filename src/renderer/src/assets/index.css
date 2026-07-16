@@ -1,20 +1,12 @@
 /*
- * BatchClip brand theme — dark only.
+ * BatchClip studio theme.
  *
- * Brand seeds:
- *   background  #23100c  (deep warm brown)   → 10.4 48.9% 9.2%
- *   foreground  #f6ecd9  (warm cream)        → 39.3 61.7% 90.8%
- *   accent      #9f75ff  (violet)            → 258.3 100% 72.9%
- *
- * All shadcn tokens below are derived from these three seeds — surfaces step
- * up in lightness from the background, mutes step down from the foreground,
- * and the violet accent is reused for primary + ring focus.
- *
- * NOTE: PRESTYJ caption fonts in /home/groot/batchcontent/resources/fonts will
- * be copied into resources/fonts/ later; this file only loads the UI font.
+ * Light is the default: a warm canvas with white raised work surfaces. Dark
+ * keeps the locked espresso, cream, and violet brand seeds. Semantic roles
+ * below keep status meaning readable without relying on color alone.
  */
 
-/* UI font — Inter via @fontsource (self-hosted, offline-friendly for Electron) */
+/* UI font, self-hosted for stable Electron rendering. */
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
@@ -26,42 +18,87 @@
 
 @layer base {
   :root {
-    /* Surfaces — warm brown ramp built up from the brand background */
-    --background: 10.4 48.9% 9.2%;          /* #23100c — brand bg */
-    --foreground: 39.3 61.7% 90.8%;         /* #f6ecd9 — brand cream */
+    /* Warm canvas and raised work surfaces */
+    --background: 36 35% 96%;
+    --foreground: 24 22% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 24 22% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 22% 14%;
+    --secondary: 33 25% 91%;
+    --secondary-foreground: 24 22% 18%;
+    --muted: 33 22% 92%;
+    --muted-foreground: 24 12% 38%;
+    --input: 36 30% 98%;
 
-    --card: 12.9 43.8% 12.5%;               /* #2e1812 — one step up */
+    /* Action and state roles */
+    --primary: 258.3 56% 46%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 258.3 56% 46%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --info: 210 78% 39%;
+    --success: 148 58% 35%;
+    --warning: 34 88% 43%;
+    --signal: 25 81% 46%;
+
+    /* Source-specific indicator roles */
+    --indicator-pipeline: 25 81% 46%;
+    --indicator-media: 14 72% 45%;
+    --indicator-ai: 270 58% 48%;
+    --indicator-transcription: 210 78% 39%;
+    --indicator-render: 48 88% 38%;
+    --indicator-face: 190 72% 35%;
+    --indicator-error: 0 72% 46%;
+
+    /* Boundaries and focus */
+    --border: 30 18% 80%;
+    --border-strong: 27 15% 63%;
+    --ring: 258.3 56% 46%;
+    --radius: 0.75rem;
+    --radius-control: 0.5rem;
+    --motion-fast: 100ms;
+    --motion-standard: 170ms;
+    --motion-slow: 220ms;
+    --ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
+    color-scheme: light;
+  }
+
+  :root.dark {
+    /* Locked espresso, cream, and violet brand seeds */
+    --background: 10.4 48.9% 9.2%;
+    --foreground: 39.3 61.7% 90.8%;
+    --card: 16 37% 13%;
     --card-foreground: 39.3 61.7% 90.8%;
-
-    --popover: 13.7 43.2% 15.9%;            /* #3a1f17 — two steps up */
+    --popover: 19 32% 17%;
     --popover-foreground: 39.3 61.7% 90.8%;
-
-    /* Primary — the violet accent doubles as the main interactive color */
-    --primary: 258.3 100% 72.9%;            /* #9f75ff — brand accent */
-    --primary-foreground: 10.4 48.9% 9.2%;  /* brand bg, for max contrast on violet */
-
-    /* Secondary — muted warm-brown surface for low-emphasis controls */
-    --secondary: 14.7 43.7% 20.2%;          /* #4a281d */
+    --secondary: 19 30% 20%;
     --secondary-foreground: 39.3 61.7% 90.8%;
-
-    /* Accent — same violet, used for hover/highlight tints */
+    --muted: 18 26% 23%;
+    --muted-foreground: 35 31% 72%;
+    --input: 18 28% 19%;
+    --primary: 258.3 100% 72.9%;
+    --primary-foreground: 10.4 48.9% 9.2%;
     --accent: 258.3 100% 72.9%;
     --accent-foreground: 10.4 48.9% 9.2%;
-
-    /* Muted — dim brown surface + dim cream text */
-    --muted: 13.1 41.4% 26.1%;              /* #5e3327 */
-    --muted-foreground: 36.0 24.0% 59.2%;   /* #b09c7e — desaturated cream */
-
-    /* Borders / inputs / focus ring */
-    --border: 12.0 40.2% 34.1%;             /* #7a4234 — visible on bg + card */
-    --input: 14.7 43.7% 20.2%;              /* matches secondary */
-    --ring: 258.3 100% 72.9%;               /* violet focus ring */
-
-    /* Destructive — standard shadcn red, kept distinct from the warm palette */
-    --destructive: 0 84.2% 60.2%;           /* #ef4444 */
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 39.3 61.7% 90.8%;
-
-    --radius: 0.5rem;
+    --info: 210 82% 68%;
+    --success: 148 55% 55%;
+    --warning: 34 92% 63%;
+    --signal: 25 81% 64%;
+    --indicator-pipeline: 25 81% 64%;
+    --indicator-media: 14 78% 68%;
+    --indicator-ai: 270 72% 75%;
+    --indicator-transcription: 210 82% 68%;
+    --indicator-render: 48 92% 68%;
+    --indicator-face: 190 78% 65%;
+    --indicator-error: 0 84% 70%;
+    --border: 20 27% 30%;
+    --border-strong: 20 26% 39%;
+    --ring: 258.3 100% 72.9%;
+    color-scheme: dark;
   }
 
   * {
@@ -76,6 +113,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    min-width: 320px;
     font-family:
       'Inter',
       ui-sans-serif,
@@ -86,9 +124,203 @@
       'Helvetica Neue',
       Arial,
       sans-serif;
-    font-feature-settings:
-      'cv11',
-      'ss01',
-      'ss03';
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+
+  ::selection {
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary));
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid hsl(var(--background));
+    border-radius: 9999px;
+    background: hsl(var(--border-strong));
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer components {
+  .studio-shell {
+    position: relative;
+    isolation: isolate;
+    background: hsl(var(--background));
+  }
+
+  .studio-shell::before {
+    position: absolute;
+    z-index: -1;
+    inset: 3rem 0 0;
+    pointer-events: none;
+    content: '';
+    opacity: 0.42;
+    background-image:
+      linear-gradient(90deg, transparent 0, transparent 31px, hsl(var(--border) / 0.16) 32px, transparent 33px),
+      linear-gradient(180deg, hsl(var(--signal) / 0.08), transparent 9rem);
+    background-size: 32px 100%, 100% 100%;
+  }
+
+  .filmstrip-rule {
+    position: relative;
+  }
+
+  .filmstrip-rule::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    pointer-events: none;
+    content: '';
+    background: repeating-linear-gradient(
+      90deg,
+      hsl(var(--signal) / 0.72) 0 18px,
+      transparent 18px 26px,
+      hsl(var(--border-strong) / 0.7) 26px 44px,
+      transparent 44px 52px
+    );
+    opacity: 0.72;
+  }
+
+  .surface-glow {
+    box-shadow: 0 18px 48px hsl(0 0% 0% / 0.18);
+  }
+
+  .status-success {
+    color: hsl(var(--success));
+  }
+
+  .status-danger {
+    color: hsl(var(--destructive));
+  }
+
+  .status-warning {
+    color: hsl(var(--warning));
+  }
+
+  .status-signal {
+    color: hsl(var(--signal));
+  }
+
+  .indicator-success,
+  .indicator-warning,
+  .indicator-signal,
+  .indicator-media,
+  .indicator-info,
+  .indicator-transcription,
+  .indicator-pipeline,
+  .indicator-ai,
+  .indicator-render,
+  .indicator-face,
+  .indicator-error {
+    border-width: 1px;
+    border-style: solid;
+  }
+
+  .indicator-success {
+    color: hsl(var(--success));
+    background-color: hsl(var(--success) / 0.12);
+    border-color: hsl(var(--success) / 0.32);
+  }
+
+  .indicator-warning {
+    color: hsl(var(--warning));
+    background-color: hsl(var(--warning) / 0.12);
+    border-color: hsl(var(--warning) / 0.32);
+  }
+
+  .indicator-signal {
+    color: hsl(var(--signal));
+    background-color: hsl(var(--signal) / 0.12);
+    border-color: hsl(var(--signal) / 0.32);
+  }
+
+  .indicator-media {
+    color: hsl(var(--indicator-media));
+    background-color: hsl(var(--indicator-media) / 0.12);
+    border-color: hsl(var(--indicator-media) / 0.32);
+  }
+
+  .indicator-info {
+    color: hsl(var(--info));
+    background-color: hsl(var(--info) / 0.12);
+    border-color: hsl(var(--info) / 0.32);
+  }
+
+  .indicator-transcription {
+    color: hsl(var(--indicator-transcription));
+    background-color: hsl(var(--indicator-transcription) / 0.12);
+    border-color: hsl(var(--indicator-transcription) / 0.32);
+  }
+
+  .indicator-pipeline {
+    color: hsl(var(--indicator-pipeline));
+    background-color: hsl(var(--indicator-pipeline) / 0.12);
+    border-color: hsl(var(--indicator-pipeline) / 0.32);
+  }
+
+  .indicator-ai {
+    color: hsl(var(--indicator-ai));
+    background-color: hsl(var(--indicator-ai) / 0.12);
+    border-color: hsl(var(--indicator-ai) / 0.32);
+  }
+
+  .indicator-render {
+    color: hsl(var(--indicator-render));
+    background-color: hsl(var(--indicator-render) / 0.12);
+    border-color: hsl(var(--indicator-render) / 0.32);
+  }
+
+  .indicator-face {
+    color: hsl(var(--indicator-face));
+    background-color: hsl(var(--indicator-face) / 0.12);
+    border-color: hsl(var(--indicator-face) / 0.32);
+  }
+
+  .indicator-error {
+    color: hsl(var(--indicator-error));
+    background-color: hsl(var(--indicator-error) / 0.12);
+    border-color: hsl(var(--indicator-error) / 0.32);
+  }
+}
+
+@media (max-width: 900px) {
+  .studio-shell::before {
+    opacity: 0.25;
+    background-size: 24px 100%, 100% 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
   }
 }

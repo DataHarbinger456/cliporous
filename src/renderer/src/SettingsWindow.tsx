@@ -16,17 +16,25 @@
  * Card, Separator) and lucide-react (Eye, EyeOff, Folder, Save, Key) per spec.
  */
 
-import * as React from 'react'
-
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
-import { Slider } from '@/components/ui/slider'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-
-import { ExternalLink, Eye, EyeOff, Folder, Key, Save } from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, Folder, Key, Save } from 'lucide-react';
+import * as React from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTheme } from '@/hooks/useTheme';
+import { useStore } from '@/store';
 
 // ---------------------------------------------------------------------------
 // Persisted secret keys — all stored via the safeStorage-backed secret store.
@@ -40,36 +48,36 @@ const SECRET_KEYS = {
   fal: 'fal',
   outputDirectory: 'outputDirectory',
   autosaveIntervalMs: 'autosaveIntervalMs',
-} as const
+} as const;
 
 // Slider bounds — 10 seconds → 5 minutes (300 seconds), step = 10s.
-const AUTOSAVE_MIN_SEC = 10
-const AUTOSAVE_MAX_SEC = 300
-const AUTOSAVE_STEP_SEC = 10
-const AUTOSAVE_DEFAULT_SEC = 60
+const AUTOSAVE_MIN_SEC = 10;
+const AUTOSAVE_MAX_SEC = 300;
+const AUTOSAVE_STEP_SEC = 10;
+const AUTOSAVE_DEFAULT_SEC = 60;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function formatAutosaveInterval(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const rem = seconds % 60
-  if (rem === 0) return `${minutes}m`
-  return `${minutes}m ${rem}s`
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rem = seconds % 60;
+  if (rem === 0) return `${minutes}m`;
+  return `${minutes}m ${rem}s`;
 }
 
 async function readSecret(name: string): Promise<string | null> {
   try {
-    return await window.api.secrets.get(name)
+    return await window.api.secrets.get(name);
   } catch {
-    return null
+    return null;
   }
 }
 
 async function writeSecret(name: string, value: string): Promise<void> {
-  await window.api.secrets.set(name, value)
+  await window.api.secrets.set(name, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -77,10 +85,10 @@ async function writeSecret(name: string, value: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 interface SecretInputProps {
-  id: string
-  value: string
-  placeholder?: string
-  onChange: (value: string) => void
+  id: string;
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,17 +98,15 @@ interface SecretInputProps {
 // ---------------------------------------------------------------------------
 
 interface FieldHelpProps {
-  required?: boolean
-  children: React.ReactNode
-  href?: string
+  required?: boolean;
+  children: React.ReactNode;
+  href?: string;
 }
 
 function FieldHelp({ required, children, href }: FieldHelpProps): React.JSX.Element {
   return (
     <p className="text-muted-foreground text-xs">
-      <span
-        className={`mr-1 font-medium ${required ? 'text-primary' : 'text-muted-foreground'}`}
-      >
+      <span className={`mr-1 font-medium ${required ? 'text-primary' : 'text-muted-foreground'}`}>
         {required ? 'Required.' : 'Optional.'}
       </span>
       {children}
@@ -118,11 +124,11 @@ function FieldHelp({ required, children, href }: FieldHelpProps): React.JSX.Elem
         </>
       ) : null}
     </p>
-  )
+  );
 }
 
 function SecretInput({ id, value, placeholder, onChange }: SecretInputProps): React.JSX.Element {
-  const [visible, setVisible] = React.useState(false)
+  const [visible, setVisible] = React.useState(false);
   return (
     <div className="relative">
       <Input
@@ -144,7 +150,7 @@ function SecretInput({ id, value, placeholder, onChange }: SecretInputProps): Re
         {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
       </button>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -152,11 +158,11 @@ function SecretInput({ id, value, placeholder, onChange }: SecretInputProps): Re
 // ---------------------------------------------------------------------------
 
 interface FormState {
-  gemini: string
-  pexels: string
-  fal: string
-  outputDirectory: string
-  autosaveIntervalSec: number
+  gemini: string;
+  pexels: string;
+  fal: string;
+  outputDirectory: string;
+  autosaveIntervalSec: number;
 }
 
 const EMPTY_FORM: FormState = {
@@ -165,19 +171,28 @@ const EMPTY_FORM: FormState = {
   fal: '',
   outputDirectory: '',
   autosaveIntervalSec: AUTOSAVE_DEFAULT_SEC,
-}
+};
 
 export default function SettingsWindow(): React.JSX.Element {
-  const [form, setForm] = React.useState<FormState>(EMPTY_FORM)
-  const [loading, setLoading] = React.useState(true)
-  const [saving, setSaving] = React.useState(false)
-  const [status, setStatus] = React.useState<{ kind: 'idle' | 'saved' | 'error'; message?: string }>(
-    { kind: 'idle' }
-  )
+  const [form, setForm] = React.useState<FormState>(EMPTY_FORM);
+  const { theme, setTheme } = useTheme();
+
+  // Promo Mode rides the shared zustand settings store (auto-persisted to
+  // localStorage + BroadcastChannel-synced to the main window), NOT the
+  // secret-store form below. Toggling it commits immediately — no Save needed.
+  const promo = useStore((s) => s.settings.promo);
+  const setPromoEnabled = useStore((s) => s.setPromoEnabled);
+  const setPromoForceCta = useStore((s) => s.setPromoForceCta);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [status, setStatus] = React.useState<{
+    kind: 'idle' | 'saved' | 'error';
+    message?: string;
+  }>({ kind: 'idle' });
 
   // Hydrate from main on mount
   React.useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     void (async () => {
       const [gemini, pexels, fal, outputDirectory, autosaveRaw] = await Promise.all([
         readSecret(SECRET_KEYS.gemini),
@@ -185,13 +200,13 @@ export default function SettingsWindow(): React.JSX.Element {
         readSecret(SECRET_KEYS.fal),
         readSecret(SECRET_KEYS.outputDirectory),
         readSecret(SECRET_KEYS.autosaveIntervalMs),
-      ])
-      if (cancelled) return
+      ]);
+      if (cancelled) return;
 
-      const parsedMs = autosaveRaw ? Number.parseInt(autosaveRaw, 10) : NaN
+      const parsedMs = autosaveRaw ? Number.parseInt(autosaveRaw, 10) : NaN;
       const autosaveSec = Number.isFinite(parsedMs)
         ? Math.min(AUTOSAVE_MAX_SEC, Math.max(AUTOSAVE_MIN_SEC, Math.round(parsedMs / 1000)))
-        : AUTOSAVE_DEFAULT_SEC
+        : AUTOSAVE_DEFAULT_SEC;
 
       setForm({
         gemini: gemini ?? '',
@@ -199,43 +214,40 @@ export default function SettingsWindow(): React.JSX.Element {
         fal: fal ?? '',
         outputDirectory: outputDirectory ?? '',
         autosaveIntervalSec: autosaveSec,
-      })
-      setLoading(false)
-    })()
+      });
+      setLoading(false);
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]): void => {
-    setForm((prev) => ({ ...prev, [key]: value }))
-    if (status.kind !== 'idle') setStatus({ kind: 'idle' })
-  }
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (status.kind !== 'idle') setStatus({ kind: 'idle' });
+  };
 
   const handlePickFolder = async (): Promise<void> => {
     try {
-      const dir = await window.api.openDirectory()
-      if (dir) update('outputDirectory', dir)
+      const dir = await window.api.openDirectory();
+      if (dir) update('outputDirectory', dir);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setStatus({ kind: 'error', message: `Couldn't open folder picker: ${msg}` })
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus({ kind: 'error', message: `Couldn't open folder picker: ${msg}` });
     }
-  }
+  };
 
   const handleSave = async (): Promise<void> => {
-    setSaving(true)
-    setStatus({ kind: 'idle' })
+    setSaving(true);
+    setStatus({ kind: 'idle' });
     try {
       await Promise.all([
         writeSecret(SECRET_KEYS.gemini, form.gemini.trim()),
         writeSecret(SECRET_KEYS.pexels, form.pexels.trim()),
         writeSecret(SECRET_KEYS.fal, form.fal.trim()),
         writeSecret(SECRET_KEYS.outputDirectory, form.outputDirectory.trim()),
-        writeSecret(
-          SECRET_KEYS.autosaveIntervalMs,
-          String(form.autosaveIntervalSec * 1000)
-        ),
-      ])
+        writeSecret(SECRET_KEYS.autosaveIntervalMs, String(form.autosaveIntervalSec * 1000)),
+      ]);
       // Notify the main window so it re-hydrates secrets from safeStorage.
       // Without this, the main window's in-memory geminiApiKey stays empty
       // and the scoring step fails with "API key required".
@@ -243,18 +255,18 @@ export default function SettingsWindow(): React.JSX.Element {
         new BroadcastChannel('batchclip-settings-sync').postMessage({
           type: 'settings-changed',
           timestamp: Date.now(),
-        })
+        });
       } catch {
         // BroadcastChannel unavailable — main window will pick up on next mount
       }
-      setStatus({ kind: 'saved', message: 'Settings saved' })
+      setStatus({ kind: 'saved', message: 'Settings saved' });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setStatus({ kind: 'error', message: `Failed to save: ${msg}` })
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus({ kind: 'error', message: `Failed to save: ${msg}` });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <div className="bg-background text-foreground flex h-screen w-full flex-col">
@@ -265,9 +277,10 @@ export default function SettingsWindow(): React.JSX.Element {
 
       <main className="flex-1 overflow-y-auto p-4">
         <Tabs defaultValue="api-keys" className="flex h-full w-full flex-col">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="api-keys">API Keys</TabsTrigger>
             <TabsTrigger value="output">Output</TabsTrigger>
+            <TabsTrigger value="render">Render</TabsTrigger>
             <TabsTrigger value="advanced">Advanced</TabsTrigger>
           </TabsList>
 
@@ -334,8 +347,8 @@ export default function SettingsWindow(): React.JSX.Element {
               <CardHeader>
                 <CardTitle className="text-lg">Output</CardTitle>
                 <CardDescription>
-                  Where rendered clips are written. When empty, clips are saved to a
-                  “BatchClip” folder in your Videos directory.
+                  Where rendered clips are written. When empty, clips are saved to a “BatchClip”
+                  folder in your Videos directory.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -360,6 +373,51 @@ export default function SettingsWindow(): React.JSX.Element {
           </TabsContent>
 
           {/* ---------------------------------------------------------------
+              Render
+              --------------------------------------------------------------- */}
+          <TabsContent value="render" className="mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Render</CardTitle>
+                <CardDescription>
+                  Visual render features. These apply to vertical (9:16) clips.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="promo-enabled">Promo Mode</Label>
+                    <p className="text-muted-foreground text-xs">
+                      Injects evidence pop-ups triggered by the transcript and a Skool CTA. Takes
+                      precedence over B-roll when on.
+                    </p>
+                  </div>
+                  <Switch
+                    id="promo-enabled"
+                    checked={promo.enabled}
+                    onCheckedChange={setPromoEnabled}
+                  />
+                </div>
+                <Separator />
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="promo-force-cta">Force Skool CTA</Label>
+                    <p className="text-muted-foreground text-xs">
+                      Add the Skool call-to-action to every clip's end.
+                    </p>
+                  </div>
+                  <Switch
+                    id="promo-force-cta"
+                    checked={promo.forceCta}
+                    disabled={!promo.enabled}
+                    onCheckedChange={setPromoForceCta}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ---------------------------------------------------------------
               Advanced
               --------------------------------------------------------------- */}
           <TabsContent value="advanced" className="mt-4">
@@ -369,6 +427,29 @@ export default function SettingsWindow(): React.JSX.Element {
                 <CardDescription>Project autosave behaviour.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="theme-mode">Appearance</Label>
+                    <p className="text-muted-foreground text-xs">
+                      Choose the canvas and surface contrast for this app and its settings window.
+                    </p>
+                  </div>
+                  <Select
+                    value={theme}
+                    onValueChange={(value) => {
+                      if (value === 'light' || value === 'dark') setTheme(value);
+                    }}
+                  >
+                    <SelectTrigger id="theme-mode" className="w-32 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="light">Light</SelectItem>
+                      <SelectItem value="dark">Dark</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Separator />
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="autosave-interval">Autosave interval</Label>
@@ -382,7 +463,9 @@ export default function SettingsWindow(): React.JSX.Element {
                     max={AUTOSAVE_MAX_SEC}
                     step={AUTOSAVE_STEP_SEC}
                     value={[form.autosaveIntervalSec]}
-                    onValueChange={(v) => update('autosaveIntervalSec', v[0] ?? AUTOSAVE_DEFAULT_SEC)}
+                    onValueChange={(v) =>
+                      update('autosaveIntervalSec', v[0] ?? AUTOSAVE_DEFAULT_SEC)
+                    }
                   />
                   <div className="text-muted-foreground flex justify-between text-xs">
                     <span>{formatAutosaveInterval(AUTOSAVE_MIN_SEC)}</span>
@@ -399,7 +482,7 @@ export default function SettingsWindow(): React.JSX.Element {
         <span
           className={
             status.kind === 'saved'
-              ? 'text-sm text-emerald-500'
+              ? 'status-success text-sm'
               : status.kind === 'error'
                 ? 'text-destructive text-sm'
                 : 'text-muted-foreground text-sm'
@@ -414,5 +497,5 @@ export default function SettingsWindow(): React.JSX.Element {
         </Button>
       </footer>
     </div>
-  )
+  );
 }

@@ -1,21 +1,21 @@
-import { useState } from 'react'
-import { Sparkles, RotateCcw } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { RotateCcw, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
-import { useStore } from '@/store'
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useStore } from '@/store';
 
 // ---------------------------------------------------------------------------
 // Gemini 2.5 Flash-Lite pricing (as of March 2026)
 // Input: $0.10 / 1M tokens
 // Output: $0.40 / 1M tokens
 // ---------------------------------------------------------------------------
-const PRICE_INPUT_PER_M = 0.10
-const PRICE_OUTPUT_PER_M = 0.40
+const PRICE_INPUT_PER_M = 0.1;
+const PRICE_OUTPUT_PER_M = 0.4;
 
 // Source label map for human-readable names
 const SOURCE_LABELS: Record<string, string> = {
@@ -32,66 +32,65 @@ const SOURCE_LABELS: Record<string, string> = {
   'broll-keywords': 'B-Roll Keywords',
   'emoji-moments': 'Emoji Moments',
   'fake-comment': 'Fake Comment',
-}
+};
 
 function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-  return String(n)
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 function formatCost(usd: number): string {
-  if (usd < 0.001) return '< $0.001'
-  if (usd < 0.01) return `$${usd.toFixed(4)}`
-  return `$${usd.toFixed(3)}`
+  if (usd < 0.001) return '< $0.001';
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(3)}`;
 }
 
 function formatDuration(ms: number): string {
-  const s = Math.floor(ms / 1000)
-  const m = Math.floor(s / 60)
-  const h = Math.floor(m / 60)
-  if (h > 0) return `${h}h ${m % 60}m`
-  if (m > 0) return `${m}m ${s % 60}s`
-  return `${s}s`
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
 }
 
 export function AiUsageIndicator(): React.JSX.Element {
-  const aiUsage = useStore((s) => s.aiUsage)
-  const resetAiUsage = useStore((s) => s.resetAiUsage)
-  const hasGeminiKey = useStore((s) => s.settings.geminiApiKey.trim().length > 0)
-  const [open, setOpen] = useState(false)
+  const aiUsage = useStore((s) => s.aiUsage);
+  const resetAiUsage = useStore((s) => s.resetAiUsage);
+  const hasGeminiKey = useStore((s) => s.settings.geminiApiKey.trim().length > 0);
+  const [open, setOpen] = useState(false);
 
-  const totalTokens = aiUsage.totalPromptTokens + aiUsage.totalCompletionTokens
+  const totalTokens = aiUsage.totalPromptTokens + aiUsage.totalCompletionTokens;
   const estimatedCost =
     (aiUsage.totalPromptTokens / 1_000_000) * PRICE_INPUT_PER_M +
-    (aiUsage.totalCompletionTokens / 1_000_000) * PRICE_OUTPUT_PER_M
+    (aiUsage.totalCompletionTokens / 1_000_000) * PRICE_OUTPUT_PER_M;
 
   const tokenColor =
     totalTokens >= 200_000
-      ? 'text-red-500'
+      ? 'status-danger'
       : totalTokens >= 50_000
-        ? 'text-amber-500'
-        : 'text-muted-foreground'
+        ? 'status-warning'
+        : 'text-muted-foreground';
 
   // Aggregate usage by source
   const bySource = aiUsage.callHistory.reduce<
     Record<string, { promptTokens: number; completionTokens: number; calls: number }>
   >((acc, entry) => {
-    const key = entry.source
-    if (!acc[key]) acc[key] = { promptTokens: 0, completionTokens: 0, calls: 0 }
-    acc[key].promptTokens += entry.promptTokens
-    acc[key].completionTokens += entry.completionTokens
-    acc[key].calls += 1
-    return acc
-  }, {})
+    const key = entry.source;
+    if (!acc[key]) acc[key] = { promptTokens: 0, completionTokens: 0, calls: 0 };
+    acc[key].promptTokens += entry.promptTokens;
+    acc[key].completionTokens += entry.completionTokens;
+    acc[key].calls += 1;
+    return acc;
+  }, {});
 
   const sourceSorted = Object.entries(bySource).sort(
     (a, b) =>
-      b[1].promptTokens + b[1].completionTokens -
-      (a[1].promptTokens + a[1].completionTokens),
-  )
+      b[1].promptTokens + b[1].completionTokens - (a[1].promptTokens + a[1].completionTokens),
+  );
 
-  const sessionDuration = Date.now() - aiUsage.sessionStarted
+  const sessionDuration = Date.now() - aiUsage.sessionStarted;
 
   if (aiUsage.totalCalls === 0) {
     // First-run floor: surface a clear global signal about whether a Gemini key
@@ -102,25 +101,29 @@ export function AiUsageIndicator(): React.JSX.Element {
         <button
           type="button"
           onClick={() => void window.api?.openSettingsWindow?.()}
-          title="No Gemini API key configured — click to open Settings"
-          className="flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-400 transition-colors hover:bg-amber-500/20"
+          title="No Gemini API key configured. Click to open Settings"
+          className="indicator-warning flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs transition-colors hover:bg-warning/20"
         >
           <Sparkles className="h-3 w-3 shrink-0" />
           <span>API key not set</span>
         </button>
-      )
+      );
     }
     return (
-      <div className="text-muted-foreground/40 flex items-center gap-1 px-1 text-xs">
+      <div
+        aria-hidden="true"
+        className="text-muted-foreground/40 flex items-center gap-1 px-1 text-xs"
+      >
         <Sparkles className="h-3 w-3" />
       </div>
-    )
+    );
   }
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
+          type="button"
           className={`border-border hover:bg-accent/50 data-[state=open]:bg-accent flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-xs transition-colors ${tokenColor}`}
           title="AI token usage this session"
         >
@@ -133,7 +136,7 @@ export function AiUsageIndicator(): React.JSX.Element {
         {/* Header */}
         <div className="border-border bg-card flex items-center gap-2 border-b px-3 py-2">
           <Sparkles className="text-primary h-3.5 w-3.5" />
-          <span className="text-xs font-semibold">AI Usage — This Session</span>
+          <span className="text-xs font-semibold">AI Usage, this session</span>
         </div>
 
         {/* Main stats */}
@@ -187,12 +190,12 @@ export function AiUsageIndicator(): React.JSX.Element {
               </div>
               <div className="space-y-1.5">
                 {sourceSorted.map(([source, data]) => {
-                  const sourceTokens = data.promptTokens + data.completionTokens
-                  const sourceMaxBar = totalTokens > 0 ? (sourceTokens / totalTokens) * 100 : 0
-                  const label = SOURCE_LABELS[source] ?? source
+                  const sourceTokens = data.promptTokens + data.completionTokens;
+                  const sourceMaxBar = totalTokens > 0 ? (sourceTokens / totalTokens) * 100 : 0;
+                  const label = SOURCE_LABELS[source] ?? source;
                   const sourceCost =
                     (data.promptTokens / 1_000_000) * PRICE_INPUT_PER_M +
-                    (data.completionTokens / 1_000_000) * PRICE_OUTPUT_PER_M
+                    (data.completionTokens / 1_000_000) * PRICE_OUTPUT_PER_M;
                   return (
                     <div key={source}>
                       <div className="mb-0.5 flex items-center justify-between text-[10px]">
@@ -203,12 +206,12 @@ export function AiUsageIndicator(): React.JSX.Element {
                       </div>
                       <div className="bg-muted h-1 overflow-hidden rounded-full">
                         <div
-                          className="bg-primary h-full rounded-full transition-all"
+                          className="bg-primary h-full rounded-full transition-[width] duration-200 ease-out"
                           style={{ width: `${sourceMaxBar}%` }}
                         />
                       </div>
                     </div>
-                  )
+                  );
                 })}
               </div>
             </div>
@@ -227,8 +230,8 @@ export function AiUsageIndicator(): React.JSX.Element {
             size="sm"
             className="text-muted-foreground hover:text-foreground h-6 w-full justify-center gap-1 text-[10px]"
             onClick={() => {
-              resetAiUsage()
-              setOpen(false)
+              resetAiUsage();
+              setOpen(false);
             }}
           >
             <RotateCcw className="h-2.5 w-2.5" />
@@ -237,5 +240,5 @@ export function AiUsageIndicator(): React.JSX.Element {
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

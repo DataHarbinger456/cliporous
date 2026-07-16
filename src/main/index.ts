@@ -7,8 +7,8 @@
  *   • Probe Python availability (non-blocking; status is recorded but never
  *     gates window creation).
  *   • Register every IPC handler module under `./ipc/`.
- *   • Create the main BrowserWindow with a dark background that matches the
- *     renderer (#23100c) so launch never flashes white.
+ *   • Create the main BrowserWindow with the light default background so launch
+ *     never flashes white before the renderer applies the persisted theme.
  *   • Wire process-level crash handlers — `uncaughtException` shows a native
  *     dialog with a copy-to-clipboard option then exits;
  *     `unhandledRejection` is logged to the console only.
@@ -43,8 +43,8 @@ import { registerSettingsWindowHandlers } from './settings-window'
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Renderer body background — matched here to prevent white flash on launch. */
-const WINDOW_BACKGROUND = '#23100c'
+/** Light default surface — matched here to prevent a white/dark launch flash. */
+const WINDOW_BACKGROUND = '#f7f3ec'
 
 const MIN_WIDTH = 1280
 const MIN_HEIGHT = 800
