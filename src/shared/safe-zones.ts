@@ -15,15 +15,16 @@
  *   Universal — most conservative across all three platforms
  */
 
-import type { Platform } from './types'
-export type { Platform }
+import type { Platform } from './types';
+
+export type { Platform };
 
 // ---------------------------------------------------------------------------
 // Canvas constants
 // ---------------------------------------------------------------------------
 
-export const CANVAS_WIDTH = 1080
-export const CANVAS_HEIGHT = 1920
+export const CANVAS_WIDTH = 1080;
+export const CANVAS_HEIGHT = 1920;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,24 +36,24 @@ export const CANVAS_HEIGHT = 1920
  * platform's overall safe zone.
  */
 export type ElementType =
-  | 'caption'          // Burned-in captions/subtitles — bottom portion of safe zone
-  | 'hook_text'        // Attention-grabbing headline — top portion of safe zone
-  | 'upper_third'      // Upper third of safe zone (name bars, intros)
-  | 'middle'           // Centred middle band (pull quotes, reactions)
-  | 'lower_third'      // Lower third (speaker name, title bars)
-  | 'progress_bar'     // Thin progress bar strip at the bottom edge of safe zone
-  | 'logo'             // Watermark / logo — top-right corner of safe zone
-  | 'comment_overlay'  // Simulated comment block — middle-left
-  | 'full_frame'       // Entire safe zone rectangle
+  | 'caption' // Burned-in captions/subtitles — bottom portion of safe zone
+  | 'hook_text' // Attention-grabbing headline — top portion of safe zone
+  | 'upper_third' // Upper third of safe zone (name bars, intros)
+  | 'middle' // Centred middle band (pull quotes, reactions)
+  | 'lower_third' // Lower third (speaker name, title bars)
+  | 'progress_bar' // Thin progress bar strip at the bottom edge of safe zone
+  | 'logo' // Watermark / logo — top-right corner of safe zone
+  | 'comment_overlay' // Simulated comment block — middle-left
+  | 'full_frame'; // Entire safe zone rectangle
 
 /** A rectangle on the 1080×1920 canvas (pixel coordinates). */
 export interface SafeZoneRect {
   /** Left edge in pixels */
-  x: number
+  x: number;
   /** Top edge in pixels */
-  y: number
-  width: number
-  height: number
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**
@@ -62,29 +63,29 @@ export interface SafeZoneRect {
  */
 export interface PlatformDeadZones {
   /** Height of the top dead zone (profile picture, username, follow button) */
-  top: number
+  top: number;
   /** Height of the bottom dead zone (captions, description, engagement buttons) */
-  bottom: number
+  bottom: number;
   /** Width of the left dead zone */
-  left: number
+  left: number;
   /** Width of the right dead zone (like/comment/share/bookmark button column) */
-  right: number
+  right: number;
 }
 
 /** Full safe zone data for one platform. */
 export interface PlatformSafeZone {
   /** Human-readable platform label */
-  name: string
+  name: string;
   /** The safe content rectangle — the largest area free from all UI overlays */
-  safeRect: SafeZoneRect
+  safeRect: SafeZoneRect;
   /** Raw dead zone measurements used to compute safeRect */
-  deadZones: PlatformDeadZones
+  deadZones: PlatformDeadZones;
   /**
    * The right-edge engagement button column (like / comment / share / save stack).
    * Content placed here will be partially or fully obscured by platform buttons.
    * Exposed so callers can explicitly avoid this region when centering text.
    */
-  engagementButtonColumn: SafeZoneRect
+  engagementButtonColumn: SafeZoneRect;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,15 +113,15 @@ export const PLATFORM_SAFE_ZONES: Record<Platform, PlatformSafeZone> = {
     safeRect: {
       x: 60,
       y: 108,
-      width: CANVAS_WIDTH - 60 - 120,   // 900
-      height: CANVAS_HEIGHT - 108 - 320  // 1492
+      width: CANVAS_WIDTH - 60 - 120, // 900
+      height: CANVAS_HEIGHT - 108 - 320, // 1492
     },
     engagementButtonColumn: {
       x: CANVAS_WIDTH - 120,
       y: 108,
       width: 120,
-      height: CANVAS_HEIGHT - 108 - 320
-    }
+      height: CANVAS_HEIGHT - 108 - 320,
+    },
   },
 
   /**
@@ -137,15 +138,15 @@ export const PLATFORM_SAFE_ZONES: Record<Platform, PlatformSafeZone> = {
     safeRect: {
       x: 0,
       y: 210,
-      width: CANVAS_WIDTH - 0 - 84,    // 996
-      height: CANVAS_HEIGHT - 210 - 310 // 1400
+      width: CANVAS_WIDTH - 0 - 84, // 996
+      height: CANVAS_HEIGHT - 210 - 310, // 1400
     },
     engagementButtonColumn: {
       x: CANVAS_WIDTH - 84,
       y: 210,
       width: 84,
-      height: CANVAS_HEIGHT - 210 - 310
-    }
+      height: CANVAS_HEIGHT - 210 - 310,
+    },
   },
 
   /**
@@ -164,15 +165,15 @@ export const PLATFORM_SAFE_ZONES: Record<Platform, PlatformSafeZone> = {
     safeRect: {
       x: 0,
       y: 120,
-      width: CANVAS_WIDTH - 0 - 96,    // 984
-      height: CANVAS_HEIGHT - 120 - 300 // 1500
+      width: CANVAS_WIDTH - 0 - 96, // 984
+      height: CANVAS_HEIGHT - 120 - 300, // 1500
     },
     engagementButtonColumn: {
       x: CANVAS_WIDTH - 96,
       y: 120,
       width: 96,
-      height: CANVAS_HEIGHT - 120 - 300
-    }
+      height: CANVAS_HEIGHT - 120 - 300,
+    },
   },
 
   /**
@@ -187,17 +188,17 @@ export const PLATFORM_SAFE_ZONES: Record<Platform, PlatformSafeZone> = {
     safeRect: {
       x: 60,
       y: 210,
-      width: CANVAS_WIDTH - 60 - 120,    // 900
-      height: CANVAS_HEIGHT - 210 - 320  // 1390
+      width: CANVAS_WIDTH - 60 - 120, // 900
+      height: CANVAS_HEIGHT - 210 - 320, // 1390
     },
     engagementButtonColumn: {
       x: CANVAS_WIDTH - 120,
       y: 210,
       width: 120,
-      height: CANVAS_HEIGHT - 210 - 320
-    }
-  }
-}
+      height: CANVAS_HEIGHT - 210 - 320,
+    },
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Core API
@@ -208,14 +209,14 @@ export const PLATFORM_SAFE_ZONES: Record<Platform, PlatformSafeZone> = {
  * This is the largest contiguous area guaranteed to be free of all UI overlays.
  */
 export function getSafeZone(platform: Platform): SafeZoneRect {
-  return PLATFORM_SAFE_ZONES[platform].safeRect
+  return PLATFORM_SAFE_ZONES[platform].safeRect;
 }
 
 /**
  * Returns the dead zone measurements for a platform.
  */
 export function getDeadZones(platform: Platform): PlatformDeadZones {
-  return PLATFORM_SAFE_ZONES[platform].deadZones
+  return PLATFORM_SAFE_ZONES[platform].deadZones;
 }
 
 /**
@@ -231,66 +232,66 @@ export function getDeadZones(platform: Platform): PlatformDeadZones {
  *  - Constrain burn-in graphics to avoid platform UI (progress_bar, lower_third)
  */
 export function getElementPlacement(platform: Platform, element: ElementType): SafeZoneRect {
-  const { x, y, width, height } = PLATFORM_SAFE_ZONES[platform].safeRect
+  const { x, y, width, height } = PLATFORM_SAFE_ZONES[platform].safeRect;
 
   switch (element) {
     // ── Full safe area ────────────────────────────────────────────────────────
     case 'full_frame':
-      return { x, y, width, height }
+      return { x, y, width, height };
 
     // ── Hook text — top 22% of safe zone ─────────────────────────────────────
     case 'hook_text':
-      return { x, y, width, height: Math.round(height * 0.22) }
+      return { x, y, width, height: Math.round(height * 0.22) };
 
     // ── Upper third — top 33% of safe zone ───────────────────────────────────
     case 'upper_third':
-      return { x, y, width, height: Math.round(height / 3) }
+      return { x, y, width, height: Math.round(height / 3) };
 
     // ── Middle band — central 40% of safe zone ────────────────────────────────
     case 'middle': {
-      const h = Math.round(height * 0.40)
-      return { x, y: y + Math.round((height - h) / 2), width, height: h }
+      const h = Math.round(height * 0.4);
+      return { x, y: y + Math.round((height - h) / 2), width, height: h };
     }
 
     // ── Lower third — bottom 33% of safe zone ────────────────────────────────
     case 'lower_third': {
-      const h = Math.round(height / 3)
-      return { x, y: y + height - h, width, height: h }
+      const h = Math.round(height / 3);
+      return { x, y: y + height - h, width, height: h };
     }
 
     // ── Captions — bottom 22% of safe zone ───────────────────────────────────
     // Captions sit near the bottom of the safe zone, well above the caption/button
     // dead zone. The rect covers the full safe width so text can center naturally.
     case 'caption': {
-      const h = Math.round(height * 0.22)
-      return { x, y: y + height - h, width, height: h }
+      const h = Math.round(height * 0.22);
+      return { x, y: y + height - h, width, height: h };
     }
 
     // ── Progress bar — thin strip at the very bottom of safe zone ─────────────
     // 8 px tall, spanning the full safe width.
     case 'progress_bar':
-      return { x, y: y + height - 8, width, height: 8 }
+      return { x, y: y + height - 8, width, height: 8 };
 
     // ── Logo / watermark — top-right corner of safe zone ──────────────────────
     // 120×120 px square in the top-right corner of the safe area.
     // Sits inside the safe zone, not in the engagement button column.
     case 'logo': {
-      const size = 120
-      return { x: x + width - size, y, width: size, height: size }
+      const size = 120;
+      return { x: x + width - size, y, width: size, height: size };
     }
 
     // ── Comment overlay — middle-left area ───────────────────────────────────
     // A 140 px tall block at 72% of safe width, vertically centred in safe zone.
     // Positioned on the left to avoid right-side engagement buttons.
     case 'comment_overlay': {
-      const h = 140
-      const w = Math.round(width * 0.72)
+      const h = 140;
+      const w = Math.round(width * 0.72);
       return {
         x,
         y: y + Math.round((height - h) / 2),
         width: w,
-        height: h
-      }
+        height: h,
+      };
     }
   }
 }
@@ -306,16 +307,16 @@ export function getElementPlacement(platform: Platform, element: ElementType): S
  * @returns A new rect guaranteed to be fully inside the safe zone
  */
 export function clampToSafeZone(rect: SafeZoneRect, platform: Platform): SafeZoneRect {
-  const safe = PLATFORM_SAFE_ZONES[platform].safeRect
+  const safe = PLATFORM_SAFE_ZONES[platform].safeRect;
 
-  const x = Math.max(safe.x, Math.min(rect.x, safe.x + safe.width))
-  const y = Math.max(safe.y, Math.min(rect.y, safe.y + safe.height))
-  const maxW = safe.x + safe.width - x
-  const maxH = safe.y + safe.height - y
-  const width = Math.min(rect.width, maxW)
-  const height = Math.min(rect.height, maxH)
+  const x = Math.max(safe.x, Math.min(rect.x, safe.x + safe.width));
+  const y = Math.max(safe.y, Math.min(rect.y, safe.y + safe.height));
+  const maxW = safe.x + safe.width - x;
+  const maxH = safe.y + safe.height - y;
+  const width = Math.min(rect.width, maxW);
+  const height = Math.min(rect.height, maxH);
 
-  return { x, y, width, height }
+  return { x, y, width, height };
 }
 
 /**
@@ -326,13 +327,13 @@ export function clampToSafeZone(rect: SafeZoneRect, platform: Platform): SafeZon
  * @returns `true` if the rect is completely inside the safe zone; `false` otherwise
  */
 export function isInsideSafeZone(rect: SafeZoneRect, platform: Platform): boolean {
-  const safe = PLATFORM_SAFE_ZONES[platform].safeRect
+  const safe = PLATFORM_SAFE_ZONES[platform].safeRect;
   return (
     rect.x >= safe.x &&
     rect.y >= safe.y &&
     rect.x + rect.width <= safe.x + safe.width &&
     rect.y + rect.height <= safe.y + safe.height
-  )
+  );
 }
 
 /**
@@ -347,13 +348,13 @@ export function isInsideSafeZone(rect: SafeZoneRect, platform: Platform): boolea
  * @returns Object with MarginL, MarginR, MarginV for use in ASS style overrides
  */
 export function rectToAssMargins(rect: SafeZoneRect): {
-  MarginL: number
-  MarginR: number
-  MarginV: number
+  MarginL: number;
+  MarginR: number;
+  MarginV: number;
 } {
   return {
     MarginL: rect.x,
     MarginR: CANVAS_WIDTH - (rect.x + rect.width),
-    MarginV: CANVAS_HEIGHT - (rect.y + rect.height)
-  }
+    MarginV: CANVAS_HEIGHT - (rect.y + rect.height),
+  };
 }

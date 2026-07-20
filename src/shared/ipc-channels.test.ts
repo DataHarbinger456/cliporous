@@ -27,7 +27,7 @@
  *                          that is not present in `Ch`.
  */
 
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Recorders — populated by the mocked electron primitives below.
@@ -41,120 +41,138 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 // ---------------------------------------------------------------------------
 
 type RecorderBag = {
-  __ipcMainHandled: Set<string>
-  __preloadInvoked: Set<string>
-  __preloadListened: Set<string>
-  __exposedApi: { ref: Record<string, unknown> | null }
-}
+  __ipcMainHandled: Set<string>;
+  __preloadInvoked: Set<string>;
+  __preloadListened: Set<string>;
+  __exposedApi: { ref: Record<string, unknown> | null };
+};
 
 vi.mock('electron', () => {
-  const g = globalThis as unknown as Partial<RecorderBag>
-  g.__ipcMainHandled = new Set<string>()
-  g.__preloadInvoked = new Set<string>()
-  g.__preloadListened = new Set<string>()
-  g.__exposedApi = { ref: null }
+  const g = globalThis as unknown as Partial<RecorderBag>;
+  const ipcMainHandled = new Set<string>();
+  const preloadInvoked = new Set<string>();
+  const preloadListened = new Set<string>();
+  const exposedApi: RecorderBag['__exposedApi'] = { ref: null };
+  g.__ipcMainHandled = ipcMainHandled;
+  g.__preloadInvoked = preloadInvoked;
+  g.__preloadListened = preloadListened;
+  g.__exposedApi = exposedApi;
 
   // Force the preload's `process.contextIsolated` branch so it calls
   // `contextBridge.exposeInMainWorld` (which our mock captures). This must
   // happen inside the mock factory because the factory runs before any
   // ES-module import bodies — including the preload module itself — execute.
-  ;(process as unknown as { contextIsolated: boolean }).contextIsolated = true
+  (process as unknown as { contextIsolated: boolean }).contextIsolated = true;
 
   const ipcMain = {
     handle: (channel: string, _handler: unknown): void => {
-      g.__ipcMainHandled!.add(channel)
+      ipcMainHandled.add(channel);
     },
     on: (channel: string, _handler: unknown): void => {
       // Some main code uses .on for fire-and-forget receive — record too.
-      g.__ipcMainHandled!.add(channel)
+      ipcMainHandled.add(channel);
     },
     removeHandler: (_channel: string): void => {},
     removeAllListeners: (_channel?: string): void => {},
-  }
+  };
 
   const ipcRenderer = {
     invoke: (channel: string, ..._args: unknown[]): Promise<unknown> => {
-      g.__preloadInvoked!.add(channel)
-      return Promise.resolve(undefined)
+      preloadInvoked.add(channel);
+      return Promise.resolve(undefined);
     },
     on: (channel: string, _listener: unknown): void => {
-      g.__preloadListened!.add(channel)
+      preloadListened.add(channel);
     },
     removeListener: (_channel: string, _listener: unknown): void => {},
     send: (channel: string, ..._args: unknown[]): void => {
-      g.__preloadInvoked!.add(channel)
+      preloadInvoked.add(channel);
     },
-  }
+  };
 
   const contextBridge = {
-    exposeInMainWorld: (key: string, value: unknown): void => {
-      if (key === 'api') {
-        g.__exposedApi!.ref = value as Record<string, unknown>
+    exposeInMainWorld: (propertyName: string, value: unknown): void => {
+      switch (propertyName) {
+        case 'api':
+          exposedApi.ref = value as Record<string, unknown>;
+          break;
       }
     },
-  }
-
+  };
   const webUtils = {
     getPathForFile: (_file: unknown): string => '',
-  }
+  };
 
   // Minimal BrowserWindow stub — preload may reference it in type position
   // but should never construct one at module load.
   class BrowserWindow {
     static fromWebContents(): BrowserWindow | null {
-      return null
+      return null;
     }
+    static getAllWindows(): BrowserWindow[] {
+      return [];
+    }
+    id = 1;
     isDestroyed(): boolean {
-      return true
+      return true;
     }
     focus(): void {}
     on(): void {}
     once(): void {}
     loadURL(): Promise<void> {
-      return Promise.resolve()
+      return Promise.resolve();
     }
     loadFile(): Promise<void> {
-      return Promise.resolve()
+      return Promise.resolve();
     }
     show(): void {}
     close(): void {}
+    isMinimized(): boolean {
+      return false;
+    }
+    minimize(): void {}
     getBounds(): Electron.Rectangle {
-      return { x: 0, y: 0, width: 0, height: 0 }
+      return { x: 0, y: 0, width: 0, height: 0 };
     }
     webContents = {
       send: (): void => {},
       on: (): void => {},
-    }
+    };
   }
 
   const dialog = {
     showOpenDialog: vi.fn().mockResolvedValue({ canceled: true, filePaths: [] }),
     showSaveDialog: vi.fn().mockResolvedValue({ canceled: true, filePath: undefined }),
     showMessageBox: vi.fn().mockResolvedValue({ response: 0 }),
-  }
+  };
 
   const shell = {
     openPath: vi.fn().mockResolvedValue(''),
     showItemInFolder: vi.fn(),
     openExternal: vi.fn().mockResolvedValue(undefined),
-  }
+  };
 
   const Notification = vi.fn().mockImplementation(() => ({
     show: vi.fn(),
     on: vi.fn(),
-  }))
-  ;(Notification as unknown as { isSupported: () => boolean }).isSupported = (): boolean => true
+  }));
+  (Notification as unknown as { isSupported: () => boolean }).isSupported = (): boolean => true;
 
   const screen = {
     getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
-  }
+  };
+  const powerSaveBlocker = {
+    start: vi.fn(() => 1),
+    stop: vi.fn(),
+    isStarted: vi.fn(() => true),
+  };
 
   const safeStorage = {
     isEncryptionAvailable: (): boolean => false,
     encryptString: (s: string): Buffer => Buffer.from(s, 'utf8'),
     decryptString: (b: Buffer): string => b.toString('utf8'),
-  }
+  };
 
   const app = {
     getPath: (_name: string): string => '/tmp/batchcontent-test',
@@ -164,8 +182,9 @@ vi.mock('electron', () => {
     whenReady: (): Promise<void> => Promise.resolve(),
     on: vi.fn(),
     quit: vi.fn(),
+    relaunch: vi.fn(),
     getAppPath: (): string => process.cwd(),
-  }
+  };
 
   return {
     ipcMain,
@@ -177,64 +196,67 @@ vi.mock('electron', () => {
     shell,
     Notification,
     screen,
+    powerSaveBlocker,
     safeStorage,
     app,
     default: {},
-  }
-})
+  };
+});
 
 vi.mock('@electron-toolkit/preload', () => ({
   electronAPI: {},
-}))
+}));
 
 vi.mock('@electron-toolkit/utils', () => ({
   is: { dev: false },
   optimizer: { watchWindowShortcuts: vi.fn() },
   electronApp: { setAppUserModelId: vi.fn() },
-}))
+}));
 
 // ---------------------------------------------------------------------------
 // Static imports (after mocks are declared — vi.mock is hoisted).
 // ---------------------------------------------------------------------------
 
-import { Ch, InvokeChannels, SendChannels } from './ipc-channels'
-
 import {
   registerAiHandlers,
+  registerBrandKitHandlers,
   registerExportHandlers,
   registerFfmpegHandlers,
+  registerHyperFramesHandlers,
+  registerLifecycleHandlers,
+  registerLongformHandlers,
   registerMediaHandlers,
+  registerMenuHandlers,
   registerProjectHandlers,
   registerRenderHandlers,
   registerSecretsHandlers,
   registerSystemHandlers,
-  registerHyperFramesHandlers,
-  registerLongformHandlers,
-} from '../main/ipc'
-
-import { registerSettingsWindowHandlers } from '../main/settings-window'
+  registerUpdateHandlers,
+} from '../main/ipc';
+import { registerSettingsWindowHandlers } from '../main/settings-window';
+import { Ch, InvokeChannels, SendChannels } from './ipc-channels';
 
 // Importing the preload runs its top-level code — including the
 // `contextBridge.exposeInMainWorld('api', api)` call captured above.
-import '../preload'
+import '../preload';
 
 // ---------------------------------------------------------------------------
 // Pull recorder Sets back out of `globalThis` (populated by the electron
 // mock factory — see the long comment near the top of this file).
 // ---------------------------------------------------------------------------
 
-const G = globalThis as unknown as RecorderBag
-const mainHandled = G.__ipcMainHandled
-const preloadInvoked = G.__preloadInvoked
-const preloadListened = G.__preloadListened
-let exposedApi: Record<string, unknown> | null = null
+const G = globalThis as unknown as RecorderBag;
+const mainHandled = G.__ipcMainHandled;
+const preloadInvoked = G.__preloadInvoked;
+const preloadListened = G.__preloadListened;
+let exposedApi: Record<string, unknown> | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const INVOKE_CHANNELS = new Set<string>(Object.values(InvokeChannels))
-const SEND_CHANNELS = new Set<string>(Object.values(SendChannels))
+const INVOKE_CHANNELS = new Set<string>(Object.values(InvokeChannels));
+const SEND_CHANNELS = new Set<string>(Object.values(SendChannels));
 
 /**
  * Walk `obj` recursively and call every function leaf with no arguments.
@@ -245,29 +267,29 @@ const SEND_CHANNELS = new Set<string>(Object.values(SendChannels))
  * so we also try `(() => {})`.
  */
 function callEveryLeaf(obj: unknown, seen: WeakSet<object> = new WeakSet()): void {
-  if (obj == null) return
+  if (obj == null) return;
   if (typeof obj === 'function') {
     // Try with no args (covers `invoke()` wrappers that immediately call
     // ipcRenderer.invoke).
     try {
-      ;(obj as (...args: unknown[]) => unknown)()
+      (obj as (...args: unknown[]) => unknown)();
     } catch {
       /* swallow — we only care about the recorded channel side effect */
     }
     // Try with a no-op callback (covers `listen()` wrappers that need a cb
     // to call ipcRenderer.on).
     try {
-      ;(obj as (...args: unknown[]) => unknown)(() => {})
+      (obj as (...args: unknown[]) => unknown)(() => {});
     } catch {
       /* swallow */
     }
-    return
+    return;
   }
-  if (typeof obj !== 'object') return
-  if (seen.has(obj as object)) return
-  seen.add(obj as object)
+  if (typeof obj !== 'object') return;
+  if (seen.has(obj as object)) return;
+  seen.add(obj as object);
   for (const v of Object.values(obj as Record<string, unknown>)) {
-    callEveryLeaf(v, seen)
+    callEveryLeaf(v, seen);
   }
 }
 
@@ -276,33 +298,43 @@ function callEveryLeaf(obj: unknown, seen: WeakSet<object> = new WeakSet()): voi
 // ---------------------------------------------------------------------------
 
 beforeAll(() => {
-  registerAiHandlers()
-  registerExportHandlers()
-  registerFfmpegHandlers()
-  registerMediaHandlers()
-  registerProjectHandlers()
-  registerRenderHandlers()
-  registerSecretsHandlers()
-  registerSystemHandlers()
-  registerHyperFramesHandlers()
-  registerLongformHandlers()
+  registerAiHandlers();
+  registerBrandKitHandlers();
+  registerExportHandlers();
+  registerFfmpegHandlers();
+  registerMediaHandlers();
+  registerProjectHandlers();
+  registerRenderHandlers();
+  registerSecretsHandlers();
+  registerSystemHandlers();
+  registerHyperFramesHandlers();
+  registerLongformHandlers();
+  registerMenuHandlers();
+  registerUpdateHandlers();
   // Settings-window handlers live outside src/main/ipc but still register
   // SETTINGS_WINDOW_OPEN/CLOSE/IS_OPEN — without them those Ch.Invoke values
   // would be falsely flagged as missing in main. The function only calls
   // `mainWindow.on('closed', …)` at registration time, so a tiny stub is
   // sufficient.
-  const fakeMainWindow = { on: (): void => {}, isDestroyed: (): boolean => true } as unknown
-  registerSettingsWindowHandlers(fakeMainWindow as Parameters<typeof registerSettingsWindowHandlers>[0])
+  const fakeMainWindow = {
+    id: 1,
+    on: (): void => {},
+    isDestroyed: (): boolean => true,
+  } as unknown;
+  registerLifecycleHandlers(fakeMainWindow as Parameters<typeof registerLifecycleHandlers>[0]);
+  registerSettingsWindowHandlers(
+    fakeMainWindow as Parameters<typeof registerSettingsWindowHandlers>[0],
+  );
 
-  exposedApi = G.__exposedApi.ref
+  exposedApi = G.__exposedApi.ref;
   if (!exposedApi) {
     throw new Error(
       'Preload bridge did not expose `api` via contextBridge.exposeInMainWorld — ' +
-        'check that `process.contextIsolated` is set before importing the preload.'
-    )
+        'check that `process.contextIsolated` is set before importing the preload.',
+    );
   }
-  callEveryLeaf(exposedApi)
-})
+  callEveryLeaf(exposedApi);
+});
 
 // ---------------------------------------------------------------------------
 // 1. MAIN side — every Ch.Invoke value has a registered handler.
@@ -310,20 +342,70 @@ beforeAll(() => {
 
 describe('main process IPC handlers', () => {
   it('exposes the contextBridge api object', () => {
-    expect(exposedApi).not.toBeNull()
-  })
+    expect(exposedApi).not.toBeNull();
+  });
+
+  it('registers the opt-in legacy-project cleaner on both desktop boundaries', () => {
+    expect(Ch.Invoke.PROJECT_CLEAN_LEGACY).toBe('project:cleanLegacy');
+    expect(mainHandled.has(Ch.Invoke.PROJECT_CLEAN_LEGACY)).toBe(true);
+    expect(preloadInvoked.has(Ch.Invoke.PROJECT_CLEAN_LEGACY)).toBe(true);
+  });
+
+  it('registers project-library actions and pending file-open consumption on both boundaries', () => {
+    const expectedChannels = [
+      [Ch.Invoke.PROJECT_SET_RECENT_PINNED, 'project:setRecentPinned'],
+      [Ch.Invoke.PROJECT_RENAME_RECENT, 'project:renameRecent'],
+      [Ch.Invoke.PROJECT_DUPLICATE_RECENT, 'project:duplicateRecent'],
+      [Ch.Invoke.PROJECT_DELETE_RECENT, 'project:deleteRecent'],
+      [Ch.Invoke.PROJECT_CONSUME_PENDING_OPEN, 'project:consumePendingOpen'],
+    ] as const;
+
+    for (const [channel, expectedName] of expectedChannels) {
+      expect(channel).toBe(expectedName);
+      expect(mainHandled.has(channel)).toBe(true);
+      expect(preloadInvoked.has(channel)).toBe(true);
+    }
+  });
+
+  it('registers the Pexels connection health check on both desktop boundaries', () => {
+    expect(Ch.Invoke.AI_VALIDATE_PEXELS_KEY).toBe('ai:validatePexelsKey');
+    expect(mainHandled.has(Ch.Invoke.AI_VALIDATE_PEXELS_KEY)).toBe(true);
+    expect(preloadInvoked.has(Ch.Invoke.AI_VALIDATE_PEXELS_KEY)).toBe(true);
+  });
+
+  it('registers explicit local-tool setup and cancellation on both desktop boundaries', () => {
+    expect(Ch.Invoke.PYTHON_START_SETUP).toBe('python:startSetup');
+    expect(Ch.Invoke.PYTHON_CANCEL_SETUP).toBe('python:cancelSetup');
+    expect(mainHandled.has(Ch.Invoke.PYTHON_START_SETUP)).toBe(true);
+    expect(mainHandled.has(Ch.Invoke.PYTHON_CANCEL_SETUP)).toBe(true);
+    expect(preloadInvoked.has(Ch.Invoke.PYTHON_START_SETUP)).toBe(true);
+    expect(preloadInvoked.has(Ch.Invoke.PYTHON_CANCEL_SETUP)).toBe(true);
+  });
+
+  it('registers native job progress and notification-click routing on both boundaries', () => {
+    expect(Ch.Invoke.SYSTEM_SET_PROGRESS).toBe('system:setProgress');
+    expect(Ch.Send.SYSTEM_NOTIFICATION_CLICKED).toBe('system:notificationClicked');
+    expect(mainHandled.has(Ch.Invoke.SYSTEM_SET_PROGRESS)).toBe(true);
+    expect(preloadInvoked.has(Ch.Invoke.SYSTEM_SET_PROGRESS)).toBe(true);
+    expect(preloadListened.has(Ch.Send.SYSTEM_NOTIFICATION_CLICKED)).toBe(true);
+  });
 
   it('registers a handler for every Ch.Invoke channel', () => {
-    const missing = [...INVOKE_CHANNELS].filter((c) => !mainHandled.has(c)).sort()
-    expect(missing, `Ch.Invoke channels with no ipcMain.handle() in main:\n  ${missing.join('\n  ')}`).toEqual([])
-  })
+    const missing = [...INVOKE_CHANNELS].filter((c) => !mainHandled.has(c)).sort();
+    expect(
+      missing,
+      `Ch.Invoke channels with no ipcMain.handle() in main:\n  ${missing.join('\n  ')}`,
+    ).toEqual([]);
+  });
 
   it('does not register any channel that is not in Ch', () => {
-    const allKnown = new Set<string>([...INVOKE_CHANNELS, ...SEND_CHANNELS])
-    const extra = [...mainHandled].filter((c) => !allKnown.has(c)).sort()
-    expect(extra, `main registers channels not declared in Ch:\n  ${extra.join('\n  ')}`).toEqual([])
-  })
-})
+    const allKnown = new Set<string>([...INVOKE_CHANNELS, ...SEND_CHANNELS]);
+    const extra = [...mainHandled].filter((c) => !allKnown.has(c)).sort();
+    expect(extra, `main registers channels not declared in Ch:\n  ${extra.join('\n  ')}`).toEqual(
+      [],
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 2. PRELOAD side — every Ch.Invoke value is bound on window.api, every
@@ -331,42 +413,65 @@ describe('main process IPC handlers', () => {
 // ---------------------------------------------------------------------------
 
 describe('preload bridge (window.api)', () => {
+  it('binds every native project and workspace menu request to renderer listeners', () => {
+    const expectedChannels = [
+      [Ch.Send.PROJECT_NEW_REQUEST, 'project:newRequest'],
+      [Ch.Send.PROJECT_SAVE_REQUEST, 'project:saveRequest'],
+      [Ch.Send.PROJECT_SAVE_AS_REQUEST, 'project:saveAsRequest'],
+      [Ch.Send.PROJECT_OPEN_REQUEST, 'project:openRequest'],
+      [Ch.Send.PROJECT_OPEN_RECENT_REQUEST, 'project:openRecentRequest'],
+      [Ch.Send.SETTINGS_OPEN_REQUEST, 'settings:openRequest'],
+      [Ch.Send.KEYBOARD_SHORTCUTS_REQUEST, 'keyboard:shortcutsRequest'],
+    ] as const;
+
+    for (const [channel, expectedName] of expectedChannels) {
+      expect(channel).toBe(expectedName);
+      expect(preloadListened.has(channel)).toBe(true);
+    }
+  });
+
   it('binds an invoke wrapper for every Ch.Invoke channel', () => {
-    const missing = [...INVOKE_CHANNELS].filter((c) => !preloadInvoked.has(c)).sort()
-    expect(missing, `Ch.Invoke channels with no window.api binding:\n  ${missing.join('\n  ')}`).toEqual([])
-  })
+    const missing = [...INVOKE_CHANNELS].filter((c) => !preloadInvoked.has(c)).sort();
+    expect(
+      missing,
+      `Ch.Invoke channels with no window.api binding:\n  ${missing.join('\n  ')}`,
+    ).toEqual([]);
+  });
 
   it('binds a listener factory for every Ch.Send channel', () => {
-    const missing = [...SEND_CHANNELS].filter((c) => !preloadListened.has(c)).sort()
-    expect(missing, `Ch.Send channels with no window.api listener binding:\n  ${missing.join('\n  ')}`).toEqual([])
-  })
+    const missing = [...SEND_CHANNELS].filter((c) => !preloadListened.has(c)).sort();
+    expect(
+      missing,
+      `Ch.Send channels with no window.api listener binding:\n  ${missing.join('\n  ')}`,
+    ).toEqual([]);
+  });
 
   it('does not invoke or listen on any channel that is not in Ch', () => {
-    const allKnown = new Set<string>([...INVOKE_CHANNELS, ...SEND_CHANNELS])
-    const extraInvoke = [...preloadInvoked].filter((c) => !allKnown.has(c)).sort()
-    const extraListen = [...preloadListened].filter((c) => !allKnown.has(c)).sort()
+    const allKnown = new Set<string>([...INVOKE_CHANNELS, ...SEND_CHANNELS]);
+    const extraInvoke = [...preloadInvoked].filter((c) => !allKnown.has(c)).sort();
+    const extraListen = [...preloadListened].filter((c) => !allKnown.has(c)).sort();
     expect(
       extraInvoke,
-      `preload invokes channels not declared in Ch:\n  ${extraInvoke.join('\n  ')}`
-    ).toEqual([])
+      `preload invokes channels not declared in Ch:\n  ${extraInvoke.join('\n  ')}`,
+    ).toEqual([]);
     expect(
       extraListen,
-      `preload listens on channels not declared in Ch:\n  ${extraListen.join('\n  ')}`
-    ).toEqual([])
-  })
+      `preload listens on channels not declared in Ch:\n  ${extraListen.join('\n  ')}`,
+    ).toEqual([]);
+  });
 
   it('does not bind invoke wrappers on Ch.Send channels (or vice versa)', () => {
     // An invoke channel handled as a listener (or a send channel called via
     // invoke) is a categorisation bug — catch it here.
-    const invokeOnSendChannel = [...preloadInvoked].filter((c) => SEND_CHANNELS.has(c)).sort()
-    const listenOnInvokeChannel = [...preloadListened].filter((c) => INVOKE_CHANNELS.has(c)).sort()
+    const invokeOnSendChannel = [...preloadInvoked].filter((c) => SEND_CHANNELS.has(c)).sort();
+    const listenOnInvokeChannel = [...preloadListened].filter((c) => INVOKE_CHANNELS.has(c)).sort();
     expect(
       invokeOnSendChannel,
-      `preload invokes a Ch.Send channel:\n  ${invokeOnSendChannel.join('\n  ')}`
-    ).toEqual([])
+      `preload invokes a Ch.Send channel:\n  ${invokeOnSendChannel.join('\n  ')}`,
+    ).toEqual([]);
     expect(
       listenOnInvokeChannel,
-      `preload listens on a Ch.Invoke channel:\n  ${listenOnInvokeChannel.join('\n  ')}`
-    ).toEqual([])
-  })
-})
+      `preload listens on a Ch.Invoke channel:\n  ${listenOnInvokeChannel.join('\n  ')}`,
+    ).toEqual([]);
+  });
+});

@@ -1,85 +1,62 @@
-import { ipcMain } from 'electron'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { Ch } from '@shared/ipc-channels'
-import { wrapHandler } from '../ipc-error-handler'
-import { downloadYouTube } from '../youtube'
-import { transcribeVideo, formatTranscriptForAI } from '../transcription'
-import { detectFaceCrops } from '../face-detection'
-import { generateCaptions, type WordInput, type CaptionStyleInput } from '../captions'
-import { extractBRollKeywords } from '../broll-keywords'
-import type { WordTimestamp as BRollWordTimestamp } from '../broll-keywords'
-import { fetchBRollClips } from '../broll-pexels'
-import { buildBRollPlacements } from '../broll-placement'
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Ch } from '@shared/ipc-channels';
+import { ipcMain } from 'electron';
+import { generateBRollImage } from '../broll-image-gen';
+import { imageToVideoClip } from '../broll-image-overlay';
+import type { WordTimestamp as BRollWordTimestamp } from '../broll-keywords';
+import { extractBRollKeywords } from '../broll-keywords';
+import { fetchBRollClips } from '../broll-pexels';
 import type {
-  BRollSettings as BRollSettingsConfig,
   BRollDisplayMode,
-  BRollTransition
-} from '../broll-placement'
-import { checkPythonSetup, runFullSetup, ensurePythonReady } from '../python-setup'
-import { cancelPythonProcesses } from '../python'
-import { generateBRollImage } from '../broll-image-gen'
-import { imageToVideoClip } from '../broll-image-overlay'
+  BRollSettings as BRollSettingsConfig,
+  BRollTransition,
+} from '../broll-placement';
+import { buildBRollPlacements } from '../broll-placement';
+import { type CaptionStyleInput, generateCaptions, type WordInput } from '../captions';
+import { detectFaceCrops } from '../face-detection';
+import { wrapHandler } from '../ipc-error-handler';
+import { cancelPythonProcesses } from '../python';
+import {
+  cancelPythonSetup,
+  checkPythonSetup,
+  isPythonStampedReady,
+  startPythonSetup,
+} from '../python-setup';
+import { formatTranscriptForAI, transcribeVideo } from '../transcription';
+import { downloadYouTube } from '../youtube';
+
+function requireLocalContentTools(): void {
+  if (!isPythonStampedReady()) {
+    throw new Error(
+      'Local content tools are not ready. Finish setup or use Repair content tools in Settings.',
+    );
+  }
+}
 
 export function registerMediaHandlers(): void {
   // YouTube download
   ipcMain.handle(
     Ch.Invoke.YOUTUBE_DOWNLOAD,
     wrapHandler(Ch.Invoke.YOUTUBE_DOWNLOAD, async (event, url: string) => {
-      // Self-healing: if the env is already stamped + verified, this returns in
-      // <1s. If it's the first run, this triggers (or joins) the install and
-      // streams progress to the renderer's install card. Same callback path
-      // as the startup probe — a renderer that's already showing the install
-      // card just keeps watching it.
-      const result = await ensurePythonReady({
-        onProgress: (stage, message, percent, pkg, currentPackage, totalPackages) => {
-          event.sender.send(Ch.Send.PYTHON_SETUP_PROGRESS, {
-            stage,
-            message,
-            percent,
-            package: pkg,
-            currentPackage,
-            totalPackages,
-          })
-        },
-      })
-      if (!result.ready) {
-        event.sender.send(Ch.Send.PYTHON_SETUP_DONE, {
-          success: false,
-          error: result.error,
-        })
-        throw new Error(
-          `Python environment couldn't be set up: ${result.error ?? 'unknown error'}`
-        )
-      }
-      if (result.installed) {
-        // Notify the renderer that the install finished so the install card
-        // dismisses and the drop zone re-appears before the YouTube download
-        // begins streaming progress.
-        event.sender.send(Ch.Send.PYTHON_SETUP_DONE, { success: true })
-      }
-      const outputDir = join(tmpdir(), 'batchcontent-yt')
+      requireLocalContentTools();
+      const outputDir = join(tmpdir(), 'batchcontent-yt');
       return downloadYouTube(url, outputDir, (percent) => {
-        event.sender.send(Ch.Send.YOUTUBE_PROGRESS, { percent })
-      })
-    })
-  )
+        event.sender.send(Ch.Send.YOUTUBE_PROGRESS, { percent });
+      });
+    }),
+  );
 
   // Transcribe video
   ipcMain.handle(
     Ch.Invoke.TRANSCRIBE_VIDEO,
     wrapHandler(Ch.Invoke.TRANSCRIBE_VIDEO, async (event, videoPath: string) => {
-      const result = await ensurePythonReady()
-      if (!result.ready) {
-        throw new Error(
-          `Python environment couldn't be set up: ${result.error ?? 'unknown error'}`
-        )
-      }
+      requireLocalContentTools();
       return transcribeVideo(videoPath, (progress) => {
-        event.sender.send(Ch.Send.TRANSCRIBE_PROGRESS, progress)
-      })
-    })
-  )
+        event.sender.send(Ch.Send.TRANSCRIBE_PROGRESS, progress);
+      });
+    }),
+  );
 
   // Format transcript for AI scoring
   ipcMain.handle(
@@ -87,10 +64,10 @@ export function registerMediaHandlers(): void {
     wrapHandler(
       Ch.Invoke.TRANSCRIBE_FORMAT_FOR_AI,
       (_event, result: Parameters<typeof formatTranscriptForAI>[0]) => {
-        return formatTranscriptForAI(result)
-      }
-    )
-  )
+        return formatTranscriptForAI(result);
+      },
+    ),
+  );
 
   // Face detection — smart 9:16 crop regions
   ipcMain.handle(
@@ -98,18 +75,13 @@ export function registerMediaHandlers(): void {
     wrapHandler(
       Ch.Invoke.FACE_DETECT_CROPS,
       async (event, videoPath: string, segments: { start: number; end: number }[]) => {
-        const result = await ensurePythonReady()
-        if (!result.ready) {
-          throw new Error(
-            `Python environment couldn't be set up: ${result.error ?? 'unknown error'}`
-          )
-        }
+        requireLocalContentTools();
         return detectFaceCrops(videoPath, segments, (progress) => {
-          event.sender.send(Ch.Send.FACE_PROGRESS, progress)
-        })
-      }
-    )
-  )
+          event.sender.send(Ch.Send.FACE_PROGRESS, progress);
+        });
+      },
+    ),
+  );
 
   // Captions — generate .ass subtitle file
   ipcMain.handle(
@@ -117,10 +89,10 @@ export function registerMediaHandlers(): void {
     wrapHandler(
       Ch.Invoke.CAPTIONS_GENERATE,
       async (_event, words: WordInput[], style: CaptionStyleInput, outputPath?: string) => {
-        return generateCaptions(words, style, outputPath)
-      }
-    )
-  )
+        return generateCaptions(words, style, outputPath);
+      },
+    ),
+  );
 
   // B-Roll — extract keywords + fetch Pexels clips + compute placement schedule
   ipcMain.handle(
@@ -136,13 +108,13 @@ export function registerMediaHandlers(): void {
         clipStart: number,
         clipEnd: number,
         settings: {
-          intervalSeconds: number
-          clipDuration: number
-          displayMode: BRollDisplayMode
-          transition: BRollTransition
-          pipSize: number
-          pipPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
-        }
+          intervalSeconds: number;
+          clipDuration: number;
+          displayMode: BRollDisplayMode;
+          transition: BRollTransition;
+          pipSize: number;
+          pipPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+        },
       ) => {
         const brollSettings: BRollSettingsConfig = {
           enabled: true,
@@ -152,50 +124,50 @@ export function registerMediaHandlers(): void {
           displayMode: settings.displayMode,
           transition: settings.transition,
           pipSize: settings.pipSize,
-          pipPosition: settings.pipPosition
-        }
+          pipPosition: settings.pipPosition,
+        };
 
-        const clipDuration = clipEnd - clipStart
+        const clipDuration = clipEnd - clipStart;
 
         const keywords = await extractBRollKeywords(
           transcriptText,
           wordTimestamps,
           clipStart,
           clipEnd,
-          geminiApiKey
-        )
+          geminiApiKey,
+        );
 
         if (keywords.length === 0) {
-          console.log('[B-Roll] No keywords extracted — skipping B-Roll generation')
-          return []
+          console.log('[B-Roll] No keywords extracted — skipping B-Roll generation');
+          return [];
         }
 
-        const uniqueKeywords = Array.from(new Set(keywords.map((k) => k.keyword)))
+        const uniqueKeywords = Array.from(new Set(keywords.map((k) => k.keyword)));
         const downloadedClips = await fetchBRollClips(
           uniqueKeywords,
           pexelsApiKey,
-          settings.clipDuration
-        )
+          settings.clipDuration,
+        );
 
         if (downloadedClips.size === 0) {
-          console.log('[B-Roll] No clips downloaded — skipping B-Roll generation')
-          return []
+          console.log('[B-Roll] No clips downloaded — skipping B-Roll generation');
+          return [];
         }
 
         const placements = buildBRollPlacements(
           clipDuration,
           keywords,
           downloadedClips,
-          brollSettings
-        )
+          brollSettings,
+        );
 
         console.log(
-          `[B-Roll] Generated ${placements.length} placement(s) for clip at ${clipStart}–${clipEnd}s`
-        )
-        return placements
-      }
-    )
-  )
+          `[B-Roll] Generated ${placements.length} placement(s) for clip at ${clipStart}–${clipEnd}s`,
+        );
+        return placements;
+      },
+    ),
+  );
 
   // B-Roll — generate a single AI image
   ipcMain.handle(
@@ -208,25 +180,25 @@ export function registerMediaHandlers(): void {
         keyword: string,
         transcriptContext: string,
         styleCategory: string,
-        duration: number
+        duration: number,
       ) => {
         const imageResult = await generateBRollImage(
           keyword,
           transcriptContext,
           styleCategory,
-          geminiApiKey
-        )
-        if (!imageResult) return null
+          geminiApiKey,
+        );
+        if (!imageResult) return null;
 
         // Convert static image to video clip with Ken Burns effect
-        const videoPath = await imageToVideoClip(imageResult.filePath, duration)
+        const videoPath = await imageToVideoClip(imageResult.filePath, duration);
         return {
           ...imageResult,
-          videoPath
-        }
-      }
-    )
-  )
+          videoPath,
+        };
+      },
+    ),
+  );
 
   // B-Roll — regenerate an AI image with new prompt/style
   ipcMain.handle(
@@ -239,48 +211,48 @@ export function registerMediaHandlers(): void {
         keyword: string,
         transcriptContext: string,
         styleCategory: string,
-        duration: number
+        duration: number,
       ) => {
         // Same as generate — the cache key will differ if keyword/context/style differ
         const imageResult = await generateBRollImage(
           keyword,
           transcriptContext,
           styleCategory,
-          geminiApiKey
-        )
-        if (!imageResult) return null
+          geminiApiKey,
+        );
+        if (!imageResult) return null;
 
-        const videoPath = await imageToVideoClip(imageResult.filePath, duration)
+        const videoPath = await imageToVideoClip(imageResult.filePath, duration);
         return {
           ...imageResult,
-          videoPath
-        }
-      }
-    )
-  )
+          videoPath,
+        };
+      },
+    ),
+  );
 
   // Python setup — check status
   ipcMain.handle(
     Ch.Invoke.PYTHON_GET_STATUS,
-    wrapHandler(Ch.Invoke.PYTHON_GET_STATUS, () => checkPythonSetup())
-  )
+    wrapHandler(Ch.Invoke.PYTHON_GET_STATUS, () => checkPythonSetup()),
+  );
 
-  // Python setup — start installation
+  // Python setup — explicit user-started installation or repair
   ipcMain.handle(
     Ch.Invoke.PYTHON_START_SETUP,
-    wrapHandler(Ch.Invoke.PYTHON_START_SETUP, async (event) => {
-      runFullSetup(event.sender).catch((err) => {
-        event.sender.send(Ch.Send.PYTHON_SETUP_DONE, { success: false, error: err.message })
-      })
-      return { started: true }
-    })
-  )
+    wrapHandler(Ch.Invoke.PYTHON_START_SETUP, (event) => startPythonSetup(event.sender)),
+  );
+
+  ipcMain.handle(
+    Ch.Invoke.PYTHON_CANCEL_SETUP,
+    wrapHandler(Ch.Invoke.PYTHON_CANCEL_SETUP, () => cancelPythonSetup()),
+  );
 
   // Python cancel — SIGTERM any in-flight transcribe.py / download.py /
   // face_detect.py so a cancelled job stops pinning CPU/GPU instead of running
   // out its multi-hour timeout. Returns the number of processes signalled.
   ipcMain.handle(
     Ch.Invoke.PYTHON_CANCEL,
-    wrapHandler(Ch.Invoke.PYTHON_CANCEL, () => cancelPythonProcesses())
-  )
+    wrapHandler(Ch.Invoke.PYTHON_CANCEL, () => cancelPythonProcesses()),
+  );
 }

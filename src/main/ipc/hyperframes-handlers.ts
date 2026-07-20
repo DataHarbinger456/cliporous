@@ -2,22 +2,22 @@
 // HyperFrames IPC handlers — renderer-facing overlay rendering API
 // ---------------------------------------------------------------------------
 
-import { ipcMain } from 'electron'
-import { Ch } from '@shared/ipc-channels'
-import { wrapHandler } from '../ipc-error-handler'
-import { renderOverlay } from '../hyperframes/renderer'
+import { Ch } from '@shared/ipc-channels';
+import { ipcMain } from 'electron';
+import { renderOverlay } from '../hyperframes/renderer';
 import type {
+  BaseOverlayProps,
   OverlayBlockName,
   OverlayRequest,
   OverlayTiming,
-  BaseOverlayProps
-} from '../hyperframes/types'
+} from '../hyperframes/types';
+import { wrapHandler } from '../ipc-error-handler';
 
 /** Payload the renderer sends to request a single overlay render. */
 interface RenderOverlayPayload {
-  block: OverlayBlockName
-  props: BaseOverlayProps
-  timing: OverlayTiming
+  block: OverlayBlockName;
+  props: BaseOverlayProps;
+  timing: OverlayTiming;
 }
 
 export function registerHyperFramesHandlers(): void {
@@ -29,10 +29,10 @@ export function registerHyperFramesHandlers(): void {
         const request: OverlayRequest = {
           block: payload.block,
           props: payload.props,
-          timing: payload.timing
-        }
-        return renderOverlay(request)
-      }
-    )
-  )
+          timing: payload.timing,
+        };
+        return renderOverlay(request);
+      },
+    ),
+  );
 }

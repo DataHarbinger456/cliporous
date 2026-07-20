@@ -7,12 +7,7 @@
 // top of `@shared/types`.
 // ---------------------------------------------------------------------------
 
-import type {
-  WordTimestamp,
-  VideoSegment,
-  Archetype,
-  SegmentStyleCategory,
-} from './types'
+import type { Archetype, SegmentStyleCategory, VideoSegment, WordTimestamp } from './types';
 
 // ---------------------------------------------------------------------------
 // UUID — works in both renderer (Web Crypto) and Node ≥19 via globalThis
@@ -22,17 +17,17 @@ function uuid(): string {
   // globalThis.crypto.randomUUID() is available in:
   //   - Electron renderer (Web Crypto API)
   //   - Node ≥19 (web-compatible crypto on globalThis)
-  return globalThis.crypto.randomUUID()
+  return globalThis.crypto.randomUUID();
 }
 
 // ---------------------------------------------------------------------------
 // Splitting configuration
 // ---------------------------------------------------------------------------
 
-const MIN_SEGMENT_DURATION = 2
-const MAX_SEGMENT_DURATION = 5
-const DEFAULT_TARGET_DURATION = 3
-const PAUSE_THRESHOLD = 0.3
+const MIN_SEGMENT_DURATION = 2;
+const MAX_SEGMENT_DURATION = 5;
+const DEFAULT_TARGET_DURATION = 3;
+const PAUSE_THRESHOLD = 0.3;
 
 // ---------------------------------------------------------------------------
 // Archetype lookup tables
@@ -50,9 +45,9 @@ const ARCHETYPE_TO_CATEGORY: Record<Archetype, SegmentStyleCategory> = {
   'split-image': 'main-video-images',
   'fullscreen-image': 'fullscreen-image',
   'fullscreen-quote': 'fullscreen-text',
-}
+};
 
-const IMAGE_ARCHETYPES = new Set<Archetype>(['split-image', 'fullscreen-image'])
+const IMAGE_ARCHETYPES = new Set<Archetype>(['split-image', 'fullscreen-image']);
 
 // ---------------------------------------------------------------------------
 // Splitting
@@ -60,7 +55,7 @@ const IMAGE_ARCHETYPES = new Set<Archetype>(['split-image', 'fullscreen-image'])
 
 /** Check if a word ends a sentence (period, question mark, exclamation mark). */
 function isSentenceEnd(text: string): boolean {
-  return /[.!?]["']?\s*$/.test(text.trim())
+  return /[.!?]["']?\s*$/.test(text.trim());
 }
 
 /**
@@ -70,34 +65,34 @@ function isSentenceEnd(text: string): boolean {
  * ~60s @ target 3s → ~15 segments (capped)
  */
 function computeSegmentCount(totalDuration: number, targetDuration: number): number {
-  return Math.max(2, Math.min(15, Math.round(totalDuration / targetDuration)))
+  return Math.max(2, Math.min(15, Math.round(totalDuration / targetDuration)));
 }
 
 interface SplitCandidate {
   /** Word index — the split goes AFTER this word. */
-  wordIndex: number
+  wordIndex: number;
   /** Timestamp: end of this word (where the segment boundary lands). */
-  time: number
+  time: number;
   /** Priority: sentence > pause > word. Higher is better. */
-  priority: number
+  priority: number;
 }
 
 /** Find all candidate split points in the words array. */
 function findSplitCandidates(words: WordTimestamp[]): SplitCandidate[] {
-  const candidates: SplitCandidate[] = []
+  const candidates: SplitCandidate[] = [];
   for (let i = 0; i < words.length - 1; i++) {
-    const current = words[i]
-    const next = words[i + 1]
-    const gap = next.start - current.end
+    const current = words[i];
+    const next = words[i + 1];
+    const gap = next.start - current.end;
     if (isSentenceEnd(current.text)) {
-      candidates.push({ wordIndex: i, time: current.end, priority: 3 })
+      candidates.push({ wordIndex: i, time: current.end, priority: 3 });
     } else if (gap > PAUSE_THRESHOLD) {
-      candidates.push({ wordIndex: i, time: current.end, priority: 2 })
+      candidates.push({ wordIndex: i, time: current.end, priority: 2 });
     } else {
-      candidates.push({ wordIndex: i, time: current.end, priority: 1 })
+      candidates.push({ wordIndex: i, time: current.end, priority: 1 });
     }
   }
-  return candidates
+  return candidates;
 }
 
 /**
@@ -110,31 +105,31 @@ function findBestSplit(
   candidates: SplitCandidate[],
   targetTime: number,
   minTime: number,
-  maxTime: number
+  maxTime: number,
 ): SplitCandidate | null {
-  const inRange = candidates.filter((c) => c.time >= minTime && c.time <= maxTime)
-  if (inRange.length === 0) return null
+  const inRange = candidates.filter((c) => c.time >= minTime && c.time <= maxTime);
+  if (inRange.length === 0) return null;
   inRange.sort((a, b) => {
-    if (b.priority !== a.priority) return b.priority - a.priority
-    return Math.abs(a.time - targetTime) - Math.abs(b.time - targetTime)
-  })
-  return inRange[0]
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    return Math.abs(a.time - targetTime) - Math.abs(b.time - targetTime);
+  });
+  return inRange[0];
 }
 
 /**
  * Merge segments shorter than MIN_SEGMENT_DURATION into their previous neighbor.
  */
 function mergeShortSegments(segments: VideoSegment[], clipId: string): VideoSegment[] {
-  if (segments.length <= 1) return segments
-  const result: VideoSegment[] = []
+  if (segments.length <= 1) return segments;
+  const result: VideoSegment[] = [];
   for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]
-    const duration = seg.endTime - seg.startTime
+    const seg = segments[i];
+    const duration = seg.endTime - seg.startTime;
     if (duration >= MIN_SEGMENT_DURATION || result.length === 0) {
-      result.push({ ...seg })
-      continue
+      result.push({ ...seg });
+      continue;
     }
-    const prev = result[result.length - 1]
+    const prev = result[result.length - 1];
     result[result.length - 1] = {
       id: prev.id,
       clipId,
@@ -148,9 +143,9 @@ function mergeShortSegments(segments: VideoSegment[], clipId: string): VideoSegm
       zoomKeyframes: [],
       transitionIn: prev.transitionIn,
       transitionOut: seg.transitionOut,
-    }
+    };
   }
-  return result
+  return result;
 }
 
 /**
@@ -166,9 +161,9 @@ function mergeShortSegments(segments: VideoSegment[], clipId: string): VideoSegm
 export function splitIntoSegments(
   clipId: string,
   words: WordTimestamp[],
-  targetDuration: number = DEFAULT_TARGET_DURATION
+  targetDuration: number = DEFAULT_TARGET_DURATION,
 ): VideoSegment[] {
-  const target = Math.max(MIN_SEGMENT_DURATION, Math.min(MAX_SEGMENT_DURATION, targetDuration))
+  const target = Math.max(MIN_SEGMENT_DURATION, Math.min(MAX_SEGMENT_DURATION, targetDuration));
 
   if (words.length === 0) {
     return [
@@ -186,12 +181,12 @@ export function splitIntoSegments(
         transitionIn: 'hard-cut',
         transitionOut: 'hard-cut',
       },
-    ]
+    ];
   }
 
-  const clipStart = words[0].start
-  const clipEnd = words[words.length - 1].end
-  const totalDuration = clipEnd - clipStart
+  const clipStart = words[0].start;
+  const clipEnd = words[words.length - 1].end;
+  const totalDuration = clipEnd - clipStart;
 
   if (totalDuration <= MIN_SEGMENT_DURATION * 2) {
     return [
@@ -209,57 +204,55 @@ export function splitIntoSegments(
         transitionIn: 'hard-cut',
         transitionOut: 'hard-cut',
       },
-    ]
+    ];
   }
 
-  const segmentCount = computeSegmentCount(totalDuration, target)
-  const idealSegmentDuration = totalDuration / segmentCount
-  const candidates = findSplitCandidates(words)
+  const segmentCount = computeSegmentCount(totalDuration, target);
+  const idealSegmentDuration = totalDuration / segmentCount;
+  const candidates = findSplitCandidates(words);
 
-  const splitPoints: SplitCandidate[] = []
-  const usedWordIndices = new Set<number>()
+  const splitPoints: SplitCandidate[] = [];
+  const usedWordIndices = new Set<number>();
 
   for (let i = 1; i < segmentCount; i++) {
-    const targetTime = clipStart + idealSegmentDuration * i
+    const targetTime = clipStart + idealSegmentDuration * i;
     const lastSplitTime =
-      splitPoints.length > 0 ? splitPoints[splitPoints.length - 1].time : clipStart
+      splitPoints.length > 0 ? splitPoints[splitPoints.length - 1].time : clipStart;
 
     const minTime = Math.max(
       lastSplitTime + MIN_SEGMENT_DURATION,
-      targetTime - idealSegmentDuration * 0.5
-    )
+      targetTime - idealSegmentDuration * 0.5,
+    );
     const maxTime = Math.min(
       clipEnd - MIN_SEGMENT_DURATION,
-      targetTime + idealSegmentDuration * 0.5
-    )
+      targetTime + idealSegmentDuration * 0.5,
+    );
 
-    const available = candidates.filter((c) => !usedWordIndices.has(c.wordIndex))
-    const best = findBestSplit(available, targetTime, minTime, maxTime)
+    const available = candidates.filter((c) => !usedWordIndices.has(c.wordIndex));
+    const best = findBestSplit(available, targetTime, minTime, maxTime);
     if (best) {
-      splitPoints.push(best)
-      usedWordIndices.add(best.wordIndex)
+      splitPoints.push(best);
+      usedWordIndices.add(best.wordIndex);
     }
   }
 
-  splitPoints.sort((a, b) => a.time - b.time)
+  splitPoints.sort((a, b) => a.time - b.time);
 
-  const segments: VideoSegment[] = []
+  const segments: VideoSegment[] = [];
   const boundaries = [
     { wordIndex: -1, time: clipStart },
     ...splitPoints,
     { wordIndex: words.length - 1, time: clipEnd },
-  ]
+  ];
 
   for (let i = 0; i < boundaries.length - 1; i++) {
-    const segStart = boundaries[i].time
-    const segEnd = boundaries[i + 1].time
-    const startWordIdx = boundaries[i].wordIndex + 1
+    const segStart = boundaries[i].time;
+    const segEnd = boundaries[i + 1].time;
+    const startWordIdx = boundaries[i].wordIndex + 1;
     const endWordIdx =
-      i + 1 < boundaries.length - 1
-        ? boundaries[i + 1].wordIndex + 1
-        : words.length
+      i + 1 < boundaries.length - 1 ? boundaries[i + 1].wordIndex + 1 : words.length;
 
-    const segWords = words.slice(startWordIdx, endWordIdx)
+    const segWords = words.slice(startWordIdx, endWordIdx);
 
     segments.push({
       id: uuid(),
@@ -274,14 +267,14 @@ export function splitIntoSegments(
       zoomKeyframes: [],
       transitionIn: 'hard-cut',
       transitionOut: 'hard-cut',
-    })
+    });
   }
 
-  const merged = mergeShortSegments(segments, clipId)
+  const merged = mergeShortSegments(segments, clipId);
   for (let i = 0; i < merged.length; i++) {
-    merged[i].index = i
+    merged[i].index = i;
   }
-  return merged
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,12 +291,12 @@ export function splitIntoSegments(
  * give visual context, let the key line breathe, settle in, keep the rhythm.
  */
 const OPENING: Archetype[] = [
-  'tight-punch',       // 1. punch in on the hook
-  'split-image',       // 2. visual context
-  'fullscreen-quote',  // 3. let a key line breathe
-  'talking-head',      // 4. settle in
-  'split-image',       // 5. keep visual rhythm
-]
+  'tight-punch', // 1. punch in on the hook
+  'split-image', // 2. visual context
+  'fullscreen-quote', // 3. let a key line breathe
+  'talking-head', // 4. settle in
+  'split-image', // 5. keep visual rhythm
+];
 
 /** Body cycle when image-archetypes are available. */
 const BODY_WITH_IMAGES: Archetype[] = [
@@ -315,7 +308,7 @@ const BODY_WITH_IMAGES: Archetype[] = [
   'fullscreen-quote',
   'talking-head',
   'tight-punch',
-]
+];
 
 /** Body cycle when no image-archetype source is configured. */
 const BODY_NO_IMAGES: Archetype[] = [
@@ -325,7 +318,7 @@ const BODY_NO_IMAGES: Archetype[] = [
   'talking-head',
   'quote-lower',
   'tight-punch',
-]
+];
 
 /**
  * Pick an archetype for the segment at `index`, respecting:
@@ -337,41 +330,38 @@ function pickArchetype(
   index: number,
   segmentCount: number,
   hasMediaKey: boolean,
-  previousAssignments: Archetype[]
+  previousAssignments: Archetype[],
 ): Archetype {
-  if (index === segmentCount - 1) return 'talking-head'
+  if (index === segmentCount - 1) return 'talking-head';
 
-  const body = hasMediaKey ? BODY_WITH_IMAGES : BODY_NO_IMAGES
+  const body = hasMediaKey ? BODY_WITH_IMAGES : BODY_NO_IMAGES;
 
   const wouldStreak = (candidate: Archetype): boolean => {
-    if (previousAssignments.length < 2) return false
-    const cat = ARCHETYPE_TO_CATEGORY[candidate]
-    const prev1 = previousAssignments[previousAssignments.length - 1]
-    const prev2 = previousAssignments[previousAssignments.length - 2]
-    return (
-      ARCHETYPE_TO_CATEGORY[prev1] === cat &&
-      ARCHETYPE_TO_CATEGORY[prev2] === cat
-    )
-  }
+    if (previousAssignments.length < 2) return false;
+    const cat = ARCHETYPE_TO_CATEGORY[candidate];
+    const prev1 = previousAssignments[previousAssignments.length - 1];
+    const prev2 = previousAssignments[previousAssignments.length - 2];
+    return ARCHETYPE_TO_CATEGORY[prev1] === cat && ARCHETYPE_TO_CATEGORY[prev2] === cat;
+  };
 
   // Opening: walk OPENING starting at index, skipping media-archetypes when
   // unavailable and skipping anything that would streak the same category.
   if (index < OPENING.length) {
     for (let offset = 0; offset < OPENING.length; offset++) {
-      const candidate = OPENING[(index + offset) % OPENING.length]
-      if (!hasMediaKey && IMAGE_ARCHETYPES.has(candidate)) continue
-      if (wouldStreak(candidate)) continue
-      return candidate
+      const candidate = OPENING[(index + offset) % OPENING.length];
+      if (!hasMediaKey && IMAGE_ARCHETYPES.has(candidate)) continue;
+      if (wouldStreak(candidate)) continue;
+      return candidate;
     }
     // All opening slots streak — fall through to body picker.
   }
 
-  const bodyOffset = Math.max(0, index - OPENING.length)
+  const bodyOffset = Math.max(0, index - OPENING.length);
   for (let offset = 0; offset < body.length; offset++) {
-    const candidate = body[(bodyOffset + offset) % body.length]
-    if (!wouldStreak(candidate)) return candidate
+    const candidate = body[(bodyOffset + offset) % body.length];
+    if (!wouldStreak(candidate)) return candidate;
   }
-  return body[bodyOffset % body.length]
+  return body[bodyOffset % body.length];
 }
 
 /**
@@ -384,18 +374,18 @@ function pickArchetype(
  */
 export function assignArchetypesDeterministic(
   segments: VideoSegment[],
-  hasMediaKey: boolean
+  hasMediaKey: boolean,
 ): VideoSegment[] {
-  const assigned: Archetype[] = []
+  const assigned: Archetype[] = [];
 
   return segments.map((seg, i) => {
-    const archetype = pickArchetype(i, segments.length, hasMediaKey, assigned)
-    assigned.push(archetype)
+    const archetype = pickArchetype(i, segments.length, hasMediaKey, assigned);
+    assigned.push(archetype);
 
     return {
       ...seg,
       archetype,
       segmentStyleCategory: ARCHETYPE_TO_CATEGORY[archetype],
-    }
-  })
+    };
+  });
 }

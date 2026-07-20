@@ -1,6 +1,7 @@
-import { app, safeStorage } from 'electron'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { registerCredentialValue } from '@shared/credential-safety';
+import { app, safeStorage } from 'electron';
 
 /**
  * Encrypted secret storage backed by Electron's `safeStorage`.
@@ -15,101 +16,108 @@ import { join } from 'path'
  * — a warning is logged on first use.
  */
 
-type SecretMap = Record<string, string>
+type SecretMap = Record<string, string>;
 
-let cache: SecretMap | null = null
-let warnedInsecure = false
+function isProviderCredential(name: string): boolean {
+  return name === 'gemini' || name === 'pexels' || name === 'fal';
+}
+
+let cache: SecretMap | null = null;
+let warnedInsecure = false;
 
 function storeFilePath(): string {
-  return join(app.getPath('userData'), 'secrets.json')
+  return join(app.getPath('userData'), 'secrets.json');
 }
 
 function readStore(): SecretMap {
-  if (cache) return cache
-  const path = storeFilePath()
+  if (cache) return cache;
+  const path = storeFilePath();
   if (!existsSync(path)) {
-    cache = {}
-    return cache
+    cache = {};
+    return cache;
   }
   try {
-    const raw = readFileSync(path, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    cache = parsed && typeof parsed === 'object' ? (parsed as SecretMap) : {}
+    const raw = readFileSync(path, 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    cache = parsed && typeof parsed === 'object' ? (parsed as SecretMap) : {};
   } catch (err) {
-    console.warn('[secrets] Failed to read secrets store, starting fresh:', err)
-    cache = {}
+    console.warn('[secrets] Failed to read secrets store, starting fresh:', err);
+    cache = {};
   }
-  return cache
+  return cache;
 }
 
 function writeStore(data: SecretMap): void {
-  cache = data
+  cache = data;
   try {
-    writeFileSync(storeFilePath(), JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
+    writeFileSync(storeFilePath(), JSON.stringify(data), { encoding: 'utf8', mode: 0o600 });
   } catch (err) {
-    console.error('[secrets] Failed to persist secrets store:', err)
-    throw err
+    console.error('[secrets] Failed to persist secrets store:', err);
+    throw err;
   }
 }
 
 function warnInsecureOnce(): void {
-  if (warnedInsecure) return
-  warnedInsecure = true
+  if (warnedInsecure) return;
+  warnedInsecure = true;
   console.warn(
     '[secrets] safeStorage encryption is NOT available on this system. ' +
       'API keys will be base64-encoded but NOT encrypted. ' +
-      'Install libsecret/gnome-keyring or kwallet to enable encryption.'
-  )
+      'Install libsecret/gnome-keyring or kwallet to enable encryption.',
+  );
 }
 
 function encrypt(plaintext: string): string {
   if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.encryptString(plaintext).toString('base64')
+    return safeStorage.encryptString(plaintext).toString('base64');
   }
-  warnInsecureOnce()
-  return Buffer.from(plaintext, 'utf8').toString('base64')
+  warnInsecureOnce();
+  return Buffer.from(plaintext, 'utf8').toString('base64');
 }
 
 function decrypt(stored: string): string | null {
-  if (!stored) return null
+  if (!stored) return null;
   try {
-    const buf = Buffer.from(stored, 'base64')
+    const buf = Buffer.from(stored, 'base64');
     if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.decryptString(buf)
+      return safeStorage.decryptString(buf);
     }
-    warnInsecureOnce()
-    return buf.toString('utf8')
+    warnInsecureOnce();
+    return buf.toString('utf8');
   } catch (err) {
-    console.warn('[secrets] Failed to decrypt secret:', err)
-    return null
+    console.warn('[secrets] Failed to decrypt secret:', err);
+    return null;
   }
 }
 
 export function getSecret(name: string): string | null {
-  const store = readStore()
-  const entry = store[name]
-  if (!entry) return null
-  return decrypt(entry)
+  const store = readStore();
+  const entry = store[name];
+  if (!entry) return null;
+  const value = decrypt(entry);
+  if (isProviderCredential(name)) registerCredentialValue(value);
+  return value;
 }
 
 export function setSecret(name: string, value: string): void {
-  const store = { ...readStore() }
+  if (isProviderCredential(name)) registerCredentialValue(value);
+  const store = { ...readStore() };
   if (value === '') {
-    delete store[name]
+    delete store[name];
   } else {
-    store[name] = encrypt(value)
+    store[name] = encrypt(value);
   }
-  writeStore(store)
+  writeStore(store);
 }
 
 export function hasSecret(name: string): boolean {
-  const store = readStore()
-  return typeof store[name] === 'string' && store[name].length > 0
+  const store = readStore();
+  return typeof store[name] === 'string' && store[name].length > 0;
 }
 
 export function clearSecret(name: string): void {
-  const store = { ...readStore() }
-  if (!(name in store)) return
-  delete store[name]
-  writeStore(store)
+  const store = { ...readStore() };
+  if (!(name in store)) return;
+  delete store[name];
+  writeStore(store);
 }

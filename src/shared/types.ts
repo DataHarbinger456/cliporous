@@ -9,36 +9,38 @@
 //       UI-only types stay in store.ts; main-only types stay in their module.
 // ---------------------------------------------------------------------------
 
+import type { Palette } from '@shared/palettes';
+
 // ---------------------------------------------------------------------------
 // Transcription
 // ---------------------------------------------------------------------------
 
 /** A single word with its start/end timestamps from ASR transcription. */
 export interface WordTimestamp {
-  text: string
+  text: string;
   /** Start time in seconds */
-  start: number
+  start: number;
   /** End time in seconds */
-  end: number
+  end: number;
 }
 
 /** A sentence/paragraph segment from ASR transcription. */
 export interface SegmentTimestamp {
-  text: string
+  text: string;
   /** Start time in seconds */
-  start: number
+  start: number;
   /** End time in seconds */
-  end: number
+  end: number;
 }
 
 /** Raw transcription output from the ASR pipeline. */
 export interface TranscriptionResult {
   /** Full transcript text */
-  text: string
+  text: string;
   /** Word-level timestamps */
-  words: WordTimestamp[]
+  words: WordTimestamp[];
   /** Sentence/segment-level timestamps */
-  segments: SegmentTimestamp[]
+  segments: SegmentTimestamp[];
 }
 
 // ---------------------------------------------------------------------------
@@ -47,12 +49,12 @@ export interface TranscriptionResult {
 
 /** A 9:16 crop rectangle for face-centered framing. */
 export interface CropRegion {
-  x: number
-  y: number
-  width: number
-  height: number
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   /** Whether a face was actually detected (false = fallback center crop). */
-  faceDetected: boolean
+  faceDetected: boolean;
 }
 
 /**
@@ -64,23 +66,23 @@ export interface CropRegion {
  */
 export interface CropTimelineEntry {
   /** Source-video absolute start time (seconds). */
-  startTime: number
+  startTime: number;
   /** Source-video absolute end time (seconds). */
-  endTime: number
-  x: number
-  y: number
-  width: number
-  height: number
-  faceDetected: boolean
+  endTime: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  faceDetected: boolean;
 }
 
 /** Who set the crop — 'auto' from face detection, 'manual' from user drag. */
-export type CropRegionSource = 'auto' | 'manual'
+export type CropRegionSource = 'auto' | 'manual';
 
 /** Progress callback data for multi-segment face detection. */
 export interface FaceDetectionProgress {
-  segment: number
-  total: number
+  segment: number;
+  total: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,35 +90,35 @@ export interface FaceDetectionProgress {
 // ---------------------------------------------------------------------------
 
 /** Target clip duration range for AI transcript scoring. */
-export type TargetDuration = 'auto' | '15-30' | '30-60' | '60-90' | '90-120'
+export type TargetDuration = 'auto' | '15-30' | '30-60' | '60-90' | '90-120';
 
 /** A single scored segment returned by the Gemini AI scoring pass. */
 export interface ScoredSegment {
   /** Start time in seconds */
-  startTime: number
+  startTime: number;
   /** End time in seconds */
-  endTime: number
+  endTime: number;
   /** Transcript text for this segment */
-  text: string
+  text: string;
   /** Viral potential score 0–100 */
-  score: number
+  score: number;
   /** AI-generated hook/title text for the clip */
-  hookText: string
+  hookText: string;
   /** AI reasoning for the score */
-  reasoning: string
+  reasoning: string;
 }
 
 /** Full result from the AI transcript scoring pipeline. */
 export interface ScoringResult {
-  segments: ScoredSegment[]
-  summary: string
-  keyTopics: string[]
+  segments: ScoredSegment[];
+  summary: string;
+  keyTopics: string[];
 }
 
 /** Progress callback data for the AI scoring stage. */
 export interface ScoringProgress {
-  stage: 'sending' | 'analyzing' | 'validating'
-  message: string
+  stage: 'sending' | 'analyzing' | 'validating';
+  message: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,44 +141,44 @@ export type StitchedClipRole =
   | 'mini-payoff'
   | 'main-payoff'
   | 'bonus-payoff'
-  | 'bridge'
+  | 'bridge';
 
 /** A contiguous slice of the source video that contributes to a stitched clip. */
 export interface SourceRange {
   /** Absolute source-video start in seconds. */
-  startTime: number
+  startTime: number;
   /** Absolute source-video end in seconds. start < end. */
-  endTime: number
+  endTime: number;
   /**
    * Narrative role within the stitched clip. Used by the validator
    * (must include hook + at least one *-payoff) and by the render-side
    * stitched assembly (hook ranges optionally get a tight-punch crop).
    */
-  role: StitchedClipRole
+  role: StitchedClipRole;
 }
 
 /** Returned by the AI stitch generator, mapped to StitchedClipCandidate on the renderer. */
 export interface StitchedClipPlan {
   /** 2+ ranges, no internal overlap, total duration >= 3s. */
-  ranges: SourceRange[]
+  ranges: SourceRange[];
   /** Total spoken text across all ranges, in narrative order. */
-  text: string
+  text: string;
   /** 0-100, validator floor is 70. */
-  score: number
+  score: number;
   /** Hook overlay text (1-5 words). */
-  hookText: string
+  hookText: string;
   /** AI's explanation of why the composite delivers value as a coherent thought. */
-  reasoning: string
+  reasoning: string;
 }
 
 export interface StitchGenerationResult {
   /** Validated, score-sorted stitched clip plans. May be empty. */
-  clips: StitchedClipPlan[]
+  clips: StitchedClipPlan[];
 }
 
 export interface StitchGenerationProgress {
-  stage: 'sending' | 'analyzing' | 'validating'
-  message: string
+  stage: 'sending' | 'analyzing' | 'validating';
+  message: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,25 +188,25 @@ export interface StitchGenerationProgress {
 /** A detected curiosity gap moment in the transcript. */
 export interface CuriosityGap {
   /** Timestamp (seconds) where the gap opens — question asked, story begins, claim made */
-  openTimestamp: number
+  openTimestamp: number;
   /** Timestamp (seconds) where the gap resolves — answer given, payoff lands */
-  resolveTimestamp: number
+  resolveTimestamp: number;
   /** Structural type of the curiosity trigger */
-  type: 'question' | 'story' | 'claim' | 'pivot' | 'tease'
+  type: 'question' | 'story' | 'claim' | 'pivot' | 'tease';
   /** Engagement strength 1–10 */
-  score: number
+  score: number;
   /** Human-readable explanation of what makes this moment compelling */
-  description: string
+  description: string;
 }
 
 /** Adjusted clip boundaries after curiosity gap optimization. */
 export interface ClipBoundary {
   /** Adjusted clip start in seconds */
-  start: number
+  start: number;
   /** Adjusted clip end in seconds */
-  end: number
+  end: number;
   /** Short explanation of why the boundaries were chosen */
-  reason: string
+  reason: string;
 }
 
 /**
@@ -213,17 +215,17 @@ export interface ClipBoundary {
  * fields needed for AI analysis passes.
  */
 export interface CuriosityClipCandidate {
-  startTime: number
-  endTime: number
+  startTime: number;
+  endTime: number;
   /** Original virality score 0–100 */
-  score: number
-  text?: string
-  hookText?: string
-  reasoning?: string
+  score: number;
+  text?: string;
+  hookText?: string;
+  reasoning?: string;
   /** Curiosity gap strength 1–10 injected by rankClipsByCuriosity */
-  curiosityScore?: number
+  curiosityScore?: number;
   /** Combined engagement rank score used for final ordering */
-  combinedScore?: number
+  combinedScore?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,128 +233,138 @@ export interface CuriosityClipCandidate {
 // ---------------------------------------------------------------------------
 
 /** Strategy for optimizing clip endpoints. */
-export type ClipEndMode = 'loop-first' | 'completion-first' | 'cliffhanger'
+export type ClipEndMode = 'loop-first' | 'completion-first' | 'cliffhanger';
 
 // ---------------------------------------------------------------------------
 // Captions
 // ---------------------------------------------------------------------------
 
 /** Animation style for word-level captions. */
-export type CaptionAnimation = 'captions-ai' | 'karaoke-fill' | 'word-pop' | 'fade-in' | 'glow' | 'word-box' | 'elastic-bounce' | 'typewriter' | 'impact-two' | 'cascade'
+export type CaptionAnimation =
+  | 'captions-ai'
+  | 'karaoke-fill'
+  | 'word-pop'
+  | 'fade-in'
+  | 'glow'
+  | 'word-box'
+  | 'elastic-bounce'
+  | 'typewriter'
+  | 'impact-two'
+  | 'cascade';
 
 /**
  * Full caption visual identity for an EditStyle — self-contained, independent
  * of the user's basic caption preset system.
  */
 export interface CaptionStyleInput {
-  fontName: string
+  fontName: string;
   /** Fraction of frame height (e.g. 0.065). */
-  fontSize: number
+  fontSize: number;
   /** Base text color hex (e.g. '#FFFFFF'). */
-  primaryColor: string
+  primaryColor: string;
   /** Currently-speaking word color hex. */
-  highlightColor: string
+  highlightColor: string;
   /** Outline/shadow color hex. */
-  outlineColor: string
+  outlineColor: string;
   /** Background box color with alpha (AARRGGBB, e.g. '#40000000'). */
-  backColor: string
-  outline: number
-  shadow: number
+  backColor: string;
+  outline: number;
+  shadow: number;
   /** 1 = outline+shadow, 3 = opaque box behind text. */
-  borderStyle: number
-  wordsPerLine: number
-  animation: CaptionAnimation
+  borderStyle: number;
+  wordsPerLine: number;
+  animation: CaptionAnimation;
   /**
    * V2 caption mode. Selected explicitly by an edit style to opt into the
    * font/colour swap for emphasised words. When omitted, V2 falls back to
    * 'standard' (uniform text). Mirrors the type declared in main/captions.ts;
    * kept here so EditStyle.captionStyle can carry it through to the renderer.
    */
-  captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight'
+  captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight';
   /** V2 accent colour for 'emphasis_highlight' mode. */
-  accentColor?: string
+  accentColor?: string;
   /** Emphasis-level word color. Defaults to highlightColor. */
-  emphasisColor?: string
+  emphasisColor?: string;
   /** Supersize word color. Defaults to '#FFD700'. */
-  supersizeColor?: string
+  supersizeColor?: string;
   /** Drop-shadow offset distance in pixels (extended shadow controls). */
-  shadowDistance?: number
+  shadowDistance?: number;
   /** Drop-shadow angle in degrees (0 = right, 90 = down). */
-  shadowAngle?: number
+  shadowAngle?: number;
   /** Drop-shadow softness / blur radius in pixels. */
-  shadowSoftness?: number
+  shadowSoftness?: number;
   /** Drop-shadow opacity (0–1). */
-  shadowOpacity?: number
+  shadowOpacity?: number;
   /** Drop-shadow color hex. */
-  shadowColor?: string
+  shadowColor?: string;
 }
 
 /** Word animation type for the live preview and CSS-based rendering. */
-export type WordAnimationType = 'none' | 'fade' | 'pop' | 'slide' | 'bounce' | 'typewriter'
+export type WordAnimationType = 'none' | 'fade' | 'pop' | 'slide' | 'bounce' | 'typewriter';
 
 /** Text case transformation applied to caption words. */
-export type TextCase = 'normal' | 'upper' | 'lower'
+export type TextCase = 'normal' | 'upper' | 'lower';
 
 /** Shadow style applied behind caption text. */
 export interface CaptionShadowStyle {
   /** Shadow rendering type. 'drop' = directional shadow, 'glow' = omnidirectional blur. */
-  type: 'drop' | 'glow'
+  type: 'drop' | 'glow';
   /** Shadow color in hex (e.g. '#000000'). */
-  color: string
+  color: string;
   /** Horizontal offset in pixels (ignored for 'glow'). */
-  offsetX: number
+  offsetX: number;
   /** Vertical offset in pixels (ignored for 'glow'). */
-  offsetY: number
+  offsetY: number;
   /** Blur radius in pixels. */
-  blur: number
+  blur: number;
 }
 
 /** Background box rendered behind each word or line of caption text. */
 export interface CaptionBackgroundBox {
   /** Whether the background box is enabled. */
-  enabled: boolean
+  enabled: boolean;
   /** Box fill color in hex (e.g. '#000000'). */
-  color: string
+  color: string;
   /** Box opacity from 0 (transparent) to 1 (opaque). */
-  opacity: number
+  opacity: number;
   /** Corner radius in pixels. 0 = sharp corners. */
-  cornerRadius: number
+  cornerRadius: number;
   /** Inner padding in pixels between text and box edge. */
-  padding: number
+  padding: number;
 }
 
 /** Emphasis tier overrides — applied to words tagged 'emphasis' by the AI edit plan. */
 export interface CaptionEmphasisStyle {
   /** Scale multiplier for emphasis words relative to base fontSize (e.g. 1.25 = 25% larger). */
-  scaleFactor: number
+  scaleFactor: number;
   /** Override text color for emphasis words. Hex string. Falls back to highlightColor if omitted. */
-  color?: string
+  color?: string;
   /** Override font weight for emphasis words. Falls back to base fontWeight if omitted. */
-  fontWeight?: number
+  fontWeight?: number;
 }
 
 /** Supersize tier overrides — applied to words tagged 'supersize' by the AI edit plan. */
 export interface CaptionSupersizeStyle {
   /** Scale multiplier for supersize words relative to base fontSize (e.g. 1.6 = 60% larger). */
-  scaleFactor: number
+  scaleFactor: number;
   /** Override text color for supersize words. Hex string. Defaults to '#FFD700' gold. */
-  color: string
+  color: string;
   /** Override font weight for supersize words. Defaults to 800 (extra-bold). */
-  fontWeight: number
+  fontWeight: number;
 }
 
 /** Box emphasis tier overrides — word sits on a colored opaque rectangle. */
 export interface CaptionBoxEmphasisStyle {
   /** Box fill color in hex (e.g. '#FF0000'). Falls back to highlightColor if omitted. */
-  color?: string
+  color?: string;
   /** Box opacity from 0 (transparent) to 1 (opaque). Defaults to 0.85. */
-  opacity: number
+  opacity: number;
   /** Padding around the text in pixels. Defaults to 10. */
-  padding: number
+  padding: number;
   /** Override text color for box-emphasis words. Falls back to base textColor if omitted. */
-  textColor?: string
+  textColor?: string;
   /** Override font weight for box-emphasis words. Falls back to base fontWeight if omitted. */
-  fontWeight?: number
+  fontWeight?: number;
 }
 
 /**
@@ -372,70 +384,70 @@ export interface CaptionStyleSchema {
   // ---------------------------------------------------------------------------
 
   /** Font family name (e.g. 'Montserrat', 'Inter', 'Poppins'). */
-  fontFamily: string
+  fontFamily: string;
   /** Font weight as a numeric value (100–900). 400 = normal, 700 = bold. */
-  fontWeight: number
+  fontWeight: number;
   /** Text case transformation applied to all caption words. */
-  textCase: TextCase
+  textCase: TextCase;
   /** Base font size as a fraction of frame height (e.g. 0.07 = 7%). */
-  fontSize: number
+  fontSize: number;
   /** Letter spacing in pixels. 0 = normal. Positive values spread characters. */
-  letterSpacing: number
+  letterSpacing: number;
 
   // ---------------------------------------------------------------------------
   // Colors
   // ---------------------------------------------------------------------------
 
   /** Primary text color in hex (e.g. '#FFFFFF'). */
-  textColor: string
+  textColor: string;
   /** Highlight color for the currently-spoken word in hex. */
-  highlightColor: string
+  highlightColor: string;
 
   // ---------------------------------------------------------------------------
   // Outline, Shadow & Background Box
   // ---------------------------------------------------------------------------
 
   /** Outline (stroke) color around each glyph in hex. */
-  outlineColor: string
+  outlineColor: string;
   /** Outline (stroke) width in pixels. 0 = no outline. */
-  outlineWidth: number
+  outlineWidth: number;
   /** Text shadow configuration. `null` = no shadow. */
-  shadow: CaptionShadowStyle | null
+  shadow: CaptionShadowStyle | null;
   /** Background box behind text. When disabled, no box is drawn. */
-  backgroundBox: CaptionBackgroundBox
+  backgroundBox: CaptionBackgroundBox;
 
   // ---------------------------------------------------------------------------
   // Emphasis & Supersize Tiers
   // ---------------------------------------------------------------------------
 
   /** Visual overrides for words tagged 'emphasis' by the AI edit plan. */
-  emphasis: CaptionEmphasisStyle
+  emphasis: CaptionEmphasisStyle;
   /** Visual overrides for words tagged 'supersize' by the AI edit plan. */
-  supersize: CaptionSupersizeStyle
+  supersize: CaptionSupersizeStyle;
   /** Visual overrides for words tagged 'box' — opaque background rectangle. */
-  boxEmphasis: CaptionBoxEmphasisStyle
+  boxEmphasis: CaptionBoxEmphasisStyle;
 
   // ---------------------------------------------------------------------------
   // Animation
   // ---------------------------------------------------------------------------
 
   /** Word-level entrance animation type. */
-  wordAnimation: WordAnimationType
+  wordAnimation: WordAnimationType;
   /** Animation duration in milliseconds (e.g. 150). */
-  animationDurationMs: number
+  animationDurationMs: number;
 
   // ---------------------------------------------------------------------------
   // Layout & Positioning
   // ---------------------------------------------------------------------------
 
   /** Maximum number of words displayed at once per caption group/line. */
-  wordsPerLine: number
+  wordsPerLine: number;
   /**
    * Vertical position of the caption block as a fraction of frame height
    * measured from the bottom (0 = bottom edge, 1 = top edge).
    * Typical range: 0.08–0.25. Default ~0.12.
    */
-  verticalPosition: number
+  verticalPosition: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,24 +455,24 @@ export interface CaptionStyleSchema {
 // ---------------------------------------------------------------------------
 
 /** Emphasis level for a single word in the transcript. */
-export type EmphasisLevel = 'normal' | 'emphasis' | 'supersize' | 'box'
+export type EmphasisLevel = 'normal' | 'emphasis' | 'supersize' | 'box';
 
 /** A word with its emphasis level determined by AI or heuristic analysis. */
 export interface EmphasizedWord {
-  text: string
+  text: string;
   /** Start time in seconds */
-  start: number
+  start: number;
   /** End time in seconds */
-  end: number
+  end: number;
   /** Emphasis classification for caption styling. */
-  emphasis: EmphasisLevel
+  emphasis: EmphasisLevel;
 }
 
 /** Result of word emphasis analysis for a clip or segment. */
 export interface WordEmphasisResult {
-  words: EmphasizedWord[]
+  words: EmphasizedWord[];
   /** Whether AI was used (true) or heuristic fallback (false). */
-  usedAI: boolean
+  usedAI: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,27 +486,27 @@ export type MusicTrack =
   | 'ambient-motivational'
   | 'ambient-chill'
   // Style-curated tracks — each matches a preset's creative personality
-  | 'cinematic-ambient'       // Film: atmospheric, slow-burn orchestral pads
-  | 'cinematic-noir'          // Film Noir variant: jazzy, smoky, mysterious
-  | 'cinematic-golden'        // Film Golden Hour: warm strings, hopeful
-  | 'high-energy-beats'       // Velocity: punchy electronic, 140+ BPM
-  | 'high-energy-trap'        // Velocity Bold: aggressive 808s, dark energy
-  | 'gritty-lofi'             // Rebel: lo-fi with vinyl crackle, grungy bass
-  | 'gritty-dark'             // Rebel Blackout: industrial, distorted, raw
-  | 'synthwave-neon'          // Neon: retro synthwave, 80s arpeggios
-  | 'synthwave-vapor'         // Neon Ice: vaporwave, dreamy pads
-  | 'impact-hype'             // Impact: hard-hitting hip-hop instrumental
-  | 'corporate-upbeat'        // Growth/Prime: clean, professional, uplifting
-  | 'ember-warm'              // Ember: warm indie acoustic, soulful
-  | 'volt-electric'           // Volt: electro house, driving bassline
-  | 'clarity-focus'           // Clarity: minimal piano + soft pads, educational
+  | 'cinematic-ambient' // Film: atmospheric, slow-burn orchestral pads
+  | 'cinematic-noir' // Film Noir variant: jazzy, smoky, mysterious
+  | 'cinematic-golden' // Film Golden Hour: warm strings, hopeful
+  | 'high-energy-beats' // Velocity: punchy electronic, 140+ BPM
+  | 'high-energy-trap' // Velocity Bold: aggressive 808s, dark energy
+  | 'gritty-lofi' // Rebel: lo-fi with vinyl crackle, grungy bass
+  | 'gritty-dark' // Rebel Blackout: industrial, distorted, raw
+  | 'synthwave-neon' // Neon: retro synthwave, 80s arpeggios
+  | 'synthwave-vapor' // Neon Ice: vaporwave, dreamy pads
+  | 'impact-hype' // Impact: hard-hitting hip-hop instrumental
+  | 'corporate-upbeat' // Growth/Prime: clean, professional, uplifting
+  | 'ember-warm' // Ember: warm indie acoustic, soulful
+  | 'volt-electric' // Volt: electro house, driving bassline
+  | 'clarity-focus'; // Clarity: minimal piano + soft pads, educational
 
 // ---------------------------------------------------------------------------
 // Platform & Layout
 // ---------------------------------------------------------------------------
 
 /** Target social media platform for safe-zone calculations. */
-export type Platform = 'tiktok' | 'reels' | 'shorts' | 'universal'
+export type Platform = 'tiktok' | 'reels' | 'shorts' | 'universal';
 
 /**
  * Output aspect ratio for rendered clips.
@@ -503,14 +515,14 @@ export type Platform = 'tiktok' | 'reels' | 'shorts' | 'universal'
  * - '4:5'  — 1080×1350, portrait (Instagram Post)
  * - '16:9' — 1920×1080, landscape (YouTube, Twitter)
  */
-export type OutputAspectRatio = '9:16' | '1:1' | '4:5' | '16:9'
+export type OutputAspectRatio = '9:16' | '1:1' | '4:5' | '16:9';
 
 // ---------------------------------------------------------------------------
 // Auto-Zoom
 // ---------------------------------------------------------------------------
 
 /** Zoom motion intensity for Ken Burns effect. */
-export type ZoomIntensity = 'subtle' | 'medium' | 'dynamic'
+export type ZoomIntensity = 'subtle' | 'medium' | 'dynamic';
 
 /**
  * Zoom animation mode.
@@ -518,28 +530,28 @@ export type ZoomIntensity = 'subtle' | 'medium' | 'dynamic'
  * - reactive:   zoom responds to word emphasis moments (keyframe-driven)
  * - jump-cut:   instant zoom level changes that simulate multi-camera editing
  */
-export type ZoomMode = 'ken-burns' | 'reactive' | 'jump-cut'
+export type ZoomMode = 'ken-burns' | 'reactive' | 'jump-cut';
 
 // ---------------------------------------------------------------------------
 // Hook Title Overlay
 // ---------------------------------------------------------------------------
 
 /** Visual style for the hook title overlay. */
-export type HookTitleStyle = 'centered-bold' | 'top-bar' | 'slide-in'
+export type HookTitleStyle = 'centered-bold' | 'top-bar' | 'slide-in';
 
 // ---------------------------------------------------------------------------
 // Re-Hook Overlay
 // ---------------------------------------------------------------------------
 
 /** Visual style for the mid-clip re-hook / pattern interrupt overlay. */
-export type RehookStyle = 'bar' | 'text-only' | 'slide-up'
+export type RehookStyle = 'bar' | 'text-only' | 'slide-up';
 
 // ---------------------------------------------------------------------------
 // Brand Kit
 // ---------------------------------------------------------------------------
 
 /** Position of the brand logo watermark on the frame. */
-export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 // ---------------------------------------------------------------------------
 // Shot Segmentation
@@ -551,39 +563,39 @@ export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-ri
 
 /** Reason why a shot boundary was placed at this point. */
 export type ShotBreakReason =
-  | 'sentence-end'      // Period, question mark, or exclamation at word end
-  | 'pause'             // Silent gap > threshold between consecutive words
-  | 'clause-boundary'   // Comma, semicolon, or colon followed by a pause
-  | 'topic-shift'       // Vocabulary / subject change detected across window
-  | 'max-duration'      // Shot exceeded target max (forced split)
-  | 'start'             // First shot of the clip (synthetic boundary)
-  | 'end'               // Last shot of the clip (synthetic boundary)
+  | 'sentence-end' // Period, question mark, or exclamation at word end
+  | 'pause' // Silent gap > threshold between consecutive words
+  | 'clause-boundary' // Comma, semicolon, or colon followed by a pause
+  | 'topic-shift' // Vocabulary / subject change detected across window
+  | 'max-duration' // Shot exceeded target max (forced split)
+  | 'start' // First shot of the clip (synthetic boundary)
+  | 'end'; // Last shot of the clip (synthetic boundary)
 
 /** A single shot segment within a clip — a coherent visual thought unit. */
 export interface ShotSegment {
   /** Clip-relative start time in seconds (0 = clip start). */
-  startTime: number
+  startTime: number;
   /** Clip-relative end time in seconds. */
-  endTime: number
+  endTime: number;
   /** Transcript text for this shot. */
-  text: string
+  text: string;
   /** Index of the first word (in the clip's wordTimestamps array) belonging to this shot. */
-  startWordIndex: number
+  startWordIndex: number;
   /** Exclusive index of the last word belonging to this shot. */
-  endWordIndex: number
+  endWordIndex: number;
   /** Why the boundary at the END of this shot was placed. */
-  breakReason: ShotBreakReason
+  breakReason: ShotBreakReason;
   /** Confidence score for this boundary (0–1). Higher = more natural break. */
-  confidence: number
+  confidence: number;
 }
 
 /** Result of shot segmentation for a single clip. */
 export interface ShotSegmentationResult {
-  shots: ShotSegment[]
+  shots: ShotSegment[];
   /** Total number of shots produced. */
-  shotCount: number
+  shotCount: number;
   /** Average shot duration in seconds. */
-  avgDuration: number
+  avgDuration: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -597,31 +609,31 @@ export interface ShotSegmentationResult {
 /** A word tagged for emphasis by the AI edit plan. */
 export interface AIEditPlanWordEmphasis {
   /** 0-based index in the clip's word timestamps array (for fast lookup). */
-  wordIndex: number
+  wordIndex: number;
   /** Word text — used to validate the index match at apply time. */
-  text: string
+  text: string;
   /** Clip-relative start timestamp in seconds. */
-  start: number
+  start: number;
   /** Clip-relative end timestamp in seconds. */
-  end: number
+  end: number;
   /** How much visual weight this word should carry in captions. */
-  level: 'emphasis' | 'supersize' | 'box'
+  level: 'emphasis' | 'supersize' | 'box';
 }
 
 /** A B-Roll placement suggestion from the AI edit plan. */
 export interface AIEditPlanBRollSuggestion {
   /** Clip-relative start time in seconds. */
-  timestamp: number
+  timestamp: number;
   /** How long the B-Roll should run in seconds (2–6). */
-  duration: number
+  duration: number;
   /** Pexels search query for this visual moment. */
-  keyword: string
+  keyword: string;
   /** Recommended layout for this B-Roll moment. */
-  displayMode: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip'
+  displayMode: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip';
   /** Recommended transition style. */
-  transition: 'hard-cut' | 'crossfade' | 'swipe-up' | 'swipe-down'
+  transition: 'hard-cut' | 'crossfade' | 'swipe-up' | 'swipe-down';
   /** Brief editorial justification (1 sentence). */
-  reason: string
+  reason: string;
 }
 
 /** SFX type identifiers that cross the IPC boundary in the edit plan. */
@@ -634,16 +646,16 @@ export type AIEditPlanSFXType =
   | 'notification-pop'
   | 'word-pop'
   | 'bass-drop'
-  | 'rise-tension-short'
+  | 'rise-tension-short';
 
 /** A sound effect recommendation from the AI edit plan. */
 export interface AIEditPlanSFXSuggestion {
   /** Clip-relative timestamp in seconds. */
-  timestamp: number
+  timestamp: number;
   /** SFX type to trigger. */
-  type: AIEditPlanSFXType
+  type: AIEditPlanSFXType;
   /** Brief editorial justification (1 sentence). */
-  reason: string
+  reason: string;
 }
 
 /**
@@ -655,30 +667,30 @@ export interface AIEditPlanSFXSuggestion {
  */
 export interface AIEditPlan {
   /** ID of the clip this plan belongs to. */
-  clipId: string
+  clipId: string;
   /** ID of the style preset that was active when the plan was generated. */
-  stylePresetId: string
+  stylePresetId: string;
   /** Human-readable name of that style preset (for display). */
-  stylePresetName: string
+  stylePresetName: string;
   /**
    * Word emphasis overrides.
    * Applied to captions at render time instead of the heuristic analysis.
    */
-  wordEmphasis: AIEditPlanWordEmphasis[]
+  wordEmphasis: AIEditPlanWordEmphasis[];
   /**
    * B-Roll placement suggestions.
    * Used to seed the Pexels keyword search when B-Roll is enabled.
    */
-  brollSuggestions: AIEditPlanBRollSuggestion[]
+  brollSuggestions: AIEditPlanBRollSuggestion[];
   /**
    * SFX placement recommendations.
    * Shown in the UI and passed as edit events to the sound design engine.
    */
-  sfxSuggestions: AIEditPlanSFXSuggestion[]
+  sfxSuggestions: AIEditPlanSFXSuggestion[];
   /** 2–3 sentence overall editorial reasoning from the AI. */
-  reasoning: string
+  reasoning: string;
   /** Unix timestamp (ms) when the plan was generated. */
-  generatedAt: number
+  generatedAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -689,31 +701,31 @@ export interface AIEditPlan {
 
 /** Named color grade preset that maps to concrete FFmpeg eq/hue parameters. */
 export type ColorGradePreset =
-  | 'none'           // No color treatment
-  | 'warm'           // Warm golden tones
-  | 'cool'           // Cool blue-shifted
-  | 'cinematic'      // Desaturated, crushed blacks
-  | 'vintage'        // Faded, lifted blacks
-  | 'high-contrast'  // Punchy, vivid
-  | 'bw'             // Black and white
-  | 'film'           // Film grain look (slight desaturation + warm shift)
+  | 'none' // No color treatment
+  | 'warm' // Warm golden tones
+  | 'cool' // Cool blue-shifted
+  | 'cinematic' // Desaturated, crushed blacks
+  | 'vintage' // Faded, lifted blacks
+  | 'high-contrast' // Punchy, vivid
+  | 'bw' // Black and white
+  | 'film'; // Film grain look (slight desaturation + warm shift)
 
 /** Color grade configuration with optional fine-tuning overrides. */
 export interface ColorGradeConfig {
   /** Named preset. Optional — when omitted, treated as 'none' and only the explicit fine-tune fields apply. */
-  preset?: ColorGradePreset
+  preset?: ColorGradePreset;
   /** Fine-tune brightness adjustment (-1.0 to 1.0). Default: 0 */
-  brightness?: number
+  brightness?: number;
   /** Fine-tune contrast adjustment (0.0 to 3.0). Default: 1.0 */
-  contrast?: number
+  contrast?: number;
   /** Fine-tune saturation adjustment (0.0 to 3.0). Default: 1.0 */
-  saturation?: number
+  saturation?: number;
   /** Warmth shift: -1.0 (cool/blue) to 1.0 (warm/orange). 0 = neutral */
-  warmth?: number
+  warmth?: number;
   /** Black level lift: 0.0 (deep blacks) to 0.15 (lifted/faded shadows) */
-  blackLift?: number
+  blackLift?: number;
   /** Highlight rolloff: 0.0 (harsh) to 1.0 (soft highlight rolloff) */
-  highlightSoftness?: number
+  highlightSoftness?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -725,21 +737,21 @@ export interface ColorGradeConfig {
 
 /** Visual transition type between shots within a clip. */
 export type ShotTransitionType =
-  | 'none'         // Hard cut (no transition effect)
-  | 'crossfade'    // Alpha dissolve between shots
-  | 'dip-black'    // Fade to black then fade up
-  | 'swipe-left'   // Horizontal wipe left
-  | 'swipe-up'     // Vertical wipe up
-  | 'swipe-down'   // Vertical wipe down
-  | 'zoom-in'      // Gentle zoom push into next shot
-  | 'zoom-punch'   // Aggressive snap-zoom at boundary (punchy, energetic)
-  | 'glitch'       // Brief digital glitch distortion (RGB shift + noise burst)
+  | 'none' // Hard cut (no transition effect)
+  | 'crossfade' // Alpha dissolve between shots
+  | 'dip-black' // Fade to black then fade up
+  | 'swipe-left' // Horizontal wipe left
+  | 'swipe-up' // Vertical wipe up
+  | 'swipe-down' // Vertical wipe down
+  | 'zoom-in' // Gentle zoom push into next shot
+  | 'zoom-punch' // Aggressive snap-zoom at boundary (punchy, energetic)
+  | 'glitch'; // Brief digital glitch distortion (RGB shift + noise burst)
 
 /** Transition configuration for a shot boundary. */
 export interface ShotTransitionConfig {
-  type: ShotTransitionType
+  type: ShotTransitionType;
   /** Transition duration in seconds (0.15–1.0). Default: 0.3 */
-  duration?: number
+  duration?: number;
 }
 
 /**
@@ -749,16 +761,16 @@ export interface ShotTransitionConfig {
  * `null` means no SFX (hard cut is silent by design).
  */
 export const SHOT_TRANSITION_SFX: Record<ShotTransitionType, string | null> = {
-  'none':        null,                // Hard cut — silence IS the sound
-  'crossfade':   'whoosh-soft',       // Gentle breath to match the dissolve
-  'dip-black':   'whoosh-soft',       // Soft whoosh into darkness
-  'swipe-left':  'swipe-transition',  // Directional swipe swoosh
-  'swipe-up':    'swipe-transition',  // Directional swipe swoosh
-  'swipe-down':  'swipe-transition',  // Directional swipe swoosh
-  'zoom-in':     'impact-low',        // Subtle punch on the zoom push
-  'zoom-punch':  'impact-high',       // Hard slam — the signature Velocity hit
-  'glitch':      'glitch-hit',        // Digital crunch/static burst
-}
+  none: null, // Hard cut — silence IS the sound
+  crossfade: 'whoosh-soft', // Gentle breath to match the dissolve
+  'dip-black': 'whoosh-soft', // Soft whoosh into darkness
+  'swipe-left': 'swipe-transition', // Directional swipe swoosh
+  'swipe-up': 'swipe-transition', // Directional swipe swoosh
+  'swipe-down': 'swipe-transition', // Directional swipe swoosh
+  'zoom-in': 'impact-low', // Subtle punch on the zoom push
+  'zoom-punch': 'impact-high', // Hard slam — the signature Velocity hit
+  glitch: 'glitch-hit', // Digital crunch/static burst
+};
 
 // ---------------------------------------------------------------------------
 // Per-Shot Style Assignments
@@ -780,13 +792,13 @@ export const SHOT_TRANSITION_SFX: Record<ShotTransitionType, string | null> = {
  */
 export interface ShotStyleAssignment {
   /** 0-based index into the clip's `shots` array. */
-  shotIndex: number
+  shotIndex: number;
   /**
    * ID of the EditStylePreset to apply during this shot's time range.
    * Must match a preset in the store's `editStylePresets` array.
    * When empty or undefined, the global batch style is used for this shot.
    */
-  presetId: string
+  presetId: string;
 }
 
 /**
@@ -798,52 +810,52 @@ export interface ShotStyleAssignment {
  */
 export interface ShotStyleConfig {
   /** 0-based shot index (matches ShotSegment position in clip.shots). */
-  shotIndex: number
+  shotIndex: number;
   /** Clip-relative start time in seconds. */
-  startTime: number
+  startTime: number;
   /** Clip-relative end time in seconds. */
-  endTime: number
+  endTime: number;
   /** Caption style override for this shot. `null` = use global. */
   captionStyle?: {
-    animation: CaptionAnimation
-    primaryColor: string
-    highlightColor: string
-    outlineColor: string
-    emphasisColor?: string
-    supersizeColor?: string
-    emphasisScale?: number
-    emphasisFontWeight?: number
-    supersizeScale?: number
-    supersizeFontWeight?: number
-    boxColor?: string
-    boxOpacity?: number
-    boxPadding?: number
-    boxTextColor?: string
-    boxFontWeight?: number
-    fontSize: number
-    outline: number
-    shadow: number
-    borderStyle: number
-    wordsPerLine: number
-    fontName: string
-    backColor: string
-  } | null
+    animation: CaptionAnimation;
+    primaryColor: string;
+    highlightColor: string;
+    outlineColor: string;
+    emphasisColor?: string;
+    supersizeColor?: string;
+    emphasisScale?: number;
+    emphasisFontWeight?: number;
+    supersizeScale?: number;
+    supersizeFontWeight?: number;
+    boxColor?: string;
+    boxOpacity?: number;
+    boxPadding?: number;
+    boxTextColor?: string;
+    boxFontWeight?: number;
+    fontSize: number;
+    outline: number;
+    shadow: number;
+    borderStyle: number;
+    wordsPerLine: number;
+    fontName: string;
+    backColor: string;
+  } | null;
   /** Zoom settings override for this shot. `null` = use global. */
   zoom?: {
-    mode: ZoomMode
-    intensity: ZoomIntensity
-    intervalSeconds: number
-  } | null
+    mode: ZoomMode;
+    intensity: ZoomIntensity;
+    intervalSeconds: number;
+  } | null;
   /** Color treatment for this shot. `null` = use global. */
-  colorGrade?: ColorGradeConfig | null
+  colorGrade?: ColorGradeConfig | null;
   /** Transition INTO this shot (from previous shot). `null` = hard cut. */
-  transitionIn?: ShotTransitionConfig | null
+  transitionIn?: ShotTransitionConfig | null;
   /** Transition OUT of this shot (to next shot). `null` = hard cut. */
-  transitionOut?: ShotTransitionConfig | null
+  transitionOut?: ShotTransitionConfig | null;
   /** B-Roll display mode override for this shot. `null` = use global. */
-  brollMode?: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip' | null
+  brollMode?: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip' | null;
   /** Background music track for this shot. `null` = use global. */
-  musicTrack?: MusicTrack | null
+  musicTrack?: MusicTrack | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -856,23 +868,23 @@ export type SegmentStyleCategory =
   | 'main-video-text'
   | 'main-video-images'
   | 'fullscreen-image'
-  | 'fullscreen-text'
+  | 'fullscreen-text';
 
 /** A single zoom/pan keyframe within a segment. */
 export interface ZoomKeyframe {
   /** Time in seconds relative to segment start. */
-  time: number
+  time: number;
   /** Scale factor: 1.0 = normal, 1.15 = zoomed in. */
-  scale: number
+  scale: number;
   /** Normalized horizontal pan position (0–1). */
-  x: number
+  x: number;
   /** Normalized vertical pan position (0–1). */
-  y: number
-  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap'
+  y: number;
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap';
 }
 
 /** How a segment transitions in or out. */
-export type TransitionType = 'none' | 'hard-cut' | 'crossfade' | 'flash-cut' | 'color-wash'
+export type TransitionType = 'none' | 'hard-cut' | 'crossfade' | 'flash-cut' | 'color-wash';
 
 /** The 7 archetype keys every edit style must implement (see src/main/edit-styles/shared/archetypes.ts). */
 export type Archetype =
@@ -882,7 +894,7 @@ export type Archetype =
   | 'quote-lower'
   | 'split-image'
   | 'fullscreen-image'
-  | 'fullscreen-quote'
+  | 'fullscreen-quote';
 
 // ---------------------------------------------------------------------------
 // Long-form (16:9) output profile — additive, parallel to the locked 9:16 path
@@ -895,7 +907,7 @@ export type Archetype =
  *     Every existing code path executes identically when this is undefined.
  *   • 'longform' — the 1920×1080 @ 30fps Hormozi-style long-form path.
  */
-export type OutputProfile = 'vertical' | 'longform'
+export type OutputProfile = 'vertical' | 'longform';
 
 /**
  * Long-form archetypes. Kept INTENTIONALLY SEPARATE from `Archetype` (above):
@@ -907,7 +919,7 @@ export type OutputProfile = 'vertical' | 'longform'
  * The long-form visual layer is now the skinned content-block system
  * (`BlockPlacement`); the speaker is the only FFmpeg-rendered archetype.
  */
-export type LongformArchetype = 'speaker'
+export type LongformArchetype = 'speaker';
 
 /**
  * A phrase-level emphasis beat — large floating text composited over the
@@ -916,13 +928,13 @@ export type LongformArchetype = 'speaker'
  */
 export interface PhraseEmphasis {
   /** Phrase text (2–6 words, punchy). */
-  text: string
+  text: string;
   /** Absolute source-video start time in seconds. */
-  startTime: number
+  startTime: number;
   /** Absolute source-video end time in seconds. */
-  endTime: number
+  endTime: number;
   /** Accent color (hex). Defaults to the Hormozi yellow when omitted. */
-  accentColor?: string
+  accentColor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -945,7 +957,23 @@ export interface PhraseEmphasis {
  * mirror of the `SKINS` keys in `src/main/remotion/shared/skins.tsx`; kept as
  * a plain union here so shared types never import from `src/main`.
  */
-export type LongformSkinId = 'aurora-glass' | 'editorial' | 'bento' | 'terminal'
+export type LongformSkinId =
+  | 'aurora-glass'
+  | 'editorial'
+  | 'bento'
+  | 'terminal'
+  | 'print-magazine'
+  | 'neo-brutalist'
+  | 'blueprint';
+
+/**
+ * Identifier of the color palette applied to long-form block renders. This is a
+ * SEPARATE axis from {@link LongformSkinId}: any skin can be combined with any
+ * palette. Palettes carry only colors (background / foreground / accent), while
+ * skins carry visual structure. IDs reference either a built-in preset or a
+ * user-created custom palette (see `src/shared/palettes.ts`).
+ */
+export type LongformPaletteId = string;
 
 /**
  * The kind of content block to render. Each maps to a PascalCase base
@@ -965,114 +993,162 @@ export type LongformBlockKind =
   | 'progress-bars'
   | 'kpi-ticker'
   | 'quote-card'
+  | 'portrait-quote'
   | 'tweet-card'
   | 'definition-card'
   | 'timeline'
   | 'timeline-cards'
   | 'feature-grid'
+  | 'leaderboard'
+  | 'donut'
+  | 'funnel'
+  | 'callout'
+  | 'map';
 
 /* ---- Block content item shapes (canonical; mirror blocks/types.ts) ---- */
 
 /** One vertical bar in a `bar-chart` block. */
 export interface BarChartBar {
   /** Category label under the bar. */
-  label: string
+  label: string;
   /** Normalised height 0-1 (relative to the tallest bar). */
-  value: number
+  value: number;
   /** Display value drawn above the bar, e.g. "$84K". */
-  valueLabel: string
+  valueLabel: string;
 }
 
 /** One metric tile in a `stat-grid` block. */
 export interface StatGridStat {
   /** Big display number, e.g. "3.4x". */
-  value: string
+  value: string;
   /** Caption under the number. */
-  label: string
+  label: string;
 }
 
 /** One icon+number tile in an `icon-stat-grid` block. */
 export interface IconStatGridItem {
   /** Lucide icon name (PascalCase). */
-  icon: string
+  icon: string;
   /** Big display number, e.g. "3.4x". */
-  value: string
+  value: string;
   /** Caption under the number. */
-  label: string
+  label: string;
 }
 
 /** One tile in an `icon-row` block. */
 export interface IconRowItem {
   /** Lucide icon name (PascalCase), e.g. "Target". */
-  icon: string
+  icon: string;
   /** Label under the icon. */
-  label: string
+  label: string;
 }
 
 /** One row in a `numbered-list` block. */
 export interface NumberedListItem {
   /** Bold row title. */
-  text: string
+  text: string;
   /** Optional supporting line under the title. */
-  detail?: string
+  detail?: string;
 }
 
 /** One row in a `checklist` block. */
 export interface ChecklistItem {
   /** Row label. */
-  text: string
+  text: string;
   /** Whether the row is ticked (accent Check) or pending (dim Circle). */
-  done?: boolean
+  done?: boolean;
 }
 
 /** One row in a `progress-bars` block. */
 export interface ProgressBar {
   /** Row label. */
-  label: string
+  label: string;
   /** Normalised fill 0-1 (relative to the track). */
-  value: number
+  value: number;
   /** Display value drawn at the row end, e.g. "82%". */
-  valueLabel: string
+  valueLabel: string;
 }
 
 /** One stat tile in a `kpi-ticker` block. */
 export interface KpiTickerItem {
   /** Big display value, e.g. "4.8K". */
-  value: string
+  value: string;
   /** Label under the value. */
-  label: string
+  label: string;
   /** Delta text for the Badge, e.g. "+12%". */
-  delta?: string
+  delta?: string;
   /** Trend direction — picks the icon + tint. */
-  trend?: 'up' | 'down'
+  trend?: 'up' | 'down';
 }
 
 /** One feature card in a `feature-grid` block. */
 export interface FeatureGridItem {
   /** Lucide icon name (PascalCase), e.g. "Zap". */
-  icon: string
+  icon: string;
   /** Card title. */
-  title: string
+  title: string;
   /** Card description body. */
-  description: string
+  description: string;
 }
 
 /** One step in a `timeline` block (no icon). */
 export interface TimelineStep {
   /** Step title. */
-  title: string
+  title: string;
   /** Optional supporting line. */
-  detail?: string
+  detail?: string;
+}
+
+/** One ranked row in a `leaderboard` block. */
+export interface LeaderboardRow {
+  /** Explicit rank number; falls back to row order (1-based) when omitted. */
+  rank?: number;
+  /** Row label, e.g. a channel / product name. */
+  label: string;
+  /** Display value drawn at the row end, e.g. "$4.2M". */
+  value: string;
+}
+
+/** One proportional slice in a `donut` block. */
+export interface DonutSlice {
+  /** Slice label shown in the legend. */
+  label: string;
+  /** Normalised share 0-1 (slices should sum to ~1). */
+  value: number;
+  /** Display value drawn in the legend, e.g. "42%". */
+  valueLabel: string;
+}
+
+/** One stacked stage in a `funnel` block (narrows downward). */
+export interface FunnelStage {
+  /** Stage label, e.g. "Visitors". */
+  label: string;
+  /** Normalised width 0-1 — drives how wide the stage renders (narrowing). */
+  value: number;
+  /** Display value drawn on the stage, e.g. "12,400" or "100%". */
+  valueLabel: string;
+}
+
+/** One highlighted location in a `map` block. */
+export interface MapPin {
+  /** Place label shown beside the pin, e.g. "London". */
+  label: string;
+  /** Normalised horizontal position 0-1 across the map (NOT longitude). */
+  x: number;
+  /** Normalised vertical position 0-1 down the map (NOT latitude). */
+  y: number;
+  /** Optional secondary line under the label, e.g. "12K users". */
+  valueLabel?: string;
 }
 
 /** One step in a `timeline-cards` block (icon per step). */
 export interface TimelineCardStep {
   /** Lucide icon name (PascalCase) for the step. */
-  icon: string
+  icon: string;
   /** Step title. */
-  title: string
+  title: string;
   /** Optional supporting line. */
-  detail?: string
+  detail?: string;
 }
 
 /**
@@ -1084,182 +1160,308 @@ export interface TimelineCardStep {
  */
 export type BlockPlacement =
   | {
-      kind: 'bar-chart'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      bars: BarChartBar[]
-      accentColor?: string
+      kind: 'bar-chart';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      bars: BarChartBar[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'comparison'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      leftTitle: string
-      rightTitle: string
-      leftItems: string[]
-      rightItems: string[]
-      accentColor?: string
+      kind: 'comparison';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      leftTitle: string;
+      rightTitle: string;
+      leftItems: string[];
+      rightItems: string[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'comparison-table'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      leftTitle: string
-      rightTitle: string
-      leftItems: string[]
-      rightItems: string[]
-      accentColor?: string
+      kind: 'comparison-table';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      leftTitle: string;
+      rightTitle: string;
+      leftItems: string[];
+      rightItems: string[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'stat-grid'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      stats: StatGridStat[]
-      accentColor?: string
+      kind: 'stat-grid';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      stats: StatGridStat[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'icon-stat-grid'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      items: IconStatGridItem[]
-      accentColor?: string
+      kind: 'icon-stat-grid';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      items: IconStatGridItem[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'icon-row'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      items: IconRowItem[]
-      accentColor?: string
+      kind: 'icon-row';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      items: IconRowItem[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'numbered-list'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      items: NumberedListItem[]
-      accentColor?: string
+      kind: 'numbered-list';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      items: NumberedListItem[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'checklist'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      items: ChecklistItem[]
-      accentColor?: string
+      kind: 'checklist';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      items: ChecklistItem[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'stat-hero'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      value: number
-      decimals?: number
-      prefix?: string
-      suffix?: string
-      label: string
-      trend?: 'up' | 'down'
-      delta?: string
-      accentColor?: string
+      kind: 'stat-hero';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      value: number;
+      decimals?: number;
+      prefix?: string;
+      suffix?: string;
+      label: string;
+      trend?: 'up' | 'down';
+      delta?: string;
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'progress-bars'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      bars: ProgressBar[]
-      accentColor?: string
+      kind: 'progress-bars';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      bars: ProgressBar[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'kpi-ticker'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      items: KpiTickerItem[]
-      accentColor?: string
+      kind: 'kpi-ticker';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      items: KpiTickerItem[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'quote-card'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      quote: string
-      name: string
-      role?: string
-      avatarUrl?: string
-      accentColor?: string
+      kind: 'quote-card';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      quote: string;
+      name: string;
+      role?: string;
+      avatarUrl?: string;
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'tweet-card'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      name: string
-      handle: string
-      verified?: boolean
-      avatarUrl?: string
-      body: string
-      replies?: string
-      reposts?: string
-      likes?: string
-      accentColor?: string
+      kind: 'portrait-quote';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading?: string;
+      quote: string;
+      name: string;
+      role?: string;
+      /** Optional portrait image (URL / absolute path / staticFile-relative). */
+      imageUrl?: string;
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'definition-card'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      term: string
-      partOfSpeech?: string
-      definition: string
-      accentColor?: string
+      kind: 'tweet-card';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      name: string;
+      handle: string;
+      verified?: boolean;
+      avatarUrl?: string;
+      body: string;
+      replies?: string;
+      reposts?: string;
+      likes?: string;
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'timeline'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      steps: TimelineStep[]
-      accentColor?: string
+      kind: 'definition-card';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      term: string;
+      partOfSpeech?: string;
+      definition: string;
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'timeline-cards'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      steps: TimelineCardStep[]
-      accentColor?: string
+      kind: 'timeline';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      steps: TimelineStep[];
+      accentColor?: string;
+      palette?: Palette;
     }
   | {
-      kind: 'feature-grid'
-      startTime: number
-      endTime: number
-      kicker: string
-      heading: string
-      items: FeatureGridItem[]
-      accentColor?: string
+      kind: 'timeline-cards';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      steps: TimelineCardStep[];
+      accentColor?: string;
+      palette?: Palette;
     }
+  | {
+      kind: 'feature-grid';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      items: FeatureGridItem[];
+      accentColor?: string;
+      palette?: Palette;
+    }
+  | {
+      kind: 'leaderboard';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      rows: LeaderboardRow[];
+      accentColor?: string;
+      palette?: Palette;
+    }
+  | {
+      kind: 'donut';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      slices: DonutSlice[];
+      accentColor?: string;
+      palette?: Palette;
+    }
+  | {
+      kind: 'funnel';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      stages: FunnelStage[];
+      accentColor?: string;
+      palette?: Palette;
+    }
+  | {
+      kind: 'callout';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      /** Optional — `body` is the hero. */
+      heading?: string;
+      /** The single high-impact sentence shown huge and centered. */
+      body: string;
+      /** Optional source / attribution line shown below the body. */
+      attribution?: string;
+      accentColor?: string;
+      palette?: Palette;
+    }
+  | {
+      kind: 'map';
+      startTime: number;
+      endTime: number;
+      kicker: string;
+      heading: string;
+      /** 1-6 highlighted locations placed by normalized x/y (NOT lat/long). */
+      pins: MapPin[];
+      accentColor?: string;
+      palette?: Palette;
+    };
+
+// ---------------------------------------------------------------------------
+// Delos pop-up cards — additive lower-center overlay layer (long-form 16:9)
+//
+// A THIRD long-form visual layer, parallel to phrase emphasis. Each placement
+// is a futuristic "Delos" HUD card composited over the SPEAKER (the speaker
+// stays on screen) — unlike full-frame content blocks, which replace the
+// speaker. Cards float lower-center, below the eye-line, never during a
+// full-frame block (the render-side timeline enforces that).
+//
+// `DelosCardKind` is the IPC-serializable string union mirroring the main-side
+// `CardKind` in `src/main/hyperframes/card-content.ts`; a compile-time check in
+// `delos-card.feature.ts` fails the build if the two ever drift.
+// ---------------------------------------------------------------------------
+
+/** The Delos HUD card variants a placement can request. */
+export type DelosCardKind =
+  | 'delos-scan-result'
+  | 'delos-alert'
+  | 'delos-console'
+  | 'delos-matrix'
+  | 'delos-system-diagnostics'
+  | 'delos-tracking-map'
+  | 'delos-biometric';
+
+/**
+ * A single Delos pop-up card placement on the long-form timeline. Content is
+ * filled at render time from the spoken words in [startTime, endTime] so the
+ * card reflects what the speaker is saying.
+ */
+export interface DelosCardPlacement {
+  /** Which Delos HUD card to render. */
+  kind: DelosCardKind;
+  /** Absolute source-video start time (seconds). */
+  startTime: number;
+  /** Absolute source-video end time (seconds). */
+  endTime: number;
+  /** Spoken-text window used to populate the card's content slots (optional). */
+  sourceText?: string;
+}
 
 /**
  * The complete AI-generated long-form edit plan. Drives the 16:9 render:
@@ -1268,46 +1470,77 @@ export type BlockPlacement =
  */
 export interface LongformEditPlan {
   /** Phrase-level emphasis overlays. */
-  phrases: PhraseEmphasis[]
+  phrases: PhraseEmphasis[];
   /** Full-frame skinned content-block placements. */
-  blocks: BlockPlacement[]
+  blocks: BlockPlacement[];
+  /**
+   * Delos pop-up card placements — the additive lower-center overlay layer.
+   * Optional for back-compat with plans serialized before this layer existed.
+   */
+  cards?: DelosCardPlacement[];
   /** Brief editorial reasoning (for debugging / UI display). */
-  reasoning: string
+  reasoning: string;
   /** Epoch millis when the plan was generated. */
-  generatedAt: number
+  generatedAt: number;
+}
+
+export type LongformPlanItemType = 'phrase' | 'block' | 'card';
+
+export interface LongformRenderCount {
+  planned: number;
+  eligible: number;
+  rendered: number;
+  dropped: number;
+}
+
+export interface LongformRenderFallback {
+  type: LongformPlanItemType | 'segment';
+  count: number;
+  reason: string;
+  label?: string;
+}
+
+/** Persisted proof of how an approved long-form plan survived the render pipeline. */
+export interface LongformRenderReconciliation {
+  renderedAt: number;
+  outputPath: string;
+  phrases: LongformRenderCount;
+  blocks: LongformRenderCount;
+  cards: LongformRenderCount;
+  fallbacks: LongformRenderFallback[];
 }
 
 /** A single segment within a clip, with its own style, captions, and zoom. */
 export interface VideoSegment {
-  id: string
-  clipId: string
+  id: string;
+  clipId: string;
   /** Order within the clip (0-based). */
-  index: number
-  startTime: number
-  endTime: number
+  index: number;
+  startTime: number;
+  endTime: number;
   /** Editable burned-in caption text for this segment. */
-  captionText: string
+  captionText: string;
   /** Word-level timestamps scoped to this segment. */
-  words: WordTimestamp[]
+  words: WordTimestamp[];
   /** Archetype assigned by the AI segment styler (or user). Resolved at render time
    *  into a concrete SegmentStyleVariant via the active edit style's template set. */
-  archetype: Archetype
+  archetype: Archetype;
   /** Denormalized mirror of ARCHETYPE_TO_CATEGORY[archetype]. Kept for the image
    *  generation gate in segment-splitting-stage.ts and render pipeline consumers. */
-  segmentStyleCategory: SegmentStyleCategory
+  segmentStyleCategory: SegmentStyleCategory;
   /** Per-segment zoom keyframes. */
-  zoomKeyframes: ZoomKeyframe[]
+  zoomKeyframes: ZoomKeyframe[];
   /** How this segment starts. */
-  transitionIn: TransitionType
+  transitionIn: TransitionType;
   /** How this segment ends. */
-  transitionOut: TransitionType
+  transitionOut: TransitionType;
   /**
    * Absolute path to a locally-cached image file for this segment.
    * Populated after fal.ai image generation during the segmenting pipeline stage.
    * Used by the render pipeline when segmentStyleCategory is 'main-video-images'
    * or 'fullscreen-image'. Absent until generation completes (or if key not set).
    */
-  imagePath?: string
+  imagePath?: string;
   /**
    * Set by the render pipeline when a segment's requested archetype could
    * not be honored and it was silently degraded to a different layout.
@@ -1315,46 +1548,41 @@ export interface VideoSegment {
    * imagePath exists. Surfaced in the UI so the user knows why the render
    * doesn't match the picked archetype.
    */
-  fallbackReason?: string
+  fallbackReason?: string;
 }
 
 /** Headline / drawtext overlay configuration shared across edit styles. */
 export interface HeadlineStyleConfig {
   /** Font size in pixels on the 1080×1920 canvas. */
-  fontSize: number
-  textColor: string
-  outlineColor: string
-  outlineWidth: number
-  shadowDepth: number
-  borderStyle: number
-  bold: boolean
-  animation: 'fade' | 'snap' | 'scale' | 'scale-pop' | 'slide' | 'none'
-  animationDurationMs: number
-  fadeOutMs: number
+  fontSize: number;
+  textColor: string;
+  outlineColor: string;
+  outlineWidth: number;
+  shadowDepth: number;
+  borderStyle: number;
+  bold: boolean;
+  animation: 'fade' | 'snap' | 'scale' | 'scale-pop' | 'slide' | 'none';
+  animationDurationMs: number;
+  fadeOutMs: number;
   /** Vertical position as a fraction of the canvas height (0 = top, 1 = bottom). */
-  verticalPosition: number
+  verticalPosition: number;
 }
 
 /** Reveal animation styles for drawtext / headline overlays. */
-export type TextAnimationStyle =
-  | 'fade-in'
-  | 'snap-in'
-  | 'scale-up'
-  | 'slide-up'
-  | 'none'
+export type TextAnimationStyle = 'fade-in' | 'snap-in' | 'scale-up' | 'slide-up' | 'none';
 
 /** Per-style color grading parameters applied to every segment in an edit style. */
 export interface ColorGradeParams {
   /** Warmth shift: -1.0 (cool/blue) to 1.0 (warm/orange). 0 = neutral */
-  warmth: number
+  warmth: number;
   /** Contrast: 0.8 (flat) to 1.4 (punchy). 1.0 = no change */
-  contrast: number
+  contrast: number;
   /** Saturation: 0.0 (grayscale) to 1.5 (oversaturated). 1.0 = no change */
-  saturation: number
+  saturation: number;
   /** Black level lift: 0.0 (deep blacks) to 0.15 (lifted/faded shadows) */
-  blackLift: number
+  blackLift: number;
   /** Highlight rolloff: 0.0 (harsh) to 1.0 (soft highlight rolloff) */
-  highlightSoftness: number
+  highlightSoftness: number;
 }
 
 /** VFX overlay layer applied to a segment. */
@@ -1371,56 +1599,56 @@ export type VFXOverlayType =
   | 'corner-brackets'
   | 'pulse-border'
   | 'image-overlay'
-  | 'video-overlay'
+  | 'video-overlay';
 
-export type OverlayBlendMode = 'normal' | 'screen' | 'multiply'
+export type OverlayBlendMode = 'normal' | 'screen' | 'multiply';
 
 export interface VFXOverlay {
-  type: VFXOverlayType
-  opacity: number
+  type: VFXOverlayType;
+  opacity: number;
   /** Which segment categories this overlay applies to. 'all' matches every category. */
-  applyToCategories: SegmentStyleCategory[] | 'all'
+  applyToCategories: SegmentStyleCategory[] | 'all';
   /** Path relative to resources/overlays/ for asset-based overlays. */
-  assetPath?: string
+  assetPath?: string;
   /** Blend mode for asset-based overlays (default: 'normal'). */
-  blendMode?: OverlayBlendMode
+  blendMode?: OverlayBlendMode;
 }
 
 /** A complete edit style preset controlling the overall clip look & feel. */
 export interface EditStyle {
-  id: string
-  name: string
-  energy: 'low' | 'medium' | 'high'
+  id: string;
+  name: string;
+  energy: 'low' | 'medium' | 'high';
   /** Accent color in CSS hex (e.g. '#FF6B35'). */
-  accentColor: string
+  accentColor: string;
   /** Caption background opacity (0.0–1.0). */
-  captionBgOpacity: number
-  letterbox: 'none' | 'bottom' | 'both'
-  defaultZoomStyle: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out'
-  defaultZoomIntensity: number
-  defaultTransition: TransitionType
+  captionBgOpacity: number;
+  letterbox: 'none' | 'bottom' | 'both';
+  defaultZoomStyle: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out';
+  defaultZoomIntensity: number;
+  defaultTransition: TransitionType;
   /** Color for flash-cut and color-wash transitions (CSS hex). */
-  flashColor: string
+  flashColor: string;
   /** Target visual edits per second (controls segment pacing). */
-  targetEditsPerSecond: number
+  targetEditsPerSecond: number;
   /** Full caption visual identity — self-contained, overrides basic caption preset. */
-  captionStyle: CaptionStyleInput
+  captionStyle: CaptionStyleInput;
   /** Headline / drawtext overlay style for text-heavy segments. */
-  headlineStyle: HeadlineStyleConfig
+  headlineStyle: HeadlineStyleConfig;
   /** IDs of SegmentStyleVariants available in this edit style. */
-  availableSegmentStyles: string[]
+  availableSegmentStyles: string[];
   /** One-sentence summary of the style's visual character, shown as a tooltip. */
-  description?: string
+  description?: string;
   /** VFX overlay layers applied per segment (optional — empty = no overlays). */
-  vfxOverlays?: VFXOverlay[]
+  vfxOverlays?: VFXOverlay[];
   /** Per-style color grading applied to every segment rendered with this style. */
-  colorGrade?: ColorGradeParams
+  colorGrade?: ColorGradeParams;
   /** Text reveal animation for drawtext overlays in text-based segment layouts. */
-  textAnimation?: TextAnimationStyle
+  textAnimation?: TextAnimationStyle;
   /** Per-energy-tier segment duration target for viewer retention optimization. */
-  segmentDurationTarget?: { min: number; max: number; ideal: number }
+  segmentDurationTarget?: { min: number; max: number; ideal: number };
   /** Duration in seconds for xfade/color-wash transitions between segments. */
-  transitionDuration?: number
+  transitionDuration?: number;
   /** Per-(outCategory→inCategory) transition overrides. Key format: "out→in". */
-  transitionMap?: Record<string, TransitionType>
+  transitionMap?: Record<string, TransitionType>;
 }

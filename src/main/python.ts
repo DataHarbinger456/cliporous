@@ -1,21 +1,31 @@
-import { spawn, execFileSync, type ChildProcess } from 'child_process'
-import { join, dirname } from 'path'
-import { app } from 'electron'
-import { existsSync } from 'fs'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-import { getResolvedFfmpegPath } from './ffmpeg'
+import { type ChildProcess, execFile, execFileSync, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
+import { app } from 'electron';
+import { getResolvedFfmpegPath } from './ffmpeg';
 
-const execFileAsync = promisify(execFile)
+const execFileAsync = promisify(execFile);
 
 /** Timeout for the quick Python import check (30 seconds). */
-const PYTHON_CHECK_TIMEOUT_MS = 30_000
+const PYTHON_CHECK_TIMEOUT_MS = 30_000;
+
+function getPythonModelEnv(): Record<string, string> {
+  const modelCache = join(app.getPath('userData'), 'python-env', 'models');
+  return {
+    ...(process.env as Record<string, string>),
+    PYTHONUNBUFFERED: '1',
+    NEMO_CACHE_DIR: join(modelCache, 'nemo'),
+    HF_HOME: join(modelCache, 'huggingface'),
+    HUGGINGFACE_HUB_CACHE: join(modelCache, 'huggingface', 'hub'),
+  };
+}
 
 /**
  * Cached system Python fallback resolved by `findSystemFallback()`.
  * `undefined` = not yet probed; `null` = probed and nothing found.
  */
-let cachedSystemFallback: string | null | undefined = undefined
+let cachedSystemFallback: string | null | undefined;
 
 /**
  * Probe a candidate Python launcher with `--version`.
@@ -25,11 +35,11 @@ function probeLauncher(bin: string, args: string[] = []): boolean {
   try {
     execFileSync(bin, [...args, '--version'], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 5_000
-    })
-    return true
+      timeout: 5_000,
+    });
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
@@ -45,35 +55,40 @@ function probeLauncher(bin: string, args: string[] = []): boolean {
  * any required prefix args, or `null` if nothing usable is found.
  */
 function findSystemFallback(): { bin: string; prefixArgs: string[] } | null {
-  if (cachedSystemFallback === null) return null
+  if (cachedSystemFallback === null) return null;
   if (typeof cachedSystemFallback === 'string') {
     // Cached value is a JSON-encoded { bin, prefixArgs }.
-    try { return JSON.parse(cachedSystemFallback) } catch { /* re-probe */ }
+    try {
+      return JSON.parse(cachedSystemFallback);
+    } catch {
+      /* re-probe */
+    }
   }
 
-  const candidates: { bin: string; prefixArgs: string[] }[] = process.platform === 'win32'
-    ? [
-        { bin: 'py', prefixArgs: ['-3'] },
-        { bin: 'python', prefixArgs: [] },
-        { bin: 'python3', prefixArgs: [] }
-      ]
-    : [
-        { bin: 'python3', prefixArgs: [] },
-        { bin: 'python', prefixArgs: [] }
-      ]
+  const candidates: { bin: string; prefixArgs: string[] }[] =
+    process.platform === 'win32'
+      ? [
+          { bin: 'py', prefixArgs: ['-3'] },
+          { bin: 'python', prefixArgs: [] },
+          { bin: 'python3', prefixArgs: [] },
+        ]
+      : [
+          { bin: 'python3', prefixArgs: [] },
+          { bin: 'python', prefixArgs: [] },
+        ];
 
   for (const candidate of candidates) {
     if (probeLauncher(candidate.bin, candidate.prefixArgs)) {
       console.log(
-        `[Python] System fallback: ${candidate.bin} ${candidate.prefixArgs.join(' ')}`.trim()
-      )
-      cachedSystemFallback = JSON.stringify(candidate)
-      return candidate
+        `[Python] System fallback: ${candidate.bin} ${candidate.prefixArgs.join(' ')}`.trim(),
+      );
+      cachedSystemFallback = JSON.stringify(candidate);
+      return candidate;
     }
   }
 
-  cachedSystemFallback = null
-  return null
+  cachedSystemFallback = null;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,10 +100,10 @@ function findSystemFallback(): { bin: string; prefixArgs: string[] } | null {
  * (e.g. `py -3` on Windows when only the Python launcher is on PATH).
  */
 export interface ResolvedPython {
-  bin: string
-  prefixArgs: string[]
+  bin: string;
+  prefixArgs: string[];
   /** True if this is a managed venv / embedded distribution (not a bare PATH lookup). */
-  isManaged: boolean
+  isManaged: boolean;
 }
 
 /**
@@ -102,56 +117,61 @@ export interface ResolvedPython {
  * 5. System fallback           (probed: `py -3` / `python3` / `python`)
  */
 export function resolvePython(): ResolvedPython {
-  const isWin = process.platform === 'win32'
+  const isWin = process.platform === 'win32';
 
   // 1. Check userData embedded Python (Windows auto-setup, no venv)
   if (isWin) {
     const embeddedPython = join(
-      app.getPath('userData'), 'python-env', 'python-3.12.8', 'python.exe'
-    )
+      app.getPath('userData'),
+      'python-env',
+      'python-3.12.8',
+      'python.exe',
+    );
     if (existsSync(embeddedPython)) {
-      return { bin: embeddedPython, prefixArgs: [], isManaged: true }
+      return { bin: embeddedPython, prefixArgs: [], isManaged: true };
     }
   }
 
   // 2. Check userData venv (auto-setup location, macOS/Linux)
   const userDataVenv = join(
-    app.getPath('userData'), 'python-env', 'venv',
-    isWin ? join('Scripts', 'python.exe') : join('bin', 'python')
-  )
+    app.getPath('userData'),
+    'python-env',
+    'venv',
+    isWin ? join('Scripts', 'python.exe') : join('bin', 'python'),
+  );
   if (existsSync(userDataVenv)) {
-    return { bin: userDataVenv, prefixArgs: [], isManaged: true }
+    return { bin: userDataVenv, prefixArgs: [], isManaged: true };
   }
 
   // 3. Check bundled venv (packaged builds, legacy)
   const venvSubpath = isWin
     ? join('python', 'venv', 'Scripts', 'python.exe')
-    : join('python', 'venv', 'bin', 'python')
+    : join('python', 'venv', 'bin', 'python');
 
   if (app.isPackaged) {
-    const packaged = join(process.resourcesPath, venvSubpath)
+    const packaged = join(process.resourcesPath, venvSubpath);
     if (existsSync(packaged)) {
-      return { bin: packaged, prefixArgs: [], isManaged: true }
+      return { bin: packaged, prefixArgs: [], isManaged: true };
     }
-    console.warn('[Python] Packaged venv not found at:', packaged)
+    console.warn('[Python] Packaged venv not found at:', packaged);
   } else {
     // 4. Development: look for venv relative to project root
-    const devVenv = join(process.cwd(), venvSubpath)
+    const devVenv = join(process.cwd(), venvSubpath);
     if (existsSync(devVenv)) {
-      return { bin: devVenv, prefixArgs: [], isManaged: true }
+      return { bin: devVenv, prefixArgs: [], isManaged: true };
     }
-    console.warn('[Python] Dev venv not found at:', devVenv, '— probing system Python')
+    console.warn('[Python] Dev venv not found at:', devVenv, '— probing system Python');
   }
 
   // 5. System fallback — probe what's actually on PATH so we never hand back
   //    a name (`python`) that will spawn-ENOENT.
-  const fallback = findSystemFallback()
+  const fallback = findSystemFallback();
   if (fallback) {
-    return { bin: fallback.bin, prefixArgs: fallback.prefixArgs, isManaged: false }
+    return { bin: fallback.bin, prefixArgs: fallback.prefixArgs, isManaged: false };
   }
 
   // Nothing found. Return a sentinel so the caller can produce a clear error.
-  return { bin: isWin ? 'py' : 'python3', prefixArgs: [], isManaged: false }
+  return { bin: isWin ? 'py' : 'python3', prefixArgs: [], isManaged: false };
 }
 
 /**
@@ -159,7 +179,7 @@ export function resolvePython(): ResolvedPython {
  * Prefer `resolvePython()` for new code so prefix args are honored.
  */
 export function resolvePythonPath(): string {
-  return resolvePython().bin
+  return resolvePython().bin;
 }
 
 /**
@@ -170,9 +190,9 @@ export function resolvePythonPath(): string {
  */
 export function resolveScriptPath(scriptName: string): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'python', scriptName)
+    return join(process.resourcesPath, 'python', scriptName);
   }
-  return join(process.cwd(), 'python', scriptName)
+  return join(process.cwd(), 'python', scriptName);
 }
 
 // ---------------------------------------------------------------------------
@@ -181,11 +201,11 @@ export function resolveScriptPath(scriptName: string): string {
 
 export interface RunOptions {
   /** Timeout in milliseconds. Default: 10 minutes. */
-  timeoutMs?: number
+  timeoutMs?: number;
   /** Called with each line of stderr (progress reporting). */
-  onStderr?: (line: string) => void
+  onStderr?: (line: string) => void;
   /** Called with each line of stdout as it arrives (streaming output). */
-  onStdout?: (line: string) => void
+  onStdout?: (line: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,30 +218,62 @@ export interface RunOptions {
 // ---------------------------------------------------------------------------
 
 /** Currently running Python child processes, tracked for cancellation. */
-const activeProcesses = new Set<ChildProcess>()
+const activeProcesses = new Set<ChildProcess>();
 
 /**
- * SIGTERM every tracked Python child process (then SIGKILL after a short grace
- * period if it ignores the term). Returns the number of processes signalled.
+ * Signal every tracked Python child and resolve only after every process emits
+ * close/error. A rejected promise means processing may still be running, so the
+ * renderer must keep the active work visible and offer cancellation again.
  */
-export function cancelPythonProcesses(): number {
-  const count = activeProcesses.size
-  activeProcesses.forEach((proc) => {
-    try {
-      proc.kill('SIGTERM')
-      // Escalate to SIGKILL if it hasn't exited within the grace window.
-      setTimeout(() => {
-        try {
-          if (!proc.killed) proc.kill('SIGKILL')
-        } catch { /* already gone */ }
-      }, 5000)
-    } catch { /* already gone */ }
-  })
-  activeProcesses.clear()
-  if (count > 0) {
-    console.log(`[Python] Cancelled ${count} running process(es)`)
-  }
-  return count
+export async function cancelPythonProcesses(): Promise<number> {
+  const processes = Array.from(activeProcesses);
+  const count = processes.length;
+
+  await Promise.all(
+    processes.map(
+      (proc) =>
+        new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const finish = (error?: Error): void => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(forceTimer);
+            clearTimeout(failureTimer);
+            proc.off('close', handleClose);
+            proc.off('error', handleError);
+            if (error) reject(error);
+            else resolve();
+          };
+          const handleClose = (): void => finish();
+          const handleError = (): void => finish();
+          const forceTimer = setTimeout(() => {
+            if (proc.exitCode === null && proc.signalCode === null) {
+              try {
+                proc.kill('SIGKILL');
+              } catch {
+                // The close/error event may already be queued.
+              }
+            }
+          }, 5_000);
+          const failureTimer = setTimeout(() => {
+            finish(new Error('A Python content process did not stop within 10 seconds.'));
+          }, 10_000);
+
+          proc.once('close', handleClose);
+          proc.once('error', handleError);
+          try {
+            const signalled = proc.kill('SIGTERM');
+            if (!signalled && proc.exitCode !== null) finish();
+          } catch {
+            if (proc.exitCode !== null || proc.signalCode !== null) finish();
+            else finish(new Error('BatchClip could not signal a running Python process.'));
+          }
+        }),
+    ),
+  );
+
+  if (count > 0) console.log(`[Python] Stopped ${count} running process(es)`);
+  return count;
 }
 
 /**
@@ -233,40 +285,40 @@ export function cancelPythonProcesses(): number {
 export function runPythonScript(
   scriptName: string,
   args: string[],
-  options: RunOptions = {}
+  options: RunOptions = {},
 ): Promise<string> {
-  const { timeoutMs = 10 * 60 * 1000, onStderr, onStdout } = options
+  const { timeoutMs = 10 * 60 * 1000, onStderr, onStdout } = options;
 
   return new Promise((resolve, reject) => {
-    const resolved = resolvePython()
-    const { bin: pythonBin, prefixArgs, isManaged } = resolved
-    const scriptPath = resolveScriptPath(scriptName)
+    const resolved = resolvePython();
+    const { bin: pythonBin, prefixArgs, isManaged } = resolved;
+    const scriptPath = resolveScriptPath(scriptName);
 
     if (!existsSync(scriptPath)) {
-      return reject(new Error(`Python script not found: ${scriptPath}`))
+      return reject(new Error(`Python script not found: ${scriptPath}`));
     }
 
     // Build env with ffmpeg's directory on PATH so pydub/NeMo can find it
-    const spawnEnv: Record<string, string> = { ...process.env as Record<string, string>, PYTHONUNBUFFERED: '1' }
-    const ffmpegBin = getResolvedFfmpegPath()
+    const spawnEnv = getPythonModelEnv();
+    const ffmpegBin = getResolvedFfmpegPath();
     if (ffmpegBin) {
-      const ffmpegDir = dirname(ffmpegBin)
-      const sep = process.platform === 'win32' ? ';' : ':'
-      spawnEnv.PATH = ffmpegDir + sep + (spawnEnv.PATH || '')
+      const ffmpegDir = dirname(ffmpegBin);
+      const sep = process.platform === 'win32' ? ';' : ':';
+      spawnEnv.PATH = ffmpegDir + sep + (spawnEnv.PATH || '');
     }
 
     const proc = spawn(pythonBin, [...prefixArgs, scriptPath, ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: spawnEnv
-    })
+      env: spawnEnv,
+    });
 
     // Track for cancellation so the renderer's Cancel button can SIGTERM this
     // child. Untracked on close (below) and on spawn error.
-    activeProcesses.add(proc)
+    activeProcesses.add(proc);
 
-    let stdout = ''
-    let stderrBuf = ''
-    let timedOut = false
+    let stdout = '';
+    let stderrBuf = '';
+    let timedOut = false;
 
     // Line buffers for stream callbacks. Pipe chunks are NOT line-aligned, so a
     // single JSON message (especially the multi-MB `done` payload from
@@ -274,100 +326,102 @@ export function runPythonScript(
     // each chunk on '\n' yields partial JSON that fails to parse, dropping the
     // result. We buffer until we see a real newline before flushing complete
     // lines to the callbacks.
-    let stdoutLineBuf = ''
-    let stderrLineBuf = ''
+    let stdoutLineBuf = '';
+    let stderrLineBuf = '';
 
     // Timeout guard
     const timer = setTimeout(() => {
-      timedOut = true
-      proc.kill('SIGTERM')
+      timedOut = true;
+      proc.kill('SIGTERM');
       // Give it 5 s then hard kill
-      setTimeout(() => proc.kill('SIGKILL'), 5000)
-    }, timeoutMs)
+      setTimeout(() => proc.kill('SIGKILL'), 5000);
+    }, timeoutMs);
 
     proc.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString()
-      stdout += text
+      const text = chunk.toString();
+      stdout += text;
       if (onStdout) {
-        stdoutLineBuf += text
-        const newlineIdx = stdoutLineBuf.lastIndexOf('\n')
+        stdoutLineBuf += text;
+        const newlineIdx = stdoutLineBuf.lastIndexOf('\n');
         if (newlineIdx !== -1) {
-          const complete = stdoutLineBuf.slice(0, newlineIdx)
-          stdoutLineBuf = stdoutLineBuf.slice(newlineIdx + 1)
+          const complete = stdoutLineBuf.slice(0, newlineIdx);
+          stdoutLineBuf = stdoutLineBuf.slice(newlineIdx + 1);
           for (const line of complete.split('\n')) {
-            const trimmed = line.trim()
-            if (trimmed) onStdout(trimmed)
+            const trimmed = line.trim();
+            if (trimmed) onStdout(trimmed);
           }
         }
       }
-    })
+    });
 
     proc.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString()
-      stderrBuf += text
+      const text = chunk.toString();
+      stderrBuf += text;
       if (onStderr) {
-        stderrLineBuf += text
-        const newlineIdx = stderrLineBuf.lastIndexOf('\n')
+        stderrLineBuf += text;
+        const newlineIdx = stderrLineBuf.lastIndexOf('\n');
         if (newlineIdx !== -1) {
-          const complete = stderrLineBuf.slice(0, newlineIdx)
-          stderrLineBuf = stderrLineBuf.slice(newlineIdx + 1)
+          const complete = stderrLineBuf.slice(0, newlineIdx);
+          stderrLineBuf = stderrLineBuf.slice(newlineIdx + 1);
           for (const line of complete.split('\n')) {
-            const trimmed = line.trim()
-            if (trimmed) onStderr(trimmed)
+            const trimmed = line.trim();
+            if (trimmed) onStderr(trimmed);
           }
         }
       }
-    })
+    });
 
     proc.on('error', (err: NodeJS.ErrnoException) => {
-      clearTimeout(timer)
-      activeProcesses.delete(proc)
+      clearTimeout(timer);
+      activeProcesses.delete(proc);
       if (err.code === 'ENOENT') {
-        const launcher = [pythonBin, ...prefixArgs].join(' ')
+        const launcher = [pythonBin, ...prefixArgs].join(' ');
         const hint = isManaged
           ? `The managed Python environment was expected at "${pythonBin}" but is missing. ` +
             `Open Settings → Python Setup and run the installer.`
           : `No Python interpreter was found on PATH (tried "${launcher}"). ` +
             `Open Settings → Python Setup to install a managed Python runtime, ` +
-            `or install Python 3.10+ from https://python.org and restart the app.`
-        return reject(new Error(`Failed to spawn Python process: ${hint}`))
+            `or install Python 3.10+ from https://python.org and restart the app.`;
+        return reject(new Error(`Failed to spawn Python process: ${hint}`));
       }
-      reject(new Error(`Failed to spawn Python process: ${err.message}`))
-    })
+      reject(new Error(`Failed to spawn Python process: ${err.message}`));
+    });
 
     proc.on('close', (code) => {
-      clearTimeout(timer)
-      activeProcesses.delete(proc)
+      clearTimeout(timer);
+      activeProcesses.delete(proc);
 
       // Flush any trailing partial line that wasn't terminated by a newline.
       if (onStdout && stdoutLineBuf.trim()) {
-        onStdout(stdoutLineBuf.trim())
-        stdoutLineBuf = ''
+        onStdout(stdoutLineBuf.trim());
+        stdoutLineBuf = '';
       }
       if (onStderr && stderrLineBuf.trim()) {
-        onStderr(stderrLineBuf.trim())
-        stderrLineBuf = ''
+        onStderr(stderrLineBuf.trim());
+        stderrLineBuf = '';
       }
 
       if (timedOut) {
-        return reject(new Error(`Python script '${scriptName}' timed out after ${timeoutMs / 1000}s`))
+        return reject(
+          new Error(`Python script '${scriptName}' timed out after ${timeoutMs / 1000}s`),
+        );
       }
 
       if (code !== 0) {
-        const stderrTail = stderrBuf.trim().slice(-2000)
+        const stderrTail = stderrBuf.trim().slice(-2000);
         return reject(
           new Error(
             `Python script '${scriptName}' exited with code ${code}.\n` +
-            `Python binary: ${pythonBin}\n` +
-            `Script path: ${scriptPath}\n` +
-            `Stderr: ${stderrTail || '(empty)'}`
-          )
-        )
+              `Python binary: ${pythonBin}\n` +
+              `Script path: ${scriptPath}\n` +
+              `Stderr: ${stderrTail || '(empty)'}`,
+          ),
+        );
       }
 
-      resolve(stdout.trim())
-    })
-  })
+      resolve(stdout.trim());
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -379,13 +433,13 @@ export function runPythonScript(
  * Returns true if the venv Python binary exists and can import key modules.
  */
 export async function isPythonAvailable(): Promise<boolean> {
-  const { bin: pythonBin, prefixArgs, isManaged } = resolvePython()
+  const { bin: pythonBin, prefixArgs, isManaged } = resolvePython();
 
   // For a managed binary (venv/embedded) the path must exist on disk.
   // For an unmanaged PATH lookup, `findSystemFallback()` already probed it.
   if (isManaged && !existsSync(pythonBin)) {
-    console.log('[Python] Binary not found:', pythonBin)
-    return false
+    console.log('[Python] Binary not found:', pythonBin);
+    return false;
   }
 
   try {
@@ -395,14 +449,14 @@ export async function isPythonAvailable(): Promise<boolean> {
       [...prefixArgs, '-c', 'import nemo; import mediapipe; import yt_dlp'],
       {
         timeout: PYTHON_CHECK_TIMEOUT_MS,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
-      }
-    )
-    console.log('[Python] Environment OK:', [pythonBin, ...prefixArgs].join(' '))
-    return true
+        env: getPythonModelEnv(),
+      },
+    );
+    console.log('[Python] Environment OK:', [pythonBin, ...prefixArgs].join(' '));
+    return true;
   } catch (err) {
-    console.warn('[Python] Environment check failed:', (err as Error).message?.slice(0, 300))
-    return false
+    console.warn('[Python] Environment check failed:', (err as Error).message?.slice(0, 300));
+    return false;
   }
 }
 
@@ -411,26 +465,25 @@ export async function isPythonAvailable(): Promise<boolean> {
  * Intended for dev setup only — not called in packaged builds.
  */
 export async function setupPythonVenv(): Promise<void> {
-  const projectRoot = process.cwd()
-  const pythonDir = join(projectRoot, 'python')
-  const requirementsPath = join(pythonDir, 'requirements.txt')
-  const venvDir = join(pythonDir, 'venv')
+  const projectRoot = process.cwd();
+  const pythonDir = join(projectRoot, 'python');
+  const requirementsPath = join(pythonDir, 'requirements.txt');
+  const venvDir = join(pythonDir, 'venv');
 
   if (!existsSync(requirementsPath)) {
-    throw new Error(`requirements.txt not found at: ${requirementsPath}`)
+    throw new Error(`requirements.txt not found at: ${requirementsPath}`);
   }
 
-  console.log('[Python] Creating virtual environment at:', venvDir)
+  console.log('[Python] Creating virtual environment at:', venvDir);
 
-  const systemPython = process.platform === 'win32' ? 'python' : 'python3'
-  execFileSync(systemPython, ['-m', 'venv', venvDir], { stdio: 'inherit' })
+  const systemPython = process.platform === 'win32' ? 'python' : 'python3';
+  execFileSync(systemPython, ['-m', 'venv', venvDir], { stdio: 'inherit' });
 
-  const pipBin = process.platform === 'win32'
-    ? join(venvDir, 'Scripts', 'pip')
-    : join(venvDir, 'bin', 'pip')
+  const pipBin =
+    process.platform === 'win32' ? join(venvDir, 'Scripts', 'pip') : join(venvDir, 'bin', 'pip');
 
-  console.log('[Python] Installing requirements...')
-  execFileSync(pipBin, ['install', '-r', requirementsPath], { stdio: 'inherit' })
+  console.log('[Python] Installing requirements...');
+  execFileSync(pipBin, ['install', '-r', requirementsPath], { stdio: 'inherit' });
 
-  console.log('[Python] Setup complete.')
+  console.log('[Python] Setup complete.');
 }

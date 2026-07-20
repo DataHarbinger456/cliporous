@@ -17,23 +17,29 @@
  * failures, and the renderer always shows them to the user.
  */
 
-import { log } from './logger'
+import { redactCredentialText } from '@shared/credential-safety';
+import { createErrorCorrelationId } from '@shared/errors';
+import { log } from './logger';
 
 /**
  * Wrap an IPC handler so that any thrown error is logged on the main process
  * side before being re-thrown (and thus serialised back to the renderer).
  */
-export function wrapHandler<T>(
+export function wrapHandler<T, Args extends unknown[]>(
   channel: string,
-  handler: (...args: any[]) => Promise<T> | T
-): (...args: any[]) => Promise<T> {
-  return async (...args: any[]): Promise<T> => {
+  handler: (...args: Args) => Promise<T> | T,
+): (...args: Args) => Promise<T> {
+  return async (...args: Args): Promise<T> => {
     try {
-      return await handler(...args)
+      return await handler(...args);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log('error', 'IPC', `[${channel}] ${message}`)
-      throw err // re-throw so renderer gets the error
+      const correlationId = createErrorCorrelationId();
+      const message = redactCredentialText(err instanceof Error ? err.message : String(err));
+      log('error', 'IPC', `[${correlationId}] [${channel}] ${message}`);
+      // Electron only guarantees an Error message across invoke/reject. Prefixing
+      // the redacted message lets the renderer keep diagnostics correlated with
+      // the main log without exposing the raw failure in primary UI.
+      throw new Error(`[${correlationId}] ${message}`);
     }
-  }
+  };
 }

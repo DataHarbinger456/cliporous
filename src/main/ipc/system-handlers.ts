@@ -1,40 +1,53 @@
-import { ipcMain, dialog, shell, Notification } from 'electron'
-import { join } from 'path'
-import { tmpdir, homedir, cpus, totalmem, freemem } from 'os'
-import { execFile } from 'child_process'
-import { readFileSync, writeFileSync, statfs, existsSync } from 'fs'
-import { readdir, stat, unlink } from 'fs/promises'
-import { mkdirSync } from 'fs'
-import { Ch } from '@shared/ipc-channels'
-import { wrapHandler } from '../ipc-error-handler'
-import { getDefaultOutputDirectory, resolveOutputDirectory } from '../render/output-dir'
-import { getEncoder } from '../ffmpeg'
-import { getLogPath, getLogSize, getLogDir, log } from '../logger'
-import { getEditPlanCacheSize } from '../ai/edit-plan-cache'
-import { buildRendererFontManifest } from '../font-registry'
+import { execFile } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, statfs, writeFileSync } from 'node:fs';
+import { readdir, stat, unlink } from 'node:fs/promises';
+import { cpus, freemem, homedir, tmpdir, totalmem } from 'node:os';
+import { join } from 'node:path';
+import { redactCredentialText } from '@shared/credential-safety';
+import { Ch } from '@shared/ipc-channels';
+import type { NativeJobProgress, NativeNotificationOptions } from '@shared/jobs';
+import { BrowserWindow, dialog, ipcMain, Notification, powerSaveBlocker, shell } from 'electron';
+import { getEditPlanCacheSize } from '../ai/edit-plan-cache';
+import { getEncoder, isHardwareEncoder } from '../ffmpeg';
+import { buildRendererFontManifest } from '../font-registry';
+import { wrapHandler } from '../ipc-error-handler';
+import { getLogDir, getLogPath, getLogSize, log } from '../logger';
+import { getDefaultOutputDirectory, resolveOutputDirectory } from '../render/output-dir';
 
-let autoCleanupOnExit = false
+let autoCleanupOnExit = false;
+let powerSaveBlockerId: number | null = null;
+
+function setPowerSaveActive(active: boolean): void {
+  if (active && powerSaveBlockerId === null) {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    return;
+  }
+  if (!active && powerSaveBlockerId !== null) {
+    if (powerSaveBlocker.isStarted(powerSaveBlockerId)) powerSaveBlocker.stop(powerSaveBlockerId);
+    powerSaveBlockerId = null;
+  }
+}
 
 export function setAutoCleanupOnExit(enabled: boolean): void {
-  autoCleanupOnExit = enabled
+  autoCleanupOnExit = enabled;
 }
 
 export function getAutoCleanupOnExit(): boolean {
-  return autoCleanupOnExit
+  return autoCleanupOnExit;
 }
 
 async function scanBatchContentTempFiles(): Promise<string[]> {
-  const found: string[] = []
-  const tmp = tmpdir()
+  const found: string[] = [];
+  const tmp = tmpdir();
 
   try {
-    const entries = await readdir(tmp)
+    const entries = await readdir(tmp);
     for (const name of entries) {
-      if (!name.startsWith('batchcontent-')) continue
-      const fullPath = join(tmp, name)
+      if (!name.startsWith('batchcontent-')) continue;
+      const fullPath = join(tmp, name);
       try {
-        const s = await stat(fullPath)
-        if (s.isFile()) found.push(fullPath)
+        const s = await stat(fullPath);
+        if (s.isFile()) found.push(fullPath);
       } catch {
         // ignore stat errors
       }
@@ -43,46 +56,56 @@ async function scanBatchContentTempFiles(): Promise<string[]> {
     // ignore readdir errors
   }
 
-  const ytDir = join(tmp, 'batchcontent-yt')
+  const ytDir = join(tmp, 'batchcontent-yt');
   try {
-    const entries = await readdir(ytDir)
+    const entries = await readdir(ytDir);
     for (const name of entries) {
-      const fullPath = join(ytDir, name)
+      const fullPath = join(ytDir, name);
       try {
-        const s = await stat(fullPath)
-        if (s.isFile()) found.push(fullPath)
-      } catch { /* ignore */ }
+        const s = await stat(fullPath);
+        if (s.isFile()) found.push(fullPath);
+      } catch {
+        /* ignore */
+      }
     }
-  } catch { /* directory may not exist */ }
+  } catch {
+    /* directory may not exist */
+  }
 
-  const brollDir = join(tmp, 'batchcontent-broll-cache')
+  const brollDir = join(tmp, 'batchcontent-broll-cache');
   try {
-    const entries = await readdir(brollDir)
+    const entries = await readdir(brollDir);
     for (const name of entries) {
-      const fullPath = join(brollDir, name)
+      const fullPath = join(brollDir, name);
       try {
-        const s = await stat(fullPath)
-        if (s.isFile()) found.push(fullPath)
-      } catch { /* ignore */ }
+        const s = await stat(fullPath);
+        if (s.isFile()) found.push(fullPath);
+      } catch {
+        /* ignore */
+      }
     }
-  } catch { /* directory may not exist */ }
+  } catch {
+    /* directory may not exist */
+  }
 
-  return found
+  return found;
 }
 
 export async function deleteBatchContentTempFiles(): Promise<{ deleted: number; freed: number }> {
-  const files = await scanBatchContentTempFiles()
-  let deleted = 0
-  let freed = 0
+  const files = await scanBatchContentTempFiles();
+  let deleted = 0;
+  let freed = 0;
   for (const filePath of files) {
     try {
-      const s = await stat(filePath)
-      await unlink(filePath)
-      freed += s.size
-      deleted++
-    } catch { /* File may have been removed already */ }
+      const s = await stat(filePath);
+      await unlink(filePath);
+      freed += s.size;
+      deleted++;
+    } catch {
+      /* File may have been removed already */
+    }
   }
-  return { deleted, freed }
+  return { deleted, freed };
 }
 
 export function registerSystemHandlers(): void {
@@ -93,23 +116,23 @@ export function registerSystemHandlers(): void {
       const result = await dialog.showOpenDialog({
         properties: ['openFile', 'multiSelections'],
         filters: [
-          { name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mts', 'm4v'] }
-        ]
-      })
-      return result.filePaths
-    })
-  )
+          { name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mts', 'm4v'] },
+        ],
+      });
+      return result.filePaths;
+    }),
+  );
 
   // Dialog — open directory dialog for output
   ipcMain.handle(
     Ch.Invoke.DIALOG_OPEN_DIRECTORY,
     wrapHandler(Ch.Invoke.DIALOG_OPEN_DIRECTORY, async () => {
       const result = await dialog.showOpenDialog({
-        properties: ['openDirectory', 'createDirectory']
-      })
-      return result.filePaths[0] || null
-    })
-  )
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      return result.filePaths[0] || null;
+    }),
+  );
 
   // System — get disk space info
   ipcMain.handle(
@@ -117,61 +140,116 @@ export function registerSystemHandlers(): void {
     wrapHandler(Ch.Invoke.SYSTEM_GET_DISK_SPACE, (_event, dirPath: string) => {
       return new Promise<{ free: number; total: number }>((resolve, reject) => {
         statfs(dirPath, (err, stats) => {
-          if (err) { reject(err); return }
+          if (err) {
+            reject(err);
+            return;
+          }
           resolve({
             free: stats.bavail * stats.bsize,
-            total: stats.blocks * stats.bsize
-          })
-        })
-      })
-    })
-  )
+            total: stats.blocks * stats.bsize,
+          });
+        });
+      });
+    }),
+  );
 
   // System — show an OS-level notification
   ipcMain.handle(
     Ch.Invoke.SYSTEM_NOTIFY,
-    wrapHandler(
-      Ch.Invoke.SYSTEM_NOTIFY,
-      (_event, opts: { title: string; body: string; silent?: boolean }) => {
-        if (!Notification.isSupported()) return
-        new Notification({ title: opts.title, body: opts.body, silent: opts.silent ?? false }).show()
+    wrapHandler(Ch.Invoke.SYSTEM_NOTIFY, (event, opts: NativeNotificationOptions) => {
+      if (!Notification.isSupported()) return;
+      const senderWindow = BrowserWindow.fromWebContents(event.sender);
+      if (senderWindow?.isFocused()) return;
+      const notification = new Notification({
+        title: opts.title,
+        body: opts.body,
+        silent: opts.silent ?? false,
+      });
+      notification.on('click', () => {
+        if (!senderWindow || senderWindow.isDestroyed()) return;
+        if (senderWindow.isMinimized()) senderWindow.restore();
+        senderWindow.show();
+        senderWindow.focus();
+        senderWindow.webContents.send(Ch.Send.SYSTEM_NOTIFICATION_CLICKED, {
+          jobId: opts.jobId,
+          projectId: opts.projectId,
+          projectFilePath: opts.projectFilePath,
+          kind: opts.kind,
+        });
+      });
+      notification.show();
+    }),
+  );
+
+  // System — mirror long-running work in the macOS dock or Windows taskbar.
+  ipcMain.handle(
+    Ch.Invoke.SYSTEM_SET_PROGRESS,
+    wrapHandler(Ch.Invoke.SYSTEM_SET_PROGRESS, (event, update: NativeJobProgress) => {
+      const senderWindow = BrowserWindow.fromWebContents(event.sender);
+      if (!senderWindow || senderWindow.isDestroyed()) return;
+      if (update.progress === null) {
+        senderWindow.setProgressBar(-1);
+        return;
       }
-    )
-  )
+      senderWindow.setProgressBar(Math.max(0, Math.min(1, update.progress)), {
+        mode: update.state ?? 'normal',
+      });
+    }),
+  );
+
+  // System — prevent sleep only while local processing or rendering is active.
+  ipcMain.handle(
+    Ch.Invoke.SYSTEM_SET_POWER_SAVE,
+    wrapHandler(Ch.Invoke.SYSTEM_SET_POWER_SAVE, (_event, active: boolean) => {
+      setPowerSaveActive(active);
+    }),
+  );
 
   // System — get active video encoder info
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_ENCODER,
     wrapHandler(Ch.Invoke.SYSTEM_GET_ENCODER, () => {
-      const { encoder } = getEncoder()
-      const isHardware = encoder === 'h264_nvenc' || encoder === 'h264_qsv'
-      return { encoder, isHardware }
-    })
-  )
+      const { encoder } = getEncoder();
+      const isHardware = isHardwareEncoder(encoder);
+      return { encoder, isHardware };
+    }),
+  );
 
   // System — enumerate available fonts (bundled via font registry + system fallbacks)
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_AVAILABLE_FONTS,
     wrapHandler(Ch.Invoke.SYSTEM_GET_AVAILABLE_FONTS, async () => {
-      type FontEntry = { name: string; path: string; source: 'bundled' | 'system'; category?: string; weight?: string }
-      const fonts: FontEntry[] = []
+      type FontEntry = {
+        name: string;
+        path: string;
+        source: 'bundled' | 'system';
+        category?: string;
+        weight?: string;
+      };
+      const fonts: FontEntry[] = [];
 
       // Bundled fonts from the font registry (proper family names + metadata)
-      const manifest = buildRendererFontManifest()
+      const manifest = buildRendererFontManifest();
       for (const entry of manifest) {
         fonts.push({
           name: entry.family,
           path: entry.path,
           source: 'bundled',
           category: entry.category,
-          weight: entry.weight
-        })
+          weight: entry.weight,
+        });
       }
 
       // System font fallbacks for machines without bundled fonts
       const SYSTEM_FONT_CANDIDATES: Array<{ name: string; path: string }> = [
-        { name: 'Liberation Sans Bold', path: '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf' },
-        { name: 'Liberation Sans', path: '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' },
+        {
+          name: 'Liberation Sans Bold',
+          path: '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+        },
+        {
+          name: 'Liberation Sans',
+          path: '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+        },
         { name: 'DejaVu Sans Bold', path: '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' },
         { name: 'DejaVu Sans', path: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf' },
         { name: 'FreeSans Bold', path: '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf' },
@@ -188,33 +266,33 @@ export function registerSystemHandlers(): void {
         { name: 'Impact', path: 'C:\\Windows\\Fonts\\impact.ttf' },
         { name: 'Calibri Bold', path: 'C:\\Windows\\Fonts\\calibrib.ttf' },
         { name: 'Calibri', path: 'C:\\Windows\\Fonts\\calibri.ttf' },
-      ]
+      ];
 
-      const seenPaths = new Set(fonts.map((f) => f.path))
+      const seenPaths = new Set(fonts.map((f) => f.path));
       for (const candidate of SYSTEM_FONT_CANDIDATES) {
         if (!seenPaths.has(candidate.path) && existsSync(candidate.path)) {
-          fonts.push({ ...candidate, source: 'system' })
-          seenPaths.add(candidate.path)
+          fonts.push({ ...candidate, source: 'system' });
+          seenPaths.add(candidate.path);
         }
       }
 
-      return fonts
-    })
-  )
+      return fonts;
+    }),
+  );
 
   // System — get font file data as base64 for renderer FontFace loading
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_FONT_DATA,
     wrapHandler(Ch.Invoke.SYSTEM_GET_FONT_DATA, async (_event, fontPath: string) => {
       try {
-        if (!existsSync(fontPath)) return null
-        const data = readFileSync(fontPath)
-        return data.toString('base64')
+        if (!existsSync(fontPath)) return null;
+        const data = readFileSync(fontPath);
+        return data.toString('base64');
       } catch {
-        return null
+        return null;
       }
-    })
-  )
+    }),
+  );
 
   // System — forward a renderer-side log entry into the main session log.
   // Renderer pipeline failures live only in the in-memory ErrorLog otherwise,
@@ -228,11 +306,11 @@ export function registerSystemHandlers(): void {
         const lvl: 'debug' | 'info' | 'warn' | 'error' =
           level === 'debug' || level === 'info' || level === 'warn' || level === 'error'
             ? level
-            : 'error'
-        log(lvl, `Renderer/${source || 'renderer'}`, String(message ?? '').slice(0, 4000))
-      }
-    )
-  )
+            : 'error';
+        log(lvl, `Renderer/${source || 'renderer'}`, String(message ?? '').slice(0, 4000));
+      },
+    ),
+  );
 
   // Shell — open a path in OS file manager.
   // An empty path is the renderer's "open my output folder" signal when no
@@ -241,17 +319,17 @@ export function registerSystemHandlers(): void {
   ipcMain.handle(
     Ch.Invoke.SHELL_OPEN_PATH,
     wrapHandler(Ch.Invoke.SHELL_OPEN_PATH, async (_event, path: string) => {
-      const target = (path ?? '').trim().length > 0 ? path : resolveOutputDirectory(null)
+      const target = (path ?? '').trim().length > 0 ? path : resolveOutputDirectory(null);
       if (!existsSync(target)) {
         try {
-          mkdirSync(target, { recursive: true })
+          mkdirSync(target, { recursive: true });
         } catch {
           /* fall through — shell.openPath surfaces the error string */
         }
       }
-      return shell.openPath(target)
-    })
-  )
+      return shell.openPath(target);
+    }),
+  );
 
   // System — resolve the app-wide default output directory (<OS Videos>/BatchClip).
   // The renderer can't call app.getPath('videos') itself, so it fetches the
@@ -259,17 +337,17 @@ export function registerSystemHandlers(): void {
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_DEFAULT_OUTPUT_DIR,
     wrapHandler(Ch.Invoke.SYSTEM_GET_DEFAULT_OUTPUT_DIR, (): string => {
-      return getDefaultOutputDirectory()
-    })
-  )
+      return getDefaultOutputDirectory();
+    }),
+  );
 
   // Shell — show a file in its parent folder
   ipcMain.handle(
     Ch.Invoke.SHELL_SHOW_ITEM_IN_FOLDER,
     wrapHandler(Ch.Invoke.SHELL_SHOW_ITEM_IN_FOLDER, (_event, path: string) => {
-      shell.showItemInFolder(path)
-    })
-  )
+      shell.showItemInFolder(path);
+    }),
+  );
 
   // System — scan temp files
   ipcMain.handle(
@@ -277,18 +355,20 @@ export function registerSystemHandlers(): void {
     wrapHandler(
       Ch.Invoke.SYSTEM_GET_TEMP_SIZE,
       async (): Promise<{ bytes: number; count: number }> => {
-        const files = await scanBatchContentTempFiles()
-        let bytes = 0
+        const files = await scanBatchContentTempFiles();
+        let bytes = 0;
         for (const filePath of files) {
           try {
-            const s = await stat(filePath)
-            bytes += s.size
-          } catch { /* ignore */ }
+            const s = await stat(filePath);
+            bytes += s.size;
+          } catch {
+            /* ignore */
+          }
         }
-        return { bytes, count: files.length }
-      }
-    )
-  )
+        return { bytes, count: files.length };
+      },
+    ),
+  );
 
   // System — delete all temp files
   ipcMain.handle(
@@ -296,26 +376,26 @@ export function registerSystemHandlers(): void {
     wrapHandler(
       Ch.Invoke.SYSTEM_CLEANUP_TEMP,
       async (): Promise<{ deleted: number; freed: number }> => {
-        return deleteBatchContentTempFiles()
-      }
-    )
-  )
+        return deleteBatchContentTempFiles();
+      },
+    ),
+  );
 
   // System — get current log file path
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_LOG_PATH,
     wrapHandler(Ch.Invoke.SYSTEM_GET_LOG_PATH, (): string => {
-      return getLogPath()
-    })
-  )
+      return getLogPath();
+    }),
+  );
 
   // System — get current log file size
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_LOG_SIZE,
     wrapHandler(Ch.Invoke.SYSTEM_GET_LOG_SIZE, (): number => {
-      return getLogSize()
-    })
-  )
+      return getLogSize();
+    }),
+  );
 
   // System — export session log + renderer errors
   ipcMain.handle(
@@ -324,26 +404,31 @@ export function registerSystemHandlers(): void {
       Ch.Invoke.SYSTEM_EXPORT_LOGS,
       async (
         _event,
-        rendererErrors: Array<{ timestamp: number; source: string; message: string; details?: string }>
+        rendererErrors: Array<{
+          timestamp: number;
+          source: string;
+          message: string;
+          details?: string;
+        }>,
       ): Promise<{ exportPath: string } | null> => {
         const result = await dialog.showOpenDialog({
           title: 'Choose Export Folder',
-          properties: ['openDirectory', 'createDirectory']
-        })
-        if (result.canceled || result.filePaths.length === 0) return null
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || result.filePaths.length === 0) return null;
 
-        const exportDir = result.filePaths[0]
-        const now = new Date()
-        const pad = (n: number) => n.toString().padStart(2, '0')
+        const exportDir = result.filePaths[0];
+        const now = new Date();
+        const pad = (n: number) => n.toString().padStart(2, '0');
         const stamp =
           `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-          `_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`
-        const exportPath = join(exportDir, `batchcontent-debug-${stamp}.log`)
+          `_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+        const exportPath = join(exportDir, `batchcontent-debug-${stamp}.log`);
 
-        const { encoder } = getEncoder()
-        const nodeVersion = process.version
-        const electronVersion = process.versions.electron ?? 'unknown'
-        const platform = `${process.platform} ${process.arch}`
+        const { encoder } = getEncoder();
+        const nodeVersion = process.version;
+        const electronVersion = process.versions.electron ?? 'unknown';
+        const platform = `${process.platform} ${process.arch}`;
 
         const lines: string[] = [
           '='.repeat(80),
@@ -359,94 +444,98 @@ export function registerSystemHandlers(): void {
           `Log file:  ${getLogPath()}`,
           `Log size:  ${getLogSize()} bytes`,
           '',
-        ]
+        ];
 
-        const sessionLogPath = getLogPath()
+        const sessionLogPath = getLogPath();
         if (sessionLogPath && existsSync(sessionLogPath)) {
-          lines.push('--- Session Log (Main Process) ---')
+          lines.push('--- Session Log (Main Process) ---');
           try {
-            const logContent = readFileSync(sessionLogPath, 'utf-8')
-            lines.push(logContent)
+            const logContent = readFileSync(sessionLogPath, 'utf-8');
+            lines.push(redactCredentialText(logContent));
           } catch {
-            lines.push('(could not read session log)')
+            lines.push('(could not read session log)');
           }
         } else {
-          lines.push('--- Session Log (Main Process) ---')
-          lines.push('(no session log available)')
+          lines.push('--- Session Log (Main Process) ---');
+          lines.push('(no session log available)');
         }
 
-        lines.push('')
-        lines.push('--- Renderer Error Log ---')
+        lines.push('');
+        lines.push('--- Renderer Error Log ---');
         if (rendererErrors.length === 0) {
-          lines.push('(no renderer errors)')
+          lines.push('(no renderer errors)');
         } else {
           for (const entry of rendererErrors) {
-            const d = new Date(entry.timestamp)
-            const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${d.getMilliseconds().toString().padStart(3, '0')}`
-            lines.push(`[${ts}] [ERROR] [${entry.source}] ${entry.message}`)
+            const d = new Date(entry.timestamp);
+            const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${d.getMilliseconds().toString().padStart(3, '0')}`;
+            lines.push(
+              `[${ts}] [ERROR] [${redactCredentialText(entry.source)}] ${redactCredentialText(entry.message)}`,
+            );
             if (entry.details) {
-              lines.push(`  → ${entry.details.slice(0, 500)}`)
+              lines.push(`  → ${redactCredentialText(entry.details).slice(0, 500)}`);
             }
           }
         }
 
-        lines.push('')
-        lines.push('='.repeat(80))
-        lines.push('End of log export')
-        lines.push('='.repeat(80))
+        lines.push('');
+        lines.push('='.repeat(80));
+        lines.push('End of log export');
+        lines.push('='.repeat(80));
 
-        writeFileSync(exportPath, lines.join('\n'), 'utf-8')
-        log('info', 'Main', `Debug log exported to: ${exportPath}`)
+        writeFileSync(exportPath, lines.join('\n'), 'utf-8');
+        log('info', 'Main', `Debug log exported to: ${exportPath}`);
 
-        return { exportPath }
-      }
-    )
-  )
+        return { exportPath };
+      },
+    ),
+  );
 
   // System — open the logs directory
   ipcMain.handle(
     Ch.Invoke.SYSTEM_OPEN_LOG_FOLDER,
     wrapHandler(Ch.Invoke.SYSTEM_OPEN_LOG_FOLDER, async (): Promise<void> => {
-      const dir = getLogDir()
+      const dir = getLogDir();
       if (dir && existsSync(dir)) {
-        shell.openPath(dir)
+        shell.openPath(dir);
       }
-    })
-  )
+    }),
+  );
 
   // System — get HuggingFace model cache size
   ipcMain.handle(
     Ch.Invoke.SYSTEM_GET_CACHE_SIZE,
     wrapHandler(Ch.Invoke.SYSTEM_GET_CACHE_SIZE, async (): Promise<{ bytes: number }> => {
-      const cacheDir = join(homedir(), '.cache', 'huggingface')
-      let bytes = 0
+      const cacheDir = join(homedir(), '.cache', 'huggingface');
+      let bytes = 0;
 
       async function walkDir(dir: string): Promise<void> {
-        let entries: string[]
+        let entries: string[];
         try {
-          entries = await readdir(dir)
+          entries = await readdir(dir);
         } catch {
-          return
+          return;
         }
         for (const name of entries) {
-          const fullPath = join(dir, name)
+          const fullPath = join(dir, name);
           try {
-            const s = await stat(fullPath)
+            const s = await stat(fullPath);
             if (s.isFile()) {
-              bytes += s.size
+              bytes += s.size;
             } else if (s.isDirectory()) {
-              await walkDir(fullPath)
+              await walkDir(fullPath);
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       }
 
-      await walkDir(cacheDir)
+      await walkDir(cacheDir);
       // Include AI edit plan cache size
-      bytes += getEditPlanCacheSize()
-      return { bytes }
-    })
-  )
+      bytes += getEditPlanCacheSize();
+      return { bytes };
+    }),
+  );
 
   // System — get CPU/RAM/GPU resource usage
   ipcMain.handle(
@@ -454,72 +543,87 @@ export function registerSystemHandlers(): void {
     wrapHandler(
       Ch.Invoke.SYSTEM_GET_RESOURCE_USAGE,
       async (): Promise<{
-        cpu: { percent: number }
-        ram: { usedBytes: number; totalBytes: number; appBytes: number }
-        gpu: { percent: number; usedMB: number; totalMB: number; name: string } | null
+        cpu: { percent: number };
+        ram: { usedBytes: number; totalBytes: number; appBytes: number };
+        gpu: { percent: number; usedMB: number; totalMB: number; name: string } | null;
       }> => {
         function getCpuSnapshot(): { idle: number; total: number }[] {
           return cpus().map((c) => {
-            const times = c.times
-            const total = times.user + times.nice + times.sys + times.irq + times.idle
-            return { idle: times.idle, total }
-          })
+            const times = c.times;
+            const total = times.user + times.nice + times.sys + times.irq + times.idle;
+            return { idle: times.idle, total };
+          });
         }
-        const snap1 = getCpuSnapshot()
-        await new Promise<void>((r) => setTimeout(r, 100))
-        const snap2 = getCpuSnapshot()
+        const snap1 = getCpuSnapshot();
+        await new Promise<void>((r) => setTimeout(r, 100));
+        const snap2 = getCpuSnapshot();
 
-        let idleDelta = 0
-        let totalDelta = 0
+        let idleDelta = 0;
+        let totalDelta = 0;
         for (let i = 0; i < snap1.length; i++) {
-          idleDelta += snap2[i].idle - snap1[i].idle
-          totalDelta += snap2[i].total - snap1[i].total
+          idleDelta += snap2[i].idle - snap1[i].idle;
+          totalDelta += snap2[i].total - snap1[i].total;
         }
-        const cpuPercent = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0
+        const cpuPercent = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
 
-        const totalBytes = totalmem()
-        const freeBytes = freemem()
-        const usedBytes = totalBytes - freeBytes
-        const appBytes = process.memoryUsage().rss
+        const totalBytes = totalmem();
+        const freeBytes = freemem();
+        const usedBytes = totalBytes - freeBytes;
+        const appBytes = process.memoryUsage().rss;
 
-        let gpu: { percent: number; usedMB: number; totalMB: number; name: string } | null = null
+        let gpu: { percent: number; usedMB: number; totalMB: number; name: string } | null = null;
         try {
           gpu = await new Promise((resolve) => {
             execFile(
               'nvidia-smi',
-              ['--query-gpu=utilization.gpu,memory.used,memory.total,name', '--format=csv,noheader,nounits'],
+              [
+                '--query-gpu=utilization.gpu,memory.used,memory.total,name',
+                '--format=csv,noheader,nounits',
+              ],
               { timeout: 2000 },
               (err, stdout) => {
-                if (err || !stdout.trim()) { resolve(null); return }
-                const parts = stdout.trim().split(',').map((s) => s.trim())
-                if (parts.length < 4) { resolve(null); return }
-                const percent = parseInt(parts[0], 10)
-                const usedMB = parseInt(parts[1], 10)
-                const totalMB = parseInt(parts[2], 10)
-                const name = parts.slice(3).join(',').trim()
-                if (isNaN(percent) || isNaN(usedMB) || isNaN(totalMB)) { resolve(null); return }
-                resolve({ percent, usedMB, totalMB, name })
-              }
-            )
-          })
+                if (err || !stdout.trim()) {
+                  resolve(null);
+                  return;
+                }
+                const parts = stdout
+                  .trim()
+                  .split(',')
+                  .map((s) => s.trim());
+                if (parts.length < 4) {
+                  resolve(null);
+                  return;
+                }
+                const percent = parseInt(parts[0], 10);
+                const usedMB = parseInt(parts[1], 10);
+                const totalMB = parseInt(parts[2], 10);
+                const name = parts.slice(3).join(',').trim();
+                if (Number.isNaN(percent) || Number.isNaN(usedMB) || Number.isNaN(totalMB)) {
+                  resolve(null);
+                  return;
+                }
+                resolve({ percent, usedMB, totalMB, name });
+              },
+            );
+          });
         } catch {
-          gpu = null
+          gpu = null;
         }
 
         return {
           cpu: { percent: cpuPercent },
           ram: { usedBytes, totalBytes, appBytes },
-          gpu
-        }
-      }
-    )
-  )
+          gpu,
+        };
+      },
+    ),
+  );
 
   // System — set auto-cleanup preference
   ipcMain.handle(
     Ch.Invoke.SYSTEM_SET_AUTO_CLEANUP,
     wrapHandler(Ch.Invoke.SYSTEM_SET_AUTO_CLEANUP, (_event, enabled: boolean) => {
-      autoCleanupOnExit = enabled
-    })
-  )
+      autoCleanupOnExit = enabled;
+    }),
+  );
 }

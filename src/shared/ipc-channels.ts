@@ -17,6 +17,9 @@ export const InvokeChannels = {
   // Dialog
   DIALOG_OPEN_FILES: 'dialog:openFiles',
   DIALOG_OPEN_DIRECTORY: 'dialog:openDirectory',
+  // Creator Profile / Brand Kit assets
+  BRAND_KIT_SELECT_ASSET: 'brand-kit:selectAsset',
+  BRAND_KIT_CHECK_ASSETS: 'brand-kit:checkAssets',
 
   // FFmpeg
   FFMPEG_GET_METADATA: 'ffmpeg:getMetadata',
@@ -37,6 +40,7 @@ export const InvokeChannels = {
   AI_GENERATE_REHOOK_TEXT: 'ai:generateRehookText',
   AI_RESCORE_SINGLE_CLIP: 'ai:rescoreSingleClip',
   AI_VALIDATE_GEMINI_KEY: 'ai:validateGeminiKey',
+  AI_VALIDATE_PEXELS_KEY: 'ai:validatePexelsKey',
   AI_DETECT_CURIOSITY_GAPS: 'ai:detectCuriosityGaps',
   AI_OPTIMIZE_CLIP_BOUNDARIES: 'ai:optimizeClipBoundaries',
   AI_OPTIMIZE_CLIP_ENDPOINTS: 'ai:optimizeClipEndpoints',
@@ -46,6 +50,7 @@ export const InvokeChannels = {
   AI_ANALYZE_WORD_EMPHASIS: 'ai:analyzeWordEmphasis',
   AI_STITCH_TRANSCRIPT: 'ai:stitchTranscript',
   AI_GENERATE_LONGFORM_EDIT_PLAN: 'ai:generateLongformEditPlan',
+  AI_PROMO_SPLIT: 'ai:promoSplit',
 
   // Face detection
   FACE_DETECT_CROPS: 'face:detectCrops',
@@ -53,6 +58,8 @@ export const InvokeChannels = {
   // Render pipeline
   RENDER_START_BATCH: 'render:startBatch',
   RENDER_CANCEL: 'render:cancel',
+  RENDER_STOP_AFTER_CURRENT: 'render:stopAfterCurrent',
+  RENDER_CANCEL_JOB: 'render:cancelJob',
   RENDER_PREVIEW: 'render:preview',
   RENDER_CLEANUP_PREVIEW: 'render:cleanupPreview',
 
@@ -74,19 +81,30 @@ export const InvokeChannels = {
   PROJECT_AUTO_SAVE: 'project:autoSave',
   PROJECT_LOAD_RECOVERY: 'project:loadRecovery',
   PROJECT_CLEAR_RECOVERY: 'project:clearRecovery',
+  PROJECT_CLEAN_LEGACY: 'project:cleanLegacy',
   PROJECT_GET_RECENT: 'project:getRecent',
   PROJECT_ADD_RECENT: 'project:addRecent',
   PROJECT_REMOVE_RECENT: 'project:removeRecent',
+  PROJECT_SET_RECENT_PINNED: 'project:setRecentPinned',
+  PROJECT_RENAME_RECENT: 'project:renameRecent',
+  PROJECT_DUPLICATE_RECENT: 'project:duplicateRecent',
+  PROJECT_DELETE_RECENT: 'project:deleteRecent',
+  PROJECT_CONSUME_PENDING_OPEN: 'project:consumePendingOpen',
   PROJECT_CLEAR_RECENT: 'project:clearRecent',
+  PROJECT_CHECK_MEDIA: 'project:checkMedia',
+  PROJECT_SEARCH_MEDIA_FOLDER: 'project:searchMediaFolder',
 
   // Python setup (required for transcribe + face-detect)
   PYTHON_GET_STATUS: 'python:getStatus',
   PYTHON_START_SETUP: 'python:startSetup',
+  PYTHON_CANCEL_SETUP: 'python:cancelSetup',
   PYTHON_CANCEL: 'python:cancel',
 
   // System
   SYSTEM_GET_DISK_SPACE: 'system:getDiskSpace',
   SYSTEM_NOTIFY: 'system:notify',
+  SYSTEM_SET_PROGRESS: 'system:setProgress',
+  SYSTEM_SET_POWER_SAVE: 'system:setPowerSave',
   SYSTEM_GET_ENCODER: 'system:getEncoder',
   SYSTEM_GET_AVAILABLE_FONTS: 'system:getAvailableFonts',
   SYSTEM_GET_FONT_DATA: 'system:getFontData',
@@ -111,6 +129,20 @@ export const InvokeChannels = {
   SETTINGS_WINDOW_CLOSE: 'settings-window:close',
   SETTINGS_WINDOW_IS_OPEN: 'settings-window:is-open',
 
+  // Desktop lifecycle safety
+  LIFECYCLE_REPORT_STATE: 'lifecycle:reportState',
+  LIFECYCLE_COMPLETE_PREPARATION: 'lifecycle:completePreparation',
+  LIFECYCLE_REQUEST_RESTART: 'lifecycle:requestRestart',
+
+  // Native application menu
+  MENU_SET_HISTORY_STATE: 'menu:setHistoryState',
+
+  // Signed application updates
+  UPDATE_GET_STATE: 'update:getState',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+
   // Secrets (encrypted API key storage via Electron safeStorage)
   SECRETS_GET: 'secrets:get',
   SECRETS_SET: 'secrets:set',
@@ -122,7 +154,7 @@ export const InvokeChannels = {
 
   // HyperFrames overlays
   HYPERFRAMES_RENDER_OVERLAY: 'hyperframes:renderOverlay',
-} as const
+} as const;
 
 // ---- Send channels (main → renderer, fire-and-forget) ---------------------
 
@@ -135,6 +167,7 @@ export const SendChannels = {
   RENDER_CLIP_PROGRESS: 'render:clipProgress',
   RENDER_CLIP_DONE: 'render:clipDone',
   RENDER_CLIP_ERROR: 'render:clipError',
+  RENDER_CLIP_CANCELLED: 'render:clipCancelled',
   RENDER_BATCH_DONE: 'render:batchDone',
   RENDER_CANCELLED: 'render:cancelled',
   RENDER_CLIP_PREPARE: 'render:clipPrepare',
@@ -145,7 +178,22 @@ export const SendChannels = {
   SEGMENT_FALLBACK: 'render:segmentFallback',
   AI_STITCH_PROGRESS: 'ai:stitchProgress',
   AI_LONGFORM_EDIT_PROGRESS: 'ai:longformEditProgress',
-} as const
+  PROJECT_NEW_REQUEST: 'project:newRequest',
+  PROJECT_SAVE_REQUEST: 'project:saveRequest',
+  PROJECT_SAVE_AS_REQUEST: 'project:saveAsRequest',
+  PROJECT_OPEN_REQUEST: 'project:openRequest',
+  PROJECT_OPEN_RECENT_REQUEST: 'project:openRecentRequest',
+  SETTINGS_OPEN_REQUEST: 'settings:openRequest',
+  KEYBOARD_SHORTCUTS_REQUEST: 'keyboard:shortcutsRequest',
+  WHATS_NEW_REQUEST: 'release:whatsNewRequest',
+  UPDATE_CHECK_REQUEST: 'update:checkRequest',
+  UI_ZOOM_REQUEST: 'ui:zoomRequest',
+  EDIT_UNDO_REQUEST: 'edit:undoRequest',
+  EDIT_REDO_REQUEST: 'edit:redoRequest',
+  LIFECYCLE_PREPARE: 'lifecycle:prepare',
+  SYSTEM_NOTIFICATION_CLICKED: 'system:notificationClicked',
+  UPDATE_STATE: 'update:state',
+} as const;
 
 // ---- Combined shorthand -------------------------------------------------
 
@@ -153,18 +201,18 @@ export const SendChannels = {
 export const Ch = {
   Invoke: InvokeChannels,
   Send: SendChannels,
-} as const
+} as const;
 
 // ---- Derived literal-union types -----------------------------------------
 
 /** Union of all invoke channel name strings. */
-export type InvokeChannel = (typeof InvokeChannels)[keyof typeof InvokeChannels]
+export type InvokeChannel = (typeof InvokeChannels)[keyof typeof InvokeChannels];
 
 /** Union of all send channel name strings. */
-export type SendChannel = (typeof SendChannels)[keyof typeof SendChannels]
+export type SendChannel = (typeof SendChannels)[keyof typeof SendChannels];
 
 /** Union of every IPC channel name. */
-export type AnyChannel = InvokeChannel | SendChannel
+export type AnyChannel = InvokeChannel | SendChannel;
 
 // ---- Send-channel payload map -------------------------------------------
 //
@@ -179,96 +227,107 @@ export type AnyChannel = InvokeChannel | SendChannel
 // ---------------------------------------------------------------------------
 
 export interface IpcSendChannelMap {
-  [SendChannels.YOUTUBE_PROGRESS]: { percent: number }
-  [SendChannels.TRANSCRIBE_PROGRESS]: { stage: string; message: string }
+  [SendChannels.YOUTUBE_PROGRESS]: { percent: number };
+  [SendChannels.TRANSCRIBE_PROGRESS]: { stage: string; message: string };
   [SendChannels.AI_SCORING_PROGRESS]: {
-    stage: string
-    message: string
-    percent?: number
-  }
+    stage: string;
+    message: string;
+    percent?: number;
+  };
   [SendChannels.FACE_PROGRESS]: {
-    stage: string
-    message: string
-    percent?: number
-  }
+    stage: string;
+    message: string;
+    percent?: number;
+  };
   [SendChannels.RENDER_CLIP_START]: {
-    clipId: string
-    index: number
-    total: number
-    encoder: string
-    encoderIsHardware: boolean
-  }
-  [SendChannels.RENDER_CLIP_PROGRESS]: { clipId: string; percent: number }
+    clipId: string;
+    index: number;
+    total: number;
+    encoder: string;
+    encoderIsHardware: boolean;
+  };
+  [SendChannels.RENDER_CLIP_PROGRESS]: { clipId: string; percent: number };
   [SendChannels.RENDER_CLIP_DONE]: {
-    clipId: string
-    outputPath: string
+    clipId: string;
+    outputPath: string;
     /** One-line "what rendered vs. unavailable" note shown on the done row (RF-008). */
-    summary?: string
-  }
+    summary?: string;
+  };
   [SendChannels.RENDER_CLIP_ERROR]: {
-    clipId: string
+    clipId: string;
     /** Short, human-readable summary of what went wrong (RF-022). */
-    error: string
+    error: string;
     /** Suggested action the user can take, when the cause is recognised. */
-    suggestion?: string
+    suggestion?: string;
     /** Raw engine output (stderr tail), shown behind a "details" expander. */
-    details?: string
-    ffmpegCommand?: string
-  }
+    details?: string;
+    ffmpegCommand?: string;
+  };
+  [SendChannels.RENDER_CLIP_CANCELLED]: { clipId: string };
   [SendChannels.RENDER_BATCH_DONE]: {
-    completed: number
-    failed: number
-    total: number
+    completed: number;
+    failed: number;
+    cancelled?: number;
+    total: number;
     /** Absolute path to the exported manifest.csv, when one was written. */
-    manifestCsvPath?: string
+    manifestCsvPath?: string;
     /** Absolute path to the exported manifest.json, when one was written. */
-    manifestJsonPath?: string
-  }
+    manifestJsonPath?: string;
+  };
   [SendChannels.RENDER_CANCELLED]: {
-    completed: number
-    failed: number
-    total: number
-  }
+    completed: number;
+    failed: number;
+    cancelled?: number;
+    total: number;
+  };
   [SendChannels.RENDER_CLIP_PREPARE]: {
-    clipId: string
-    message: string
-    percent: number
-  }
-  [SendChannels.PYTHON_SETUP_PROGRESS]: {
-    stage: string
-    message: string
-    percent: number
-    package?: string
-    currentPackage?: number
-    totalPackages?: number
-  }
-  [SendChannels.PYTHON_SETUP_DONE]: { success: boolean; error?: string }
+    clipId: string;
+    message: string;
+    percent: number;
+  };
+  [SendChannels.PYTHON_SETUP_PROGRESS]: import('./python-setup').PythonSetupProgress;
+  [SendChannels.PYTHON_SETUP_DONE]: import('./python-setup').PythonSetupDone;
   [SendChannels.AI_TOKEN_USAGE]: {
-    source: string
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    model: string
-    timestamp: number
-  }
-  [SendChannels.SETTINGS_WINDOW_CLOSED]: Record<string, never>
+    source: string;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    model: string;
+    timestamp: number;
+  };
+  [SendChannels.SETTINGS_WINDOW_CLOSED]: Record<string, never>;
+  [SendChannels.PROJECT_NEW_REQUEST]: Record<string, never>;
+  [SendChannels.PROJECT_SAVE_REQUEST]: Record<string, never>;
+  [SendChannels.PROJECT_SAVE_AS_REQUEST]: Record<string, never>;
+  [SendChannels.PROJECT_OPEN_REQUEST]: Record<string, never>;
+  [SendChannels.PROJECT_OPEN_RECENT_REQUEST]: { path: string };
+  [SendChannels.SETTINGS_OPEN_REQUEST]: Record<string, never>;
+  [SendChannels.KEYBOARD_SHORTCUTS_REQUEST]: Record<string, never>;
+  [SendChannels.WHATS_NEW_REQUEST]: Record<string, never>;
+  [SendChannels.UPDATE_CHECK_REQUEST]: Record<string, never>;
+  [SendChannels.UI_ZOOM_REQUEST]: { direction: 'in' | 'out' | 'reset' };
+  [SendChannels.EDIT_UNDO_REQUEST]: Record<string, never>;
+  [SendChannels.EDIT_REDO_REQUEST]: Record<string, never>;
+  [SendChannels.LIFECYCLE_PREPARE]: import('./app-lifecycle').LifecyclePrepareRequest;
+  [SendChannels.SYSTEM_NOTIFICATION_CLICKED]: import('./jobs').NativeNotificationClick;
+  [SendChannels.UPDATE_STATE]: import('./updater').AppUpdateState;
   [SendChannels.SEGMENT_FALLBACK]: {
-    clipId: string
-    segmentIndex: number
-    archetype: string
-    reason: string
-  }
+    clipId: string;
+    segmentIndex: number;
+    archetype: string;
+    reason: string;
+  };
   [SendChannels.AI_STITCH_PROGRESS]: {
-    stage: 'sending' | 'analyzing' | 'validating'
-    message: string
-  }
+    stage: 'sending' | 'analyzing' | 'validating';
+    message: string;
+  };
   [SendChannels.AI_LONGFORM_EDIT_PROGRESS]: {
-    stage: 'ai-editing'
+    stage: 'ai-editing';
     /** 1-based index of the window currently being designed. */
-    window: number
+    window: number;
     /** Total number of windows in the edit plan. */
-    total: number
-  }
+    total: number;
+  };
 }
 
 // ---- Helper types --------------------------------------------------------
@@ -276,4 +335,4 @@ export interface IpcSendChannelMap {
 /** Extract the data payload type for a main→renderer send channel. */
 export type IpcSendData<C extends SendChannel> = C extends keyof IpcSendChannelMap
   ? IpcSendChannelMap[C]
-  : never
+  : never;

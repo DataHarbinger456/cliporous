@@ -1,8 +1,8 @@
-import { ipcMain } from 'electron'
-import { Ch } from '@shared/ipc-channels'
-import { wrapHandler } from '../ipc-error-handler'
-import { generateLongformEditPlan } from '../ai/longform-edit-plan'
-import type { WordTimestamp, LongformEditPlan } from '@shared/types'
+import { Ch } from '@shared/ipc-channels';
+import type { LongformEditPlan, WordTimestamp } from '@shared/types';
+import { ipcMain } from 'electron';
+import { generateLongformEditPlan } from '../ai/longform-edit-plan';
+import { wrapHandler } from '../ipc-error-handler';
 
 /**
  * IPC handlers for the Hormozi long-form (16:9) pipeline.
@@ -17,21 +17,23 @@ export function registerLongformHandlers(): void {
         event,
         apiKey: string,
         words: WordTimestamp[],
-        videoDuration: number
+        videoDuration: number,
+        feedback?: string[],
       ): Promise<LongformEditPlan> => {
         return generateLongformEditPlan({
           apiKey,
           words,
           videoDuration,
+          ...(feedback?.length ? { feedback } : {}),
           onProgress: ({ window, total }) => {
             event.sender.send(Ch.Send.AI_LONGFORM_EDIT_PROGRESS, {
               stage: 'ai-editing',
               window,
-              total
-            })
-          }
-        })
-      }
-    )
-  )
+              total,
+            });
+          },
+        });
+      },
+    ),
+  );
 }

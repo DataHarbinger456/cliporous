@@ -1,6 +1,7 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
-import { Ch, IpcSendChannelMap, SendChannel } from '@shared/ipc-channels'
+import { electronAPI } from '@electron-toolkit/preload';
+import type { HistoryMenuState } from '@shared/history';
+import { Ch, type IpcSendChannelMap, type SendChannel } from '@shared/ipc-channels';
+import { contextBridge, type IpcRendererEvent, ipcRenderer, webFrame, webUtils } from 'electron';
 
 // ---------------------------------------------------------------------------
 // Factory helpers — eliminate boilerplate for IPC wrappers
@@ -8,33 +9,38 @@ import { Ch, IpcSendChannelMap, SendChannel } from '@shared/ipc-channels'
 
 /** Create an invoke wrapper that forwards all arguments to ipcRenderer.invoke. */
 function invoke<T = unknown>(channel: string) {
-  return (...args: unknown[]): Promise<T> => ipcRenderer.invoke(channel, ...args)
+  return (...args: unknown[]): Promise<T> => ipcRenderer.invoke(channel, ...args);
 }
 
 /** Create a listener wrapper that subscribes to a send channel and returns an unsubscribe function. */
 function listen<C extends SendChannel>(channel: C) {
   return (callback: (data: IpcSendChannelMap[C]) => void): (() => void) => {
-    const handler = (_: IpcRendererEvent, data: IpcSendChannelMap[C]) => callback(data)
-    ipcRenderer.on(channel, handler)
-    return () => ipcRenderer.removeListener(channel, handler)
-  }
+    const handler = (_: IpcRendererEvent, data: IpcSendChannelMap[C]) => callback(data);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Shorthand aliases
 // ---------------------------------------------------------------------------
 
-const I = Ch.Invoke
-const S = Ch.Send
+const I = Ch.Invoke;
+const S = Ch.Send;
 
 // ---------------------------------------------------------------------------
 // API object — shape must match the Api interface in index.d.ts
 // ---------------------------------------------------------------------------
 
 const api = {
+  platform: process.platform,
+  setUiZoom: (factor: number): void => webFrame.setZoomFactor(factor),
+
   // Source — file dialogs + FFmpeg metadata/extraction
   openFiles: invoke(I.DIALOG_OPEN_FILES),
   openDirectory: invoke(I.DIALOG_OPEN_DIRECTORY),
+  selectCreatorAsset: invoke<string | null>(I.BRAND_KIT_SELECT_ASSET),
+  checkCreatorAssets: invoke<Array<{ path: string; exists: boolean }>>(I.BRAND_KIT_CHECK_ASSETS),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getMetadata: invoke(I.FFMPEG_GET_METADATA),
   extractAudio: invoke(I.FFMPEG_EXTRACT_AUDIO),
@@ -55,11 +61,13 @@ const api = {
 
   // AI scoring & generation
   scoreTranscript: invoke(I.AI_SCORE_TRANSCRIPT),
+  promoSplit: invoke(I.AI_PROMO_SPLIT),
   onScoringProgress: listen(S.AI_SCORING_PROGRESS),
   generateHookText: invoke(I.AI_GENERATE_HOOK_TEXT),
   rescoreSingleClip: invoke(I.AI_RESCORE_SINGLE_CLIP),
   generateRehookText: invoke(I.AI_GENERATE_REHOOK_TEXT),
   validateGeminiKey: invoke(I.AI_VALIDATE_GEMINI_KEY),
+  validatePexelsKey: invoke(I.AI_VALIDATE_PEXELS_KEY),
 
   // Curiosity Gap Detector
   detectCuriosityGaps: invoke(I.AI_DETECT_CURIOSITY_GAPS),
@@ -92,11 +100,14 @@ const api = {
   // Render pipeline
   startBatchRender: invoke(I.RENDER_START_BATCH),
   cancelRender: invoke(I.RENDER_CANCEL),
+  stopRenderAfterCurrent: invoke(I.RENDER_STOP_AFTER_CURRENT),
+  cancelQueuedRenderJob: invoke(I.RENDER_CANCEL_JOB),
   onRenderClipStart: listen(S.RENDER_CLIP_START),
   onRenderClipPrepare: listen(S.RENDER_CLIP_PREPARE),
   onRenderClipProgress: listen(S.RENDER_CLIP_PROGRESS),
   onRenderClipDone: listen(S.RENDER_CLIP_DONE),
   onRenderClipError: listen(S.RENDER_CLIP_ERROR),
+  onRenderClipCancelled: listen(S.RENDER_CLIP_CANCELLED),
   onRenderBatchDone: listen(S.RENDER_BATCH_DONE),
   onRenderCancelled: listen(S.RENDER_CANCELLED),
   onSegmentFallback: listen(S.SEGMENT_FALLBACK),
@@ -124,10 +135,34 @@ const api = {
   autoSaveProject: invoke(I.PROJECT_AUTO_SAVE),
   loadRecovery: invoke(I.PROJECT_LOAD_RECOVERY),
   clearRecovery: invoke(I.PROJECT_CLEAR_RECOVERY),
+  cleanLegacyProject: invoke(I.PROJECT_CLEAN_LEGACY),
   getRecentProjects: invoke(I.PROJECT_GET_RECENT),
   addRecentProject: invoke(I.PROJECT_ADD_RECENT),
   removeRecentProject: invoke(I.PROJECT_REMOVE_RECENT),
+  setRecentProjectPinned: invoke(I.PROJECT_SET_RECENT_PINNED),
+  renameRecentProject: invoke(I.PROJECT_RENAME_RECENT),
+  duplicateRecentProject: invoke(I.PROJECT_DUPLICATE_RECENT),
+  deleteRecentProject: invoke(I.PROJECT_DELETE_RECENT),
+  consumePendingProjectOpen: invoke(I.PROJECT_CONSUME_PENDING_OPEN),
   clearRecentProjects: invoke(I.PROJECT_CLEAR_RECENT),
+  checkMediaPaths: invoke(I.PROJECT_CHECK_MEDIA),
+  searchMediaFolder: invoke(I.PROJECT_SEARCH_MEDIA_FOLDER),
+  onProjectNewRequest: listen(S.PROJECT_NEW_REQUEST),
+  onProjectSaveRequest: listen(S.PROJECT_SAVE_REQUEST),
+  onProjectSaveAsRequest: listen(S.PROJECT_SAVE_AS_REQUEST),
+  onProjectOpenRequest: listen(S.PROJECT_OPEN_REQUEST),
+  onProjectOpenRecentRequest: listen(S.PROJECT_OPEN_RECENT_REQUEST),
+
+  // Native application menu
+  onSettingsOpenRequest: listen(S.SETTINGS_OPEN_REQUEST),
+  onKeyboardShortcutsRequest: listen(S.KEYBOARD_SHORTCUTS_REQUEST),
+  onWhatsNewRequest: listen(S.WHATS_NEW_REQUEST),
+  onUpdateCheckRequest: listen(S.UPDATE_CHECK_REQUEST),
+  onUiZoomRequest: listen(S.UI_ZOOM_REQUEST),
+  setHistoryMenuState: (state: HistoryMenuState): Promise<void> =>
+    ipcRenderer.invoke(I.MENU_SET_HISTORY_STATE, state),
+  onEditUndoRequest: listen(S.EDIT_UNDO_REQUEST),
+  onEditRedoRequest: listen(S.EDIT_REDO_REQUEST),
 
   // System
   getDiskSpace: invoke(I.SYSTEM_GET_DISK_SPACE),
@@ -135,6 +170,9 @@ const api = {
   getAvailableFonts: invoke(I.SYSTEM_GET_AVAILABLE_FONTS),
   getFontData: invoke(I.SYSTEM_GET_FONT_DATA),
   sendNotification: invoke(I.SYSTEM_NOTIFY),
+  setNativeProgress: invoke(I.SYSTEM_SET_PROGRESS),
+  setPowerSaveActive: invoke(I.SYSTEM_SET_POWER_SAVE),
+  onNotificationClicked: listen(S.SYSTEM_NOTIFICATION_CLICKED),
   getTempSize: invoke(I.SYSTEM_GET_TEMP_SIZE),
   cleanupTemp: invoke(I.SYSTEM_CLEANUP_TEMP),
   getCacheSize: invoke(I.SYSTEM_GET_CACHE_SIZE),
@@ -149,8 +187,12 @@ const api = {
    * failures (which otherwise live only in the in-memory ErrorLog) are visible
    * in the log file. Fire-and-forget; never throws into caller code.
    */
-  logToMain: (level: 'debug' | 'info' | 'warn' | 'error', source: string, message: string): void => {
-    void ipcRenderer.invoke(I.SYSTEM_LOG_RENDERER, level, source, message).catch(() => {})
+  logToMain: (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    source: string,
+    message: string,
+  ): void => {
+    void ipcRenderer.invoke(I.SYSTEM_LOG_RENDERER, level, source, message).catch(() => {});
   },
 
   // Shell
@@ -173,6 +215,7 @@ const api = {
   // Python setup
   getPythonStatus: invoke(I.PYTHON_GET_STATUS),
   startPythonSetup: invoke(I.PYTHON_START_SETUP),
+  cancelPythonSetup: invoke(I.PYTHON_CANCEL_SETUP),
   onPythonSetupProgress: listen(S.PYTHON_SETUP_PROGRESS),
   onPythonSetupDone: listen(S.PYTHON_SETUP_DONE),
 
@@ -185,14 +228,28 @@ const api = {
   isSettingsWindowOpen: invoke<boolean>(I.SETTINGS_WINDOW_IS_OPEN),
   onSettingsWindowClosed: listen(S.SETTINGS_WINDOW_CLOSED),
 
+  // Desktop lifecycle safety — main process owns close/quit/restart settlement.
+  reportLifecycleState: invoke(I.LIFECYCLE_REPORT_STATE),
+  completeLifecyclePreparation: invoke(I.LIFECYCLE_COMPLETE_PREPARATION),
+  requestAppRestart: invoke<boolean>(I.LIFECYCLE_REQUEST_RESTART),
+  onLifecyclePrepare: listen(S.LIFECYCLE_PREPARE),
+
+  // Signed updates
+  getUpdateState: invoke(I.UPDATE_GET_STATE),
+  checkForUpdates: invoke(I.UPDATE_CHECK),
+  downloadUpdate: invoke(I.UPDATE_DOWNLOAD),
+  installUpdate: invoke<boolean>(I.UPDATE_INSTALL),
+  onUpdateState: listen(S.UPDATE_STATE),
+
   // Secrets — encrypted API key storage (safeStorage-backed)
   secrets: {
     get: (name: string): Promise<string | null> => ipcRenderer.invoke(I.SECRETS_GET, name),
-    set: (name: string, value: string): Promise<void> => ipcRenderer.invoke(I.SECRETS_SET, name, value),
+    set: (name: string, value: string): Promise<void> =>
+      ipcRenderer.invoke(I.SECRETS_SET, name, value),
     has: (name: string): Promise<boolean> => ipcRenderer.invoke(I.SECRETS_HAS, name),
     clear: (name: string): Promise<void> => ipcRenderer.invoke(I.SECRETS_CLEAR, name),
   },
-}
+};
 
 // ---------------------------------------------------------------------------
 // Expose to renderer
@@ -200,14 +257,12 @@ const api = {
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('electron', electronAPI);
+    contextBridge.exposeInMainWorld('api', api);
   } catch (error) {
-    console.error(error)
+    console.error(error);
   }
 } else {
-  // @ts-ignore
-  window.electron = electronAPI
-  // @ts-ignore
-  window.api = api
+  (globalThis as unknown as { electron: typeof electronAPI }).electron = electronAPI;
+  (globalThis as unknown as { api: typeof api }).api = api;
 }
