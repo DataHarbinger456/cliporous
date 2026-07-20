@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#180b08" />
+    <title>BatchClip | Turn long videos into clips worth posting</title>
+    <meta
+      name="description"
+      content="BatchClip is a desktop clip studio that finds strong moments, reframes speakers, adds captions, and batch-renders polished social clips from long-form video."
+    />
+    <link rel="canonical" href="https://landing-phi-dun.vercel.app/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://landing-phi-dun.vercel.app/" />
+    <meta property="og:title" content="BatchClip | Long video in. Strong clips out." />
+    <meta
+      property="og:description"
+      content="Find the moments worth posting, shape the edit, and render a full batch from one desktop studio."
+    />
+    <meta
+      property="og:image"
+      content="https://landing-phi-dun.vercel.app/assets/screens/review.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BatchClip | Long video in. Strong clips out." />
+    <meta
+      name="twitter:description"
+      content="AI-assisted clip discovery, speaker-aware framing, captions, review, and batch export."
+    />
+    <meta
+      name="twitter:image"
+      content="https://landing-phi-dun.vercel.app/assets/screens/review.png"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="nav" id="top">
+      <a class="nav-brand" href="#top" aria-label="BatchClip home">
+        <span class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z" />
+            <path d="m6.2 5.3 3.1 3.9M12.4 3.4l3.1 4" />
+            <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+          </svg>
+        </span>
+        <span class="brand-lockup">
+          <strong>BatchClip</strong>
+          <small>Clip studio</small>
+        </span>
+      </a>
+
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#features">Workflow</a>
+        <a href="#screens">The app</a>
+        <a href="#faq">FAQ</a>
+        <a class="btn btn-primary btn-sm" href="#download">Get BatchClip</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="status-pill">
+          <span class="status-dot" aria-hidden="true"></span>
+          Desktop clip studio for macOS and Windows
+        </p>
+
+        <div class="hero-wordmark" aria-label="BatchClip">
+          <span>Batch</span><strong>Clip</strong>
+        </div>
+
+        <h1 id="hero-title">One long video. A batch of clips worth posting.</h1>
+        <p class="hero-sub">
+          BatchClip finds the strongest moments, reframes the speaker, burns in captions, and gives
+          you a fast approve-or-reject pass before the final render.
+        </p>
+
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" href="#download">Get BatchClip</a>
+          <a class="btn btn-ghost btn-lg" href="#screens">See the real workflow</a>
+        </div>
+        <p class="hero-fineprint">Local rendering. Reusable project files. You control every cut.</p>
+
+        <figure class="hero-shot window">
+          <img
+            src="assets/screens/review.png"
+            alt="BatchClip review workspace showing two vertical clip candidates and an editing inspector"
+            width="1432"
+            height="900"
+            fetchpriority="high"
+          />
+          <figcaption class="sr-only">
+            The BatchClip review workspace with clip scores, approval controls, and a rendered preview.
+          </figcaption>
+        </figure>
+
+        <ol class="pipeline-strip" aria-label="BatchClip workflow">
+          <li><span>1</span>Source</li>
+          <li><span>2</span>Shape</li>
+          <li><span>3</span>Export</li>
+        </ol>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <header class="section-head">
+          <h2 id="features-title">From raw footage to ready-to-post.</h2>
+          <p>
+            One focused desktop workflow handles the repetitive work while every creative decision
+            stays visible.
+          </p>
+        </header>
+
+        <ol class="feature-grid">
+          <li class="card">
+            <span class="step">01 · Bring the source</span>
+            <h3>Drop a file or paste a URL</h3>
+            <p>Start with MP4, MOV, MKV, WEBM, or a supported YouTube link.</p>
+          </li>
+          <li class="card">
+            <span class="step">02 · Build the story</span>
+            <h3>Find moments with a beginning and end</h3>
+            <p>AI scoring reads the full transcript, ranks candidates, and keeps the surrounding context.</p>
+          </li>
+          <li class="card">
+            <span class="step">03 · Frame the speaker</span>
+            <h3>Compose for vertical automatically</h3>
+            <p>Scene and face detection build a speaker-aware 9:16 crop timeline.</p>
+          </li>
+          <li class="card">
+            <span class="step">04 · Style the clip</span>
+            <h3>Burn in captions that stay readable</h3>
+            <p>Word timing, emphasis, hook titles, rehooks, zooms, and transitions share one render plan.</p>
+          </li>
+          <li class="card">
+            <span class="step">05 · Make the call</span>
+            <h3>Approve the winners, reject the rest</h3>
+            <p>Scores are estimates, not promises. Preview the edit and keep the final decision yours.</p>
+          </li>
+          <li class="card">
+            <span class="step">06 · Ship the batch</span>
+            <h3>Render selected clips together</h3>
+            <p>BatchClip produces 1080×1920 video at 30 fps with captions burned into every export.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section result-section" aria-labelledby="result-title">
+        <div class="result-copy">
+          <p class="section-kicker">The output</p>
+          <h2 id="result-title">Made for the feed, not a demo reel.</h2>
+          <p>
+            The final clip is a standard video file with the crop, pacing, graphics, and captions
+            already rendered. No template player or special hosting required.
+          </p>
+          <ul class="result-list">
+            <li>1080×1920 vertical canvas</li>
+            <li>Burned-in, word-timed captions</li>
+            <li>Optional titles, b-roll, transitions, and overlays</li>
+          </ul>
+        </div>
+        <div class="output-frame">
+          <video
+            controls
+            muted
+            playsinline
+            preload="metadata"
+            poster="assets/screens/output.png"
+            aria-label="Example vertical video rendered by BatchClip"
+          >
+            <source src="assets/showreel.mp4" type="video/mp4" />
+            Your browser does not support embedded video.
+          </video>
+        </div>
+      </section>
+
+      <section class="section" id="screens" aria-labelledby="screens-title">
+        <header class="section-head">
+          <h2 id="screens-title">The whole studio, in three steps.</h2>
+          <p>These are current BatchClip screens. Open any image for a closer look.</p>
+        </header>
+        <div class="gallery" data-gallery></div>
+      </section>
+
+      <section class="section section-download" id="download" aria-labelledby="download-title">
+        <header class="section-head">
+          <h2 id="download-title">Get BatchClip</h2>
+          <p>Download the Apple Silicon build now. The Windows installer is not available yet.</p>
+        </header>
+
+        <div class="download-grid">
+          <article class="dl-card">
+            <div>
+              <h3>macOS</h3>
+              <p>Apple Silicon · DMG installer · 193 MB</p>
+            </div>
+            <a
+              class="btn btn-primary btn-block"
+              href="https://pa1cdb0db56atvyt.public.blob.vercel-storage.com/downloads/BatchClip-0.1.0-arm64-nEGTRSUjl6QXX40VOh9UVBGhPglh9B.dmg"
+              download="BatchClip-0.1.0-arm64.dmg"
+            >
+              Download for macOS
+            </a>
+          </article>
+          <article class="dl-card">
+            <div>
+              <h3>Windows</h3>
+              <p>64-bit · EXE installer</p>
+            </div>
+            <button class="btn btn-block" type="button" disabled>Coming soon</button>
+          </article>
+        </div>
+        <p class="download-foot">Current app version: 0.1.0.</p>
+      </section>
+
+      <section class="section" id="faq" aria-labelledby="faq-title">
+        <header class="section-head">
+          <h2 id="faq-title">Questions, answered.</h2>
+        </header>
+
+        <div class="faq">
+          <details>
+            <summary>What kind of video can I start with?</summary>
+            <p>
+              BatchClip accepts local MP4, MOV, MKV, and WEBM files. You can also paste a supported
+              YouTube URL and let the desktop app prepare the source.
+            </p>
+          </details>
+          <details>
+            <summary>Does BatchClip decide what gets published?</summary>
+            <p>
+              No. The AI score helps sort candidates, but the review screen makes every estimate
+              explicit. You approve, reject, trim, style, and render the final selection.
+            </p>
+          </details>
+          <details>
+            <summary>What does BatchClip render?</summary>
+            <p>
+              The primary workflow renders 1080×1920 vertical clips at 30 fps. A separate 1920×1080
+              long-form editing path is also available in the app.
+            </p>
+          </details>
+          <details>
+            <summary>Are captions separate files?</summary>
+            <p>
+              Captions are burned into the finished video, so the style and word emphasis look the
+              same wherever the clip is posted.
+            </p>
+          </details>
+          <details>
+            <summary>Does rendering happen in the cloud?</summary>
+            <p>
+              Rendering runs on your computer through FFmpeg and Remotion. AI scoring uses your
+              configured Gemini connection, and optional media features use only the providers you enable.
+            </p>
+          </details>
+          <details>
+            <summary>Can I stop and come back later?</summary>
+            <p>
+              Yes. BatchClip projects are saved as reusable <code>.batchclip</code> files, and completed
+              processing work can be resumed instead of starting from zero.
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-brand">
+        <span class="brand-icon brand-icon-small" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z" />
+            <path d="m6.2 5.3 3.1 3.9M12.4 3.4l3.1 4" />
+            <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+          </svg>
+        </span>
+        <span>BatchClip</span>
+      </div>
+      <p class="footer-fine">Long video in. Strong clips out.</p>
+    </footer>
+
+    <dialog class="lightbox" data-lightbox aria-labelledby="lightbox-caption">
+      <button class="lightbox-close" type="button" data-lightbox-close aria-label="Close image">
+        <span aria-hidden="true">×</span>
+      </button>
+      <button class="lightbox-nav lightbox-prev" type="button" data-lightbox-prev aria-label="Previous image">
+        <span aria-hidden="true">‹</span>
+      </button>
+      <figure class="lightbox-figure">
+        <img data-lightbox-img src="assets/screens/source.png" alt="" />
+        <figcaption id="lightbox-caption" data-lightbox-caption></figcaption>
+      </figure>
+      <button class="lightbox-nav lightbox-next" type="button" data-lightbox-next aria-label="Next image">
+        <span aria-hidden="true">›</span>
+      </button>
+    </dialog>
+
+    <script src="main.js" defer></script>
+  </body>
+</html>
