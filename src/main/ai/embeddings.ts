@@ -1,27 +1,27 @@
-import { GoogleGenAI } from '@google/genai'
-import { classifyGeminiError } from './gemini-client'
+import { GoogleGenAI } from '@google/genai';
+import { classifyGeminiError } from './gemini-client';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const EMBEDDING_MODEL = 'gemini-embedding-001'
-const OUTPUT_DIMENSIONALITY = 768
-const REQUEST_TIMEOUT_MS = 30_000
-const RETRY_BACKOFF_MS = 2_000
+const EMBEDDING_MODEL = 'gemini-embedding-001';
+const OUTPUT_DIMENSIONALITY = 768;
+const REQUEST_TIMEOUT_MS = 30_000;
+const RETRY_BACKOFF_MS = 2_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function isTransientError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  const status = (err as { status?: number })?.status
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: number })?.status;
   return (
     status === 429 ||
     /resource.exhausted|rate.limit|quota/i.test(msg) ||
     /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg)
-  )
+  );
 }
 
 /**
@@ -31,19 +31,19 @@ function isTransientError(err: unknown): boolean {
  * returned as a `Float32Array` unchanged — dividing by zero would produce NaNs.
  */
 export function normalizeVector(v: number[] | Float32Array): Float32Array {
-  const out = new Float32Array(v.length)
-  let sumSq = 0
+  const out = new Float32Array(v.length);
+  let sumSq = 0;
   for (let i = 0; i < v.length; i++) {
-    const x = v[i]
-    sumSq += x * x
+    const x = v[i];
+    sumSq += x * x;
   }
-  const norm = Math.sqrt(sumSq)
+  const norm = Math.sqrt(sumSq);
   if (norm === 0 || !Number.isFinite(norm)) {
-    for (let i = 0; i < v.length; i++) out[i] = v[i]
-    return out
+    for (let i = 0; i < v.length; i++) out[i] = v[i];
+    return out;
   }
-  for (let i = 0; i < v.length; i++) out[i] = v[i] / norm
-  return out
+  for (let i = 0; i < v.length; i++) out[i] = v[i] / norm;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,10 +53,10 @@ export function normalizeVector(v: number[] | Float32Array): Float32Array {
 async function embedOnce(
   ai: GoogleGenAI,
   text: string,
-  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'
+  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY',
 ): Promise<number[]> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await ai.models.embedContent({
       model: EMBEDDING_MODEL,
@@ -64,52 +64,52 @@ async function embedOnce(
       config: {
         taskType,
         outputDimensionality: OUTPUT_DIMENSIONALITY,
-        abortSignal: controller.signal
-      }
-    })
-    const values = response.embeddings?.[0]?.values
+        abortSignal: controller.signal,
+      },
+    });
+    const values = response.embeddings?.[0]?.values;
     if (!values || values.length === 0) {
-      throw new Error('Gemini embedding response contained no values.')
+      throw new Error('Gemini embedding response contained no values.');
     }
     if (values.length !== OUTPUT_DIMENSIONALITY) {
       throw new Error(
-        `Gemini embedding returned ${values.length} dimensions, expected ${OUTPUT_DIMENSIONALITY}.`
-      )
+        `Gemini embedding returned ${values.length} dimensions, expected ${OUTPUT_DIMENSIONALITY}.`,
+      );
     }
-    return values
+    return values;
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer);
   }
 }
 
 async function embedWithRetry(
   text: string,
   apiKey: string,
-  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'
+  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY',
 ): Promise<Float32Array> {
   if (!apiKey) {
-    throw new Error('Gemini API key is required for embeddings. Configure it in Settings.')
+    throw new Error('Gemini API key is required for embeddings. Configure it in Settings.');
   }
   if (!text || text.trim().length === 0) {
-    throw new Error('Cannot embed empty text.')
+    throw new Error('Cannot embed empty text.');
   }
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
 
-  let values: number[]
+  let values: number[];
   try {
-    values = await embedOnce(ai, text, taskType)
+    values = await embedOnce(ai, text, taskType);
   } catch (err) {
-    if (!isTransientError(err)) classifyGeminiError(err)
-    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS))
+    if (!isTransientError(err)) classifyGeminiError(err);
+    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
     try {
-      values = await embedOnce(ai, text, taskType)
+      values = await embedOnce(ai, text, taskType);
     } catch (retryErr) {
-      classifyGeminiError(retryErr)
+      classifyGeminiError(retryErr);
     }
   }
 
-  return normalizeVector(values)
+  return normalizeVector(values);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ async function embedWithRetry(
  * and fall back to exact-match-only search.
  */
 export async function embedForStorage(text: string, apiKey: string): Promise<Float32Array> {
-  return embedWithRetry(text, apiKey, 'RETRIEVAL_DOCUMENT')
+  return embedWithRetry(text, apiKey, 'RETRIEVAL_DOCUMENT');
 }
 
 /**
@@ -135,5 +135,5 @@ export async function embedForStorage(text: string, apiKey: string): Promise<Flo
  * and fall back to exact-match-only search.
  */
 export async function embedForQuery(text: string, apiKey: string): Promise<Float32Array> {
-  return embedWithRetry(text, apiKey, 'RETRIEVAL_QUERY')
+  return embedWithRetry(text, apiKey, 'RETRIEVAL_QUERY');
 }

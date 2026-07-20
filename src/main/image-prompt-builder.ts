@@ -8,17 +8,18 @@
  */
 
 export interface SegmentImagePromptOptions {
-  brollSuggestion: string
-  overlayText?: string
-  editStyleId: string
-  accentColor: string
-  segmentCategory: 'main-video-images' | 'fullscreen-image'
+  brollSuggestion: string;
+  overlayText?: string;
+  editStyleId: string;
+  accentColor: string;
+  segmentCategory: 'main-video-images' | 'fullscreen-image';
 }
 
 // Rough visual vocabulary per edit style. Missing entries fall back to a
 // neutral "clean, professional" treatment.
 const STYLE_LOOK: Record<string, string> = {
-  growth: 'bold educational flat illustration, high contrast, clean typography-friendly composition',
+  growth:
+    'bold educational flat illustration, high contrast, clean typography-friendly composition',
   cinematic: 'warm cinematic look, film grain, shallow depth of field, dramatic lighting',
   rebel: 'gritty urban aesthetic, bold shadows, high contrast, moody palette',
   clarity: 'minimal clean photography, soft natural light, lots of negative space',
@@ -34,15 +35,16 @@ const STYLE_LOOK: Record<string, string> = {
   pulse: 'futuristic UI aesthetic, cyan grid lines, tech dashboard inspired, high-tech glow',
   recess: 'raw unfiltered photography, natural light, honest and direct framing',
   prestyj: 'clean modern high-energy photography, purple accent lighting, crisp and vivid',
-}
+};
 
 export function buildSegmentImagePrompt(opts: SegmentImagePromptOptions): string {
-  const subject = opts.brollSuggestion.trim() || opts.overlayText?.trim() || 'thematic scene'
-  const look = STYLE_LOOK[opts.editStyleId] ?? 'clean, professional photography, balanced composition'
+  const subject = opts.brollSuggestion.trim() || opts.overlayText?.trim() || 'thematic scene';
+  const look =
+    STYLE_LOOK[opts.editStyleId] ?? 'clean, professional photography, balanced composition';
   const framing =
     opts.segmentCategory === 'fullscreen-image'
       ? 'full-frame 9:16 vertical composition, subject fills the frame'
-      : 'vertical 9:16 composition with breathing room for text overlay'
+      : 'vertical 9:16 composition with breathing room for text overlay';
 
   return [
     `${subject}.`,
@@ -50,5 +52,5 @@ export function buildSegmentImagePrompt(opts: SegmentImagePromptOptions): string
     `Accent color: ${opts.accentColor}.`,
     `Composition: ${framing}.`,
     'No on-image text, no watermarks, no logos.',
-  ].join(' ')
+  ].join(' ');
 }

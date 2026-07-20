@@ -1,11 +1,16 @@
-import { callGeminiWithRetry, MODELS, type GeminiCall } from './gemini-client'
-import { GoogleGenAI } from '@google/genai'
-import type { TranscriptionResult } from '../transcription'
-import type { CuriosityGap, ClipBoundary, CuriosityClipCandidate, ClipEndMode } from '@shared/types'
+import { GoogleGenAI } from '@google/genai';
+import type {
+  ClipBoundary,
+  ClipEndMode,
+  CuriosityClipCandidate,
+  CuriosityGap,
+} from '@shared/types';
+import type { TranscriptionResult } from '../transcription';
+import { callGeminiWithRetry, type GeminiCall, MODELS } from './gemini-client';
 
 // Re-export shared types for existing consumers + backward-compat alias
-export type { CuriosityGap, ClipBoundary, CuriosityClipCandidate }
-export type ClipCandidate = CuriosityClipCandidate
+export type { ClipBoundary, CuriosityClipCandidate, CuriosityGap };
+export type ClipCandidate = CuriosityClipCandidate;
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -51,7 +56,7 @@ Return valid JSON:
       "description": "Speaker asks why top creators succeed while hiding the actual answer for 30 seconds, creating genuine suspense."
     }
   ]
-}`
+}`;
 
 // ---------------------------------------------------------------------------
 // Helpers (shared with ai-scoring.ts pattern)
@@ -62,72 +67,72 @@ Return valid JSON:
  * Returns NaN if the format is unrecognised.
  */
 function parseTimestamp(ts: string): number {
-  const parts = ts.trim().split(':').map(Number)
-  if (parts.some(isNaN)) return NaN
-  if (parts.length === 2) return parts[0] * 60 + parts[1]
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-  return NaN
+  const parts = ts.trim().split(':').map(Number);
+  if (parts.some(Number.isNaN)) return NaN;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return NaN;
 }
-
 
 // ---------------------------------------------------------------------------
 // Raw response shapes
 // ---------------------------------------------------------------------------
 
 interface RawGap {
-  open_timestamp?: unknown
-  resolve_timestamp?: unknown
-  type?: unknown
-  score?: unknown
-  description?: unknown
+  open_timestamp?: unknown;
+  resolve_timestamp?: unknown;
+  type?: unknown;
+  score?: unknown;
+  description?: unknown;
 }
 
 interface RawGapResponse {
-  gaps?: unknown
+  gaps?: unknown;
 }
 
 // ---------------------------------------------------------------------------
 // validateGaps
 // ---------------------------------------------------------------------------
 
-const VALID_TYPES = new Set<string>(['question', 'story', 'claim', 'pivot', 'tease'])
+const VALID_TYPES = new Set<string>(['question', 'story', 'claim', 'pivot', 'tease']);
 
 function validateGaps(raw: RawGap[], videoDuration: number): CuriosityGap[] {
-  const result: CuriosityGap[] = []
+  const result: CuriosityGap[] = [];
 
   for (const gap of raw) {
     if (typeof gap.open_timestamp !== 'string' || typeof gap.resolve_timestamp !== 'string') {
-      continue
+      continue;
     }
 
-    const openTs = parseTimestamp(gap.open_timestamp)
-    const resolveTs = parseTimestamp(gap.resolve_timestamp)
+    const openTs = parseTimestamp(gap.open_timestamp);
+    const resolveTs = parseTimestamp(gap.resolve_timestamp);
 
-    if (isNaN(openTs) || isNaN(resolveTs)) continue
-    if (openTs >= resolveTs) continue
-    if (resolveTs - openTs < 5) continue
-    if (openTs >= videoDuration) continue
+    if (Number.isNaN(openTs) || Number.isNaN(resolveTs)) continue;
+    if (openTs >= resolveTs) continue;
+    if (resolveTs - openTs < 5) continue;
+    if (openTs >= videoDuration) continue;
 
-    const score = typeof gap.score === 'number' ? gap.score : Number(gap.score)
-    if (isNaN(score) || score < 5) continue
+    const score = typeof gap.score === 'number' ? gap.score : Number(gap.score);
+    if (Number.isNaN(score) || score < 5) continue;
 
-    const type = typeof gap.type === 'string' && VALID_TYPES.has(gap.type)
-      ? (gap.type as CuriosityGap['type'])
-      : null
-    if (!type) continue
+    const type =
+      typeof gap.type === 'string' && VALID_TYPES.has(gap.type)
+        ? (gap.type as CuriosityGap['type'])
+        : null;
+    if (!type) continue;
 
     result.push({
       openTimestamp: openTs,
       resolveTimestamp: Math.min(resolveTs, videoDuration),
       type,
       score: Math.min(10, Math.max(1, Math.round(score))),
-      description: typeof gap.description === 'string' ? gap.description.trim() : ''
-    })
+      description: typeof gap.description === 'string' ? gap.description.trim() : '',
+    });
   }
 
   // Sort by score descending
-  result.sort((a, b) => b.score - a.score)
-  return result
+  result.sort((a, b) => b.score - a.score);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,42 +151,42 @@ export async function detectCuriosityGaps(
   apiKey: string,
   transcript: TranscriptionResult,
   formattedTranscript: string,
-  videoDuration: number
+  videoDuration: number,
 ): Promise<CuriosityGap[]> {
   // If the transcript is empty there's nothing to analyze
   if (!transcript.words || transcript.words.length === 0) {
-    return []
+    return [];
   }
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.FAST[0],
     fallbacks: MODELS.FAST.slice(1),
-    config: { responseMimeType: 'application/json' }
-  }
+    config: { responseMimeType: 'application/json' },
+  };
 
   const prompt = `${CURIOSITY_GAP_SYSTEM_PROMPT}
 
 Analyze this video transcript and identify all curiosity gap moments.
 
 Transcript:
-${formattedTranscript}`
+${formattedTranscript}`;
 
-  const text = await callGeminiWithRetry(ai, call, prompt, 'curiosity-gaps')
+  const text = await callGeminiWithRetry(ai, call, prompt, 'curiosity-gaps');
 
-  let rawResponse: RawGapResponse
+  let rawResponse: RawGapResponse;
   try {
-    rawResponse = JSON.parse(text) as RawGapResponse
+    rawResponse = JSON.parse(text) as RawGapResponse;
   } catch {
-    const match = text.match(/\{[\s\S]*\}/)
+    const match = text.match(/\{[\s\S]*\}/);
     if (!match) {
-      throw new Error('Gemini returned an unparseable curiosity gap response')
+      throw new Error('Gemini returned an unparseable curiosity gap response');
     }
-    rawResponse = JSON.parse(match[0]) as RawGapResponse
+    rawResponse = JSON.parse(match[0]) as RawGapResponse;
   }
 
-  const rawGaps = Array.isArray(rawResponse.gaps) ? (rawResponse.gaps as RawGap[]) : []
-  return validateGaps(rawGaps, videoDuration)
+  const rawGaps = Array.isArray(rawResponse.gaps) ? (rawResponse.gaps as RawGap[]) : [];
+  return validateGaps(rawGaps, videoDuration);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,51 +211,51 @@ export function optimizeClipBoundaries(
   gap: CuriosityGap,
   originalStart: number,
   originalEnd: number,
-  transcript: TranscriptionResult
+  transcript: TranscriptionResult,
 ): ClipBoundary {
-  const PAD_OPEN = 1.5    // seconds before gap opens
-  const PAD_RESOLVE = 1.5 // seconds after gap resolves
+  const PAD_OPEN = 1.5; // seconds before gap opens
+  const PAD_RESOLVE = 1.5; // seconds after gap resolves
 
-  const targetStart = gap.openTimestamp - PAD_OPEN
-  const targetEnd = gap.resolveTimestamp + PAD_RESOLVE
+  const targetStart = gap.openTimestamp - PAD_OPEN;
+  const targetEnd = gap.resolveTimestamp + PAD_RESOLVE;
 
   // Snap start backward to the nearest word boundary
-  let snapStart = targetStart
+  let snapStart = targetStart;
   if (transcript.words.length > 0) {
     // Find the last word that starts at or before targetStart
-    const wordsBeforeTarget = transcript.words.filter((w) => w.start <= targetStart)
+    const wordsBeforeTarget = transcript.words.filter((w) => w.start <= targetStart);
     if (wordsBeforeTarget.length > 0) {
-      snapStart = wordsBeforeTarget[wordsBeforeTarget.length - 1].start
+      snapStart = wordsBeforeTarget[wordsBeforeTarget.length - 1].start;
     } else {
       // All words are after targetStart — use first word
-      snapStart = transcript.words[0].start
+      snapStart = transcript.words[0].start;
     }
   }
 
   // Snap end forward to the nearest word boundary
-  let snapEnd = targetEnd
+  let snapEnd = targetEnd;
   if (transcript.words.length > 0) {
     // Find the first word that ends at or after targetEnd
-    const wordsAfterTarget = transcript.words.filter((w) => w.end >= targetEnd)
+    const wordsAfterTarget = transcript.words.filter((w) => w.end >= targetEnd);
     if (wordsAfterTarget.length > 0) {
-      snapEnd = wordsAfterTarget[0].end
+      snapEnd = wordsAfterTarget[0].end;
     } else {
       // All words end before targetEnd — use last word
-      snapEnd = transcript.words[transcript.words.length - 1].end
+      snapEnd = transcript.words[transcript.words.length - 1].end;
     }
   }
 
   // Clamp to original boundaries — never expand beyond the original clip window
-  const clampedStart = Math.max(originalStart, snapStart)
-  const clampedEnd = Math.min(originalEnd, snapEnd)
+  const clampedStart = Math.max(originalStart, snapStart);
+  const clampedEnd = Math.min(originalEnd, snapEnd);
 
   // Safety: ensure start < end
-  const finalStart = clampedStart < clampedEnd ? clampedStart : originalStart
-  const finalEnd = clampedStart < clampedEnd ? clampedEnd : originalEnd
+  const finalStart = clampedStart < clampedEnd ? clampedStart : originalStart;
+  const finalEnd = clampedStart < clampedEnd ? clampedEnd : originalEnd;
 
-  const reason = buildOptimizationReason(gap, originalStart, originalEnd, finalStart, finalEnd)
+  const reason = buildOptimizationReason(gap, originalStart, originalEnd, finalStart, finalEnd);
 
-  return { start: finalStart, end: finalEnd, reason }
+  return { start: finalStart, end: finalEnd, reason };
 }
 
 function buildOptimizationReason(
@@ -258,36 +263,34 @@ function buildOptimizationReason(
   originalStart: number,
   originalEnd: number,
   finalStart: number,
-  finalEnd: number
+  finalEnd: number,
 ): string {
   const typeLabels: Record<CuriosityGap['type'], string> = {
     question: 'question-answer arc',
     story: 'story setup-payoff arc',
     claim: 'claim-evidence arc',
     pivot: 'pivot moment',
-    tease: 'tease-reveal arc'
-  }
+    tease: 'tease-reveal arc',
+  };
 
-  const label = typeLabels[gap.type]
-  const startAdjusted = Math.abs(finalStart - originalStart) > 0.5
-  const endAdjusted = Math.abs(finalEnd - originalEnd) > 0.5
+  const label = typeLabels[gap.type];
+  const startAdjusted = Math.abs(finalStart - originalStart) > 0.5;
+  const endAdjusted = Math.abs(finalEnd - originalEnd) > 0.5;
 
-  const parts: string[] = [`Framed around ${label} (score ${gap.score}/10)`]
+  const parts: string[] = [`Framed around ${label} (score ${gap.score}/10)`];
   if (startAdjusted) {
     parts.push(
-      `start pulled ${finalStart < originalStart ? 'back' : 'forward'} to open before the ${gap.type}`
-    )
+      `start pulled ${finalStart < originalStart ? 'back' : 'forward'} to open before the ${gap.type}`,
+    );
   }
   if (endAdjusted) {
-    parts.push(
-      `end extended ${finalEnd > originalEnd ? 'out' : 'in'} to include the full payoff`
-    )
+    parts.push(`end extended ${finalEnd > originalEnd ? 'out' : 'in'} to include the full payoff`);
   }
   if (!startAdjusted && !endAdjusted) {
-    parts.push('original boundaries already capture the full arc')
+    parts.push('original boundaries already capture the full arc');
   }
 
-  return parts.join('; ')
+  return parts.join('; ');
 }
 
 // ---------------------------------------------------------------------------
@@ -311,51 +314,49 @@ function buildOptimizationReason(
  */
 export function rankClipsByCuriosity(
   clips: ClipCandidate[],
-  gaps: CuriosityGap[]
+  gaps: CuriosityGap[],
 ): ClipCandidate[] {
   const ranked = clips.map((clip) => {
     // Find all curiosity gaps that overlap with this clip's time range
     const overlappingGaps = gaps.filter(
-      (gap) => gap.openTimestamp < clip.endTime && gap.resolveTimestamp > clip.startTime
-    )
+      (gap) => gap.openTimestamp < clip.endTime && gap.resolveTimestamp > clip.startTime,
+    );
 
     const topGapScore =
-      overlappingGaps.length > 0
-        ? Math.max(...overlappingGaps.map((g) => g.score))
-        : 0
+      overlappingGaps.length > 0 ? Math.max(...overlappingGaps.map((g) => g.score)) : 0;
 
     // Scale gap score (1–10) to 0–100 for consistent blending with virality score
-    const curiosityContribution = topGapScore * 10
+    const curiosityContribution = topGapScore * 10;
 
     const combinedScore =
       overlappingGaps.length > 0
         ? Math.round(clip.score * 0.65 + curiosityContribution * 0.35)
-        : clip.score
+        : clip.score;
 
     return {
       ...clip,
       curiosityScore: topGapScore > 0 ? topGapScore : undefined,
-      combinedScore
-    }
-  })
+      combinedScore,
+    };
+  });
 
   // Sort by combinedScore descending, break ties by original score
   ranked.sort((a, b) => {
-    const diff = (b.combinedScore ?? b.score) - (a.combinedScore ?? a.score)
-    return diff !== 0 ? diff : b.score - a.score
-  })
+    const diff = (b.combinedScore ?? b.score) - (a.combinedScore ?? a.score);
+    return diff !== 0 ? diff : b.score - a.score;
+  });
 
-  return ranked
+  return ranked;
 }
 
 // ---------------------------------------------------------------------------
 // Clip End Mode — boundary optimization strategies
 // ---------------------------------------------------------------------------
 
-export type { ClipEndMode }
+export type { ClipEndMode };
 
 /** Characters that signal the end of a sentence. */
-const SENTENCE_ENDINGS = /[.!?]$|\.{3}$/
+const SENTENCE_ENDINGS = /[.!?]$|\.{3}$/;
 
 /**
  * For "completion-first" mode — snaps clip boundaries so the clip starts and
@@ -371,47 +372,51 @@ const SENTENCE_ENDINGS = /[.!?]$|\.{3}$/
 export function snapToSentenceBoundary(
   clipStart: number,
   clipEnd: number,
-  transcript: TranscriptionResult
+  transcript: TranscriptionResult,
 ): ClipBoundary {
-  const MIN_DURATION = 5
-  const PAUSE_THRESHOLD = 0.7
-  const END_BUFFER = 0.15
+  const MIN_DURATION = 5;
+  const PAUSE_THRESHOLD = 0.7;
+  const END_BUFFER = 0.15;
 
   // Gather words within the clip window
-  const words = transcript.words.filter((w) => w.start >= clipStart && w.end <= clipEnd)
+  const words = transcript.words.filter((w) => w.start >= clipStart && w.end <= clipEnd);
 
   if (words.length === 0) {
-    return { start: clipStart, end: clipEnd, reason: 'No transcript words within clip — kept original boundaries' }
+    return {
+      start: clipStart,
+      end: clipEnd,
+      reason: 'No transcript words within clip — kept original boundaries',
+    };
   }
 
   // --- Snap END to sentence boundary (walk backward) ---
-  let snappedEnd: number | null = null
-  let endReason = ''
+  let snappedEnd: number | null = null;
+  let endReason = '';
 
   for (let i = words.length - 1; i >= 0; i--) {
-    const trimmed = words[i].text.trimEnd()
+    const trimmed = words[i].text.trimEnd();
 
     // Check for sentence-ending punctuation
     if (SENTENCE_ENDINGS.test(trimmed)) {
-      snappedEnd = words[i].end + END_BUFFER
-      endReason = `end snapped to sentence boundary ("${trimmed}")`
-      break
+      snappedEnd = words[i].end + END_BUFFER;
+      endReason = `end snapped to sentence boundary ("${trimmed}")`;
+      break;
     }
 
     // Check for a significant pause after this word (natural thought boundary)
     if (i < words.length - 1) {
-      const gapToNext = words[i + 1].start - words[i].end
+      const gapToNext = words[i + 1].start - words[i].end;
       if (gapToNext > PAUSE_THRESHOLD) {
-        snappedEnd = words[i].end + END_BUFFER
-        endReason = `end snapped to natural pause (${gapToNext.toFixed(1)}s gap)`
-        break
+        snappedEnd = words[i].end + END_BUFFER;
+        endReason = `end snapped to natural pause (${gapToNext.toFixed(1)}s gap)`;
+        break;
       }
     }
   }
 
   // --- Snap START to sentence boundary (walk forward) ---
-  let snappedStart: number | null = null
-  let startReason = ''
+  let snappedStart: number | null = null;
+  let startReason = '';
 
   for (let i = 0; i < words.length; i++) {
     // The very first word in the clip range is always a valid sentence start
@@ -419,52 +424,52 @@ export function snapToSentenceBoundary(
       // Check if it's also the first word of the transcript or preceded by
       // sentence-ending punctuation / pause. We'll accept it by default if
       // nothing better is found later (but keep looking for a stronger signal).
-      const wordIndex = transcript.words.indexOf(words[i])
+      const wordIndex = transcript.words.indexOf(words[i]);
 
       if (wordIndex <= 0) {
         // First word in the transcript — valid sentence start
-        snappedStart = words[i].start
-        startReason = 'start at first transcript word'
-        break
+        snappedStart = words[i].start;
+        startReason = 'start at first transcript word';
+        break;
       }
 
-      const prevWord = transcript.words[wordIndex - 1]
-      const pauseBefore = words[i].start - prevWord.end
-      const prevTrimmed = prevWord.text.trimEnd()
+      const prevWord = transcript.words[wordIndex - 1];
+      const pauseBefore = words[i].start - prevWord.end;
+      const prevTrimmed = prevWord.text.trimEnd();
 
       if (SENTENCE_ENDINGS.test(prevTrimmed) || pauseBefore > PAUSE_THRESHOLD) {
-        snappedStart = words[i].start
-        startReason = 'start aligned to sentence beginning'
-        break
+        snappedStart = words[i].start;
+        startReason = 'start aligned to sentence beginning';
+        break;
       }
 
       // Not a clear sentence start — keep searching forward
-      continue
+      continue;
     }
 
     // For subsequent words: check if the previous word ends a sentence or has a pause
-    const prevWord = words[i - 1]
-    const prevTrimmed = prevWord.text.trimEnd()
-    const pauseBefore = words[i].start - prevWord.end
+    const prevWord = words[i - 1];
+    const prevTrimmed = prevWord.text.trimEnd();
+    const pauseBefore = words[i].start - prevWord.end;
 
     if (SENTENCE_ENDINGS.test(prevTrimmed) || pauseBefore > PAUSE_THRESHOLD) {
-      snappedStart = words[i].start
-      startReason = 'start snapped forward to sentence beginning'
-      break
+      snappedStart = words[i].start;
+      startReason = 'start snapped forward to sentence beginning';
+      break;
     }
   }
 
   // Fall back if no boundaries found
   if (snappedStart === null) {
-    snappedStart = clipStart
-    startReason = 'start kept at original (no clear sentence boundary found)'
+    snappedStart = clipStart;
+    startReason = 'start kept at original (no clear sentence boundary found)';
   }
   if (snappedEnd === null) {
     return {
       start: clipStart,
       end: clipEnd,
-      reason: 'No sentence boundary found near clip end — kept original boundaries'
-    }
+      reason: 'No sentence boundary found near clip end — kept original boundaries',
+    };
   }
 
   // Enforce minimum duration
@@ -472,15 +477,15 @@ export function snapToSentenceBoundary(
     return {
       start: clipStart,
       end: clipEnd,
-      reason: 'Sentence-snapped clip too short (< 5s) — kept original boundaries'
-    }
+      reason: 'Sentence-snapped clip too short (< 5s) — kept original boundaries',
+    };
   }
 
   return {
     start: snappedStart,
     end: snappedEnd,
-    reason: `Completion-first: ${startReason}; ${endReason}`
-  }
+    reason: `Completion-first: ${startReason}; ${endReason}`,
+  };
 }
 
 /**
@@ -498,71 +503,71 @@ export function optimizeForCliffhanger(
   gap: CuriosityGap,
   clipStart: number,
   clipEnd: number,
-  transcript: TranscriptionResult
+  transcript: TranscriptionResult,
 ): ClipBoundary {
-  const MIN_DURATION = 5
-  const TENSION_RATIO = 0.3
-  const CONTEXT_BEFORE = 3
-  const RESOLVE_GUARD = 2
+  const MIN_DURATION = 5;
+  const TENSION_RATIO = 0.3;
+  const CONTEXT_BEFORE = 3;
+  const RESOLVE_GUARD = 2;
 
-  const gapSpan = gap.resolveTimestamp - gap.openTimestamp
-  const rawTargetEnd = gap.openTimestamp + gapSpan * TENSION_RATIO
-  const maxEnd = gap.resolveTimestamp - RESOLVE_GUARD
+  const gapSpan = gap.resolveTimestamp - gap.openTimestamp;
+  const rawTargetEnd = gap.openTimestamp + gapSpan * TENSION_RATIO;
+  const maxEnd = gap.resolveTimestamp - RESOLVE_GUARD;
 
   // Snap target end forward to the nearest word boundary (word.end >= targetEnd)
-  let targetEnd = Math.min(rawTargetEnd, maxEnd)
-  let endWord: { text: string; end: number } | null = null
+  let targetEnd = Math.min(rawTargetEnd, maxEnd);
+  let endWord: { text: string; end: number } | null = null;
 
   for (const w of transcript.words) {
     if (w.end >= targetEnd) {
       // Don't overshoot past the resolve guard
       if (w.end <= maxEnd) {
-        targetEnd = w.end
-        endWord = w
+        targetEnd = w.end;
+        endWord = w;
       }
-      break
+      break;
     }
   }
 
   // Snap start backward to the nearest word boundary
-  const rawTargetStart = gap.openTimestamp - CONTEXT_BEFORE
-  let targetStart = rawTargetStart
+  const rawTargetStart = gap.openTimestamp - CONTEXT_BEFORE;
+  let targetStart = rawTargetStart;
 
   if (transcript.words.length > 0) {
-    const wordsBefore = transcript.words.filter((w) => w.start <= rawTargetStart)
+    const wordsBefore = transcript.words.filter((w) => w.start <= rawTargetStart);
     if (wordsBefore.length > 0) {
-      targetStart = wordsBefore[wordsBefore.length - 1].start
+      targetStart = wordsBefore[wordsBefore.length - 1].start;
     } else {
-      targetStart = transcript.words[0].start
+      targetStart = transcript.words[0].start;
     }
   }
 
   // Clamp within original clip boundaries
-  const clampedStart = Math.max(clipStart, targetStart)
-  const clampedEnd = Math.min(clipEnd, targetEnd)
+  const clampedStart = Math.max(clipStart, targetStart);
+  const clampedEnd = Math.min(clipEnd, targetEnd);
 
   // Safety: ensure valid range
-  const finalStart = clampedStart < clampedEnd ? clampedStart : clipStart
-  const finalEnd = clampedStart < clampedEnd ? clampedEnd : clipEnd
+  const finalStart = clampedStart < clampedEnd ? clampedStart : clipStart;
+  const finalEnd = clampedStart < clampedEnd ? clampedEnd : clipEnd;
 
   // Enforce minimum duration — fall back to original boundaries
   if (finalEnd - finalStart < MIN_DURATION) {
     return {
       start: clipStart,
       end: clipEnd,
-      reason: 'Cliffhanger cut too short (< 5s) — kept original boundaries'
-    }
+      reason: 'Cliffhanger cut too short (< 5s) — kept original boundaries',
+    };
   }
 
   const endDesc = endWord
     ? `end cut at "${endWord.text}" (~${Math.round(TENSION_RATIO * 100)}% into gap)`
-    : `end cut ~${Math.round(TENSION_RATIO * 100)}% into gap`
+    : `end cut ~${Math.round(TENSION_RATIO * 100)}% into gap`;
 
   return {
     start: finalStart,
     end: finalEnd,
-    reason: `Cliffhanger: ${endDesc}, before resolution at ${gap.resolveTimestamp.toFixed(1)}s — peak tension, viewer must seek the full video`
-  }
+    reason: `Cliffhanger: ${endDesc}, before resolution at ${gap.resolveTimestamp.toFixed(1)}s — peak tension, viewer must seek the full video`,
+  };
 }
 
 /**
@@ -579,24 +584,24 @@ export function optimizeClipEndpoints(
   clipStart: number,
   clipEnd: number,
   transcript: TranscriptionResult,
-  gap?: CuriosityGap
+  gap?: CuriosityGap,
 ): ClipBoundary {
   switch (mode) {
     case 'completion-first':
-      return snapToSentenceBoundary(clipStart, clipEnd, transcript)
+      return snapToSentenceBoundary(clipStart, clipEnd, transcript);
 
     case 'cliffhanger':
       if (gap) {
-        return optimizeForCliffhanger(gap, clipStart, clipEnd, transcript)
+        return optimizeForCliffhanger(gap, clipStart, clipEnd, transcript);
       }
       // No gap available — best-effort fallback to sentence boundary
-      return snapToSentenceBoundary(clipStart, clipEnd, transcript)
+      return snapToSentenceBoundary(clipStart, clipEnd, transcript);
 
     case 'loop-first':
       return {
         start: clipStart,
         end: clipEnd,
-        reason: 'Loop-first mode — boundaries handled by loop optimizer'
-      }
+        reason: 'Loop-first mode — boundaries handled by loop optimizer',
+      };
   }
 }

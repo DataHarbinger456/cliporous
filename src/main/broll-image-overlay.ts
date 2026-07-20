@@ -9,22 +9,38 @@
  * chain works unchanged because it receives a video input, not a static image.
  */
 
-import { ffmpeg } from './ffmpeg'
-import { existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
-import { tmpdir } from 'os'
-import { createHash } from 'crypto'
-import { OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_FPS } from './aspect-ratios'
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH } from './aspect-ratios';
+import { ffmpeg, getVideoMetadata } from './ffmpeg';
+
+/** Round to the nearest even integer (codecs/filters require even dims). */
+function roundEven(n: number): number {
+  const v = Math.round(n);
+  return v % 2 === 0 ? v : v - 1;
+}
+
+export interface ImageToVideoOptions {
+  /**
+   * Preserve the image's native aspect ratio instead of force-filling the
+   * locked 1080×1920 canvas. Used by the `floating-card` B-Roll mode, where a
+   * landscape screenshot must stay un-squished as a rounded card over the
+   * speaker. The output is sized to the image's aspect, capped at OUTPUT_WIDTH.
+   */
+  preserveAspect?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const VIDEO_CACHE_DIR = join(tmpdir(), 'batchcontent-broll-image-video-cache')
+const VIDEO_CACHE_DIR = join(tmpdir(), 'batchcontent-broll-image-video-cache');
 
 function ensureVideoCacheDir(): void {
   if (!existsSync(VIDEO_CACHE_DIR)) {
-    mkdirSync(VIDEO_CACHE_DIR, { recursive: true })
+    mkdirSync(VIDEO_CACHE_DIR, { recursive: true });
   }
 }
 
@@ -46,30 +62,52 @@ function ensureVideoCacheDir(): void {
 export async function imageToVideoClip(
   imagePath: string,
   duration: number,
-  outputPath?: string
+  outputPath?: string,
+  options: ImageToVideoOptions = {},
 ): Promise<string> {
   if (!existsSync(imagePath)) {
-    throw new Error(`[B-Roll Image] Source image not found: ${imagePath}`)
+    throw new Error(`[B-Roll Image] Source image not found: ${imagePath}`);
   }
 
-  ensureVideoCacheDir()
+  ensureVideoCacheDir();
+
+  const preserveAspect = options.preserveAspect === true;
+  const cacheTag = preserveAspect ? '-fit' : '';
 
   // Determine output path (use cache if not specified)
   const dest =
     outputPath ??
     join(
       VIDEO_CACHE_DIR,
-      `${createHash('md5').update(`${imagePath}-${duration}`).digest('hex').slice(0, 16)}.mp4`
-    )
+      `${createHash('md5').update(`${imagePath}-${duration}${cacheTag}`).digest('hex').slice(0, 16)}.mp4`,
+    );
 
   // Return cached if already exists
   if (existsSync(dest)) {
-    console.log(`[B-Roll Image→Video] Cache hit: ${dest}`)
-    return dest
+    console.log(`[B-Roll Image→Video] Cache hit: ${dest}`);
+    return dest;
   }
 
-  const fps = OUTPUT_FPS
-  const totalFrames = Math.ceil(duration * fps)
+  const fps = OUTPUT_FPS;
+  const totalFrames = Math.ceil(duration * fps);
+
+  // Output canvas size. Default: force the locked 1080×1920. preserveAspect:
+  // size to the image's native aspect (capped at OUTPUT_WIDTH) so it isn't
+  // stretched — required by the floating-card overlay mode.
+  let outW = OUTPUT_WIDTH;
+  let outH = OUTPUT_HEIGHT;
+  if (preserveAspect) {
+    try {
+      const meta = await getVideoMetadata(imagePath);
+      const srcW = meta.width > 0 ? meta.width : OUTPUT_WIDTH;
+      const srcH = meta.height > 0 ? meta.height : OUTPUT_HEIGHT;
+      outW = roundEven(Math.min(srcW, OUTPUT_WIDTH));
+      outH = roundEven((outW * srcH) / srcW);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[B-Roll Image→Video] Probe failed, using locked canvas: ${msg}`);
+    }
+  }
 
   // Ken Burns: slow zoom from 1.0× to 1.08× centred on the image
   // zoompan: z starts at 1.0, increases linearly to 1.08 over totalFrames
@@ -79,9 +117,9 @@ export async function imageToVideoClip(
     `d=1`,
     `x='iw/2-(iw/zoom/2)'`,
     `y='ih/2-(ih/zoom/2)'`,
-    `s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}`,
-    `fps=${fps}`
-  ].join(':')
+    `s=${outW}x${outH}`,
+    `fps=${fps}`,
+  ].join(':');
 
   return new Promise<string>((resolve, reject) => {
     ffmpeg()
@@ -98,17 +136,17 @@ export async function imageToVideoClip(
         '-crf 18',
         '-pix_fmt yuv420p',
         `-t ${duration}`,
-        '-an' // no audio
+        '-an', // no audio
       ])
       .output(dest)
       .on('error', (err) => {
-        console.error(`[B-Roll Image→Video] FFmpeg error:`, err.message)
-        reject(new Error(`Failed to convert image to video: ${err.message}`))
+        console.error(`[B-Roll Image→Video] FFmpeg error:`, err.message);
+        reject(new Error(`Failed to convert image to video: ${err.message}`));
       })
       .on('end', () => {
-        console.log(`[B-Roll Image→Video] Created ${duration}s clip: ${dest}`)
-        resolve(dest)
+        console.log(`[B-Roll Image→Video] Created ${duration}s clip: ${dest}`);
+        resolve(dest);
       })
-      .run()
-  })
+      .run();
+  });
 }

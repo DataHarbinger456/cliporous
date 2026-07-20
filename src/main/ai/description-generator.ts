@@ -1,37 +1,37 @@
-import { GoogleGenAI } from '@google/genai'
-import { writeFileSync } from 'fs'
-import { join, basename, extname } from 'path'
-import { callGeminiWithRetry, MODELS } from './gemini-client'
+import { writeFileSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import { GoogleGenAI } from '@google/genai';
+import { callGeminiWithRetry, MODELS } from './gemini-client';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface PlatformDescription {
-  platform: 'youtube-shorts' | 'instagram-reels' | 'tiktok'
-  text: string
-  hashtags: string[]
+  platform: 'youtube-shorts' | 'instagram-reels' | 'tiktok';
+  text: string;
+  hashtags: string[];
 }
 
 export interface ClipDescription {
   /** ≤100-char hook description tuned for YouTube Shorts. NOT a summary — a hook. */
-  shortDescription: string
+  shortDescription: string;
   /** ONE niche-specific hashtag (no leading #, e.g. "productivityhack") */
-  hashtag: string
+  hashtag: string;
   /** Slightly longer variant for platforms with more character space */
-  longDescription?: string
+  longDescription?: string;
   /** Per-platform ready-to-paste text with hashtags */
-  platforms: PlatformDescription[]
+  platforms: PlatformDescription[];
 }
 
 /** Minimal clip info needed for description generation */
 export interface DescriptionClipInput {
   /** Transcript text for this clip segment */
-  transcript: string
+  transcript: string;
   /** AI-generated hook/title text (e.g. "You won't believe this trick") */
-  hookText?: string
+  hookText?: string;
   /** Why this segment was chosen (from scoring) */
-  reasoning?: string
+  reasoning?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,24 +39,24 @@ export interface DescriptionClipInput {
 // ---------------------------------------------------------------------------
 
 async function callGeminiJSON<T>(apiKey: string, prompt: string, usageSource: string): Promise<T> {
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const text = await callGeminiWithRetry(
     ai,
     {
       model: MODELS.FAST[0],
       fallbacks: MODELS.FAST.slice(1),
-      config: { responseMimeType: 'application/json' }
+      config: { responseMimeType: 'application/json' },
     },
     prompt,
-    usageSource
-  )
+    usageSource,
+  );
 
   try {
-    return JSON.parse(text) as T
+    return JSON.parse(text) as T;
   } catch {
-    const match = text.match(/[\[{][\s\S]*[\]}]/)
-    if (!match) throw new Error('Gemini returned an unparseable JSON response')
-    return JSON.parse(match[0]) as T
+    const match = text.match(/[[{][\s\S]*[\]}]/);
+    if (!match) throw new Error('Gemini returned an unparseable JSON response');
+    return JSON.parse(match[0]) as T;
   }
 }
 
@@ -91,34 +91,37 @@ LONG DESCRIPTION (for Instagram / TikTok where more text shows):
 - Can add an emoji at the end
 - Still hook-style, not a summary
 
-Return valid JSON.`
+Return valid JSON.`;
 
 interface RawClipDescriptionResponse {
-  short_description?: unknown
-  hashtag?: unknown
-  long_description?: unknown
+  short_description?: unknown;
+  hashtag?: unknown;
+  long_description?: unknown;
 }
 
 interface RawBatchResponse {
-  clips?: unknown[]
+  clips?: unknown[];
 }
 
-function parseRawDescription(raw: RawClipDescriptionResponse, fallbackTranscript: string): ClipDescription {
+function parseRawDescription(
+  raw: RawClipDescriptionResponse,
+  fallbackTranscript: string,
+): ClipDescription {
   const shortDescription =
     typeof raw.short_description === 'string' && raw.short_description.trim().length > 0
       ? raw.short_description.trim()
-      : fallbackTranscript.split(' ').slice(0, 10).join(' ')
+      : fallbackTranscript.split(' ').slice(0, 10).join(' ');
 
-  const rawHashtag = typeof raw.hashtag === 'string' ? raw.hashtag.trim() : ''
+  const rawHashtag = typeof raw.hashtag === 'string' ? raw.hashtag.trim() : '';
   // Strip leading # if the AI included it despite instructions
-  const hashtag = rawHashtag.replace(/^#/, '') || 'shorts'
+  const hashtag = rawHashtag.replace(/^#/, '') || 'shorts';
 
   const longDescription =
     typeof raw.long_description === 'string' && raw.long_description.trim().length > 0
       ? raw.long_description.trim()
-      : undefined
+      : undefined;
 
-  return buildClipDescription(shortDescription, hashtag, longDescription)
+  return buildClipDescription(shortDescription, hashtag, longDescription);
 }
 
 /**
@@ -127,38 +130,36 @@ function parseRawDescription(raw: RawClipDescriptionResponse, fallbackTranscript
 function buildClipDescription(
   shortDescription: string,
   hashtag: string,
-  longDescription?: string
+  longDescription?: string,
 ): ClipDescription {
-  const tag = `#${hashtag}`
+  const tag = `#${hashtag}`;
 
   const platforms: PlatformDescription[] = [
     {
       platform: 'youtube-shorts',
       text: `${shortDescription}\n${tag}`,
-      hashtags: [hashtag]
+      hashtags: [hashtag],
     },
     {
       platform: 'instagram-reels',
       text: longDescription
         ? `${longDescription}\n${tag} #reels`
         : `${shortDescription}\n${tag} #reels`,
-      hashtags: [hashtag, 'reels']
+      hashtags: [hashtag, 'reels'],
     },
     {
       platform: 'tiktok',
-      text: longDescription
-        ? `${longDescription} ${tag}`
-        : `${shortDescription} ${tag}`,
-      hashtags: [hashtag]
-    }
-  ]
+      text: longDescription ? `${longDescription} ${tag}` : `${shortDescription} ${tag}`,
+      hashtags: [hashtag],
+    },
+  ];
 
   return {
     shortDescription,
     hashtag,
     longDescription,
-    platforms
-  }
+    platforms,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -169,16 +170,16 @@ export async function generateClipDescription(
   apiKey: string,
   transcript: string,
   clipContext?: string,
-  hookTitle?: string
+  hookTitle?: string,
 ): Promise<ClipDescription> {
-  const contextHints: string[] = []
-  if (hookTitle) contextHints.push(`Hook text: "${hookTitle}"`)
-  if (clipContext) contextHints.push(`Context: ${clipContext}`)
+  const contextHints: string[] = [];
+  if (hookTitle) contextHints.push(`Hook text: "${hookTitle}"`);
+  if (clipContext) contextHints.push(`Context: ${clipContext}`);
 
   const prompt = `${DESCRIPTION_SYSTEM_PROMPT}
 
 Generate a description and hashtag for this short-form video clip.
-${contextHints.length > 0 ? contextHints.join('\n') + '\n' : ''}
+${contextHints.length > 0 ? `${contextHints.join('\n')}\n` : ''}
 Transcript:
 "${transcript}"
 
@@ -187,10 +188,10 @@ Return JSON with exactly this structure:
   "short_description": "...",
   "hashtag": "...",
   "long_description": "..."
-}`
+}`;
 
-  const raw = await callGeminiJSON<RawClipDescriptionResponse>(apiKey, prompt, 'descriptions')
-  return parseRawDescription(raw, transcript)
+  const raw = await callGeminiJSON<RawClipDescriptionResponse>(apiKey, prompt, 'descriptions');
+  return parseRawDescription(raw, transcript);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,16 +200,16 @@ Return JSON with exactly this structure:
 
 export async function generateBatchDescriptions(
   apiKey: string,
-  clips: DescriptionClipInput[]
+  clips: DescriptionClipInput[],
 ): Promise<ClipDescription[]> {
-  if (clips.length === 0) return []
+  if (clips.length === 0) return [];
 
   const clipsJSON = clips.map((c, i) => ({
     index: i,
     transcript: c.transcript.slice(0, 500), // cap to avoid token bloat
     hook_text: c.hookText ?? null,
-    reasoning: c.reasoning ?? null
-  }))
+    reasoning: c.reasoning ?? null,
+  }));
 
   const prompt = `${DESCRIPTION_SYSTEM_PROMPT}
 
@@ -228,15 +229,15 @@ Return JSON with this exact structure:
   ]
 }
 
-The "clips" array MUST have exactly ${clips.length} elements in the same order as the input.`
+The "clips" array MUST have exactly ${clips.length} elements in the same order as the input.`;
 
-  const raw = await callGeminiJSON<RawBatchResponse>(apiKey, prompt, 'descriptions')
-  const rawClips = Array.isArray(raw.clips) ? raw.clips : []
+  const raw = await callGeminiJSON<RawBatchResponse>(apiKey, prompt, 'descriptions');
+  const rawClips = Array.isArray(raw.clips) ? raw.clips : [];
 
   return clips.map((clip, i) => {
-    const rawClip = (rawClips[i] ?? {}) as RawClipDescriptionResponse
-    return parseRawDescription(rawClip, clip.transcript)
-  })
+    const rawClip = (rawClips[i] ?? {}) as RawClipDescriptionResponse;
+    return parseRawDescription(rawClip, clip.transcript);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -253,14 +254,14 @@ The "clips" array MUST have exactly ${clips.length} elements in the same order a
 export function writeDescriptionFile(
   outputDir: string,
   clipFilename: string,
-  description: ClipDescription
+  description: ClipDescription,
 ): string {
-  const base = basename(clipFilename, extname(clipFilename))
-  const outputPath = join(outputDir, `${base}.txt`)
+  const base = basename(clipFilename, extname(clipFilename));
+  const outputPath = join(outputDir, `${base}.txt`);
 
-  const yt = description.platforms.find((p) => p.platform === 'youtube-shorts')
-  const ig = description.platforms.find((p) => p.platform === 'instagram-reels')
-  const tt = description.platforms.find((p) => p.platform === 'tiktok')
+  const yt = description.platforms.find((p) => p.platform === 'youtube-shorts');
+  const ig = description.platforms.find((p) => p.platform === 'instagram-reels');
+  const tt = description.platforms.find((p) => p.platform === 'tiktok');
 
   const lines: string[] = [
     '[YouTube Shorts]',
@@ -270,9 +271,9 @@ export function writeDescriptionFile(
     ig?.text ?? `${description.shortDescription}\n#${description.hashtag}`,
     '',
     '[TikTok]',
-    tt?.text ?? `${description.shortDescription} #${description.hashtag}`
-  ]
+    tt?.text ?? `${description.shortDescription} #${description.hashtag}`,
+  ];
 
-  writeFileSync(outputPath, lines.join('\n'), 'utf-8')
-  return outputPath
+  writeFileSync(outputPath, lines.join('\n'), 'utf-8');
+  return outputPath;
 }

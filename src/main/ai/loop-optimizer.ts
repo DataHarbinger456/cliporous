@@ -1,41 +1,41 @@
-import { callGeminiWithRetry, MODELS, type GeminiCall } from './gemini-client'
-import { GoogleGenAI, Type } from '@google/genai'
-import type { TranscriptionResult, WordTimestamp } from '../transcription'
+import { GoogleGenAI, Type } from '@google/genai';
+import type { TranscriptionResult, WordTimestamp } from '../transcription';
+import { callGeminiWithRetry, type GeminiCall, MODELS } from './gemini-client';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type LoopStrategy = 'hard-cut' | 'thematic' | 'audio-match' | 'crossfade' | 'none'
+export type LoopStrategy = 'hard-cut' | 'thematic' | 'audio-match' | 'crossfade' | 'none';
 
 export interface LoopAnalysis {
   /** 0–100: how seamlessly this clip loops. 80+ is TikTok-rewatch gold. */
-  loopScore: number
+  loopScore: number;
   /** Best strategy to maximise loop seamlessness */
-  strategy: LoopStrategy
+  strategy: LoopStrategy;
   /**
    * Seconds to trim from the end (positive = shorten clip, negative = extend).
    * Applied to `clipEnd`: newEnd = clipEnd + suggestedEndAdjust
    */
-  suggestedEndAdjust: number
+  suggestedEndAdjust: number;
   /**
    * Seconds to shift the in-point (positive = later start, negative = earlier).
    * Applied to `clipStart`: newStart = clipStart + suggestedStartAdjust
    */
-  suggestedStartAdjust: number
+  suggestedStartAdjust: number;
   /** Human-readable explanation of the loop analysis */
-  reason: string
+  reason: string;
 }
 
 export interface LoopOptimizedClip {
   /** New clip start in seconds */
-  start: number
+  start: number;
   /** New clip end in seconds */
-  end: number
+  end: number;
   /** Loop strategy applied */
-  strategy: LoopStrategy
+  strategy: LoopStrategy;
   /** Duration of audio crossfade in seconds (only set when strategy === 'crossfade') */
-  crossfadeDuration?: number
+  crossfadeDuration?: number;
 }
 
 const LOOP_ANALYSIS_SCHEMA = {
@@ -45,14 +45,17 @@ const LOOP_ANALYSIS_SCHEMA = {
     strategy: {
       type: Type.STRING,
       description: 'Loop strategy',
-      enum: ['hard-cut', 'thematic', 'audio-match', 'crossfade', 'none']
+      enum: ['hard-cut', 'thematic', 'audio-match', 'crossfade', 'none'],
     },
     suggestedEndAdjust: { type: Type.NUMBER, description: 'Seconds to adjust clip end (-5 to 5)' },
-    suggestedStartAdjust: { type: Type.NUMBER, description: 'Seconds to adjust clip start (-5 to 5)' },
-    reason: { type: Type.STRING, description: '1-2 sentence explanation' }
+    suggestedStartAdjust: {
+      type: Type.NUMBER,
+      description: 'Seconds to adjust clip start (-5 to 5)',
+    },
+    reason: { type: Type.STRING, description: '1-2 sentence explanation' },
   },
-  required: ['loopScore', 'strategy', 'suggestedEndAdjust', 'suggestedStartAdjust', 'reason']
-}
+  required: ['loopScore', 'strategy', 'suggestedEndAdjust', 'suggestedStartAdjust', 'reason'],
+};
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -65,9 +68,9 @@ const LOOP_ANALYSIS_SCHEMA = {
 function getClipWords(
   transcript: TranscriptionResult,
   clipStart: number,
-  clipEnd: number
+  clipEnd: number,
 ): WordTimestamp[] {
-  return transcript.words.filter((w) => w.start >= clipStart && w.end <= clipEnd)
+  return transcript.words.filter((w) => w.start >= clipStart && w.end <= clipEnd);
 }
 
 /**
@@ -78,7 +81,7 @@ function formatWordSlice(words: WordTimestamp[], clipStart: number, maxWords: nu
   return words
     .slice(0, maxWords)
     .map((w) => `[${(w.start - clipStart).toFixed(1)}s] ${w.text}`)
-    .join(' ')
+    .join(' ');
 }
 
 /**
@@ -89,8 +92,8 @@ const DEFAULT_LOOP_ANALYSIS: LoopAnalysis = {
   strategy: 'none',
   suggestedEndAdjust: 0,
   suggestedStartAdjust: 0,
-  reason: 'Loop analysis unavailable — AI response could not be parsed.'
-}
+  reason: 'Loop analysis unavailable — AI response could not be parsed.',
+};
 
 /**
  * Sanitize a raw JSON string from the AI by fixing common bad escape sequences
@@ -104,16 +107,16 @@ function sanitizeJsonEscapes(raw: string): string {
   //  \xHH → the actual character
   //  \0  → (remove NUL)
   //  \a, \v, \e, \? and other non-standard escapes → the literal char
-  return raw.replace(/\\(x[0-9a-fA-F]{2}|[^"\\\/bfnrtu])/g, (_match, seq: string) => {
+  return raw.replace(/\\(x[0-9a-fA-F]{2}|[^"\\/bfnrtu])/g, (_match, seq: string) => {
     if (seq.startsWith('x')) {
       // \xHH → convert to actual char
-      return String.fromCharCode(parseInt(seq.slice(1), 16))
+      return String.fromCharCode(parseInt(seq.slice(1), 16));
     }
-    if (seq === '0') return '' // NUL
-    if (seq === "'") return "'" // bare \'
+    if (seq === '0') return ''; // NUL
+    if (seq === "'") return "'"; // bare \'
     // For anything else (\a, \v, \e, \?, etc.) just return the literal char
-    return seq
-  })
+    return seq;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +155,7 @@ JSON schema:
   "suggestedEndAdjust": <number -5.0 to 5.0>,
   "suggestedStartAdjust": <number -5.0 to 5.0>,
   "reason": "<1-2 sentence explanation of why this clip loops or doesn't>"
-}`
+}`;
 
 // ---------------------------------------------------------------------------
 // analyzeLoopPotential
@@ -176,10 +179,10 @@ export async function analyzeLoopPotential(
   apiKey: string,
   transcript: TranscriptionResult,
   clipStart: number,
-  clipEnd: number
+  clipEnd: number,
 ): Promise<LoopAnalysis> {
-  const clipWords = getClipWords(transcript, clipStart, clipEnd)
-  const clipDuration = clipEnd - clipStart
+  const clipWords = getClipWords(transcript, clipStart, clipEnd);
+  const clipDuration = clipEnd - clipStart;
 
   if (clipWords.length < 4) {
     // Not enough spoken content to analyze — default to 'none'
@@ -188,20 +191,23 @@ export async function analyzeLoopPotential(
       strategy: 'none',
       suggestedEndAdjust: 0,
       suggestedStartAdjust: 0,
-      reason: 'Insufficient spoken content in this clip for loop analysis.'
-    }
+      reason: 'Insufficient spoken content in this clip for loop analysis.',
+    };
   }
 
   // Feed the AI the first 10 words and last 10 words of the clip
-  const openingWords = formatWordSlice(clipWords, clipStart, 10)
-  const tailWords = clipWords.slice(-10)
+  const openingWords = formatWordSlice(clipWords, clipStart, 10);
+  const tailWords = clipWords.slice(-10);
   const closingWords = tailWords
     .map((w) => `[${(w.start - clipStart).toFixed(1)}s] ${w.text}`)
-    .join(' ')
+    .join(' ');
 
   // Also include full clip text for thematic analysis
   // Strip control characters that could break JSON parsing in the AI response
-  const clipText = clipWords.map((w) => w.text).join(' ').replace(/[\x00-\x1F\x7F]/g, '')
+  const clipText = clipWords
+    .map((w) => w.text)
+    .join(' ')
+    .replace(/[\x00-\x1F\x7F]/g, '');
 
   const prompt = `${LOOP_ANALYSIS_SYSTEM_PROMPT}
 
@@ -221,76 +227,81 @@ Analyze this clip for loop potential. Consider:
 2. Does the clip end mid-thought in a way that compels re-watch?
 3. Is the energy/tone at the end similar to the start?
 4. Could trimming the end (suggestedEndAdjust) make the loop tighter?
-5. Is there a repeated phrase or callback structure?`
+5. Is there a repeated phrase or callback structure?`;
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.FAST[0],
     fallbacks: MODELS.FAST.slice(1),
     config: {
       responseMimeType: 'application/json',
-      responseSchema: LOOP_ANALYSIS_SCHEMA
-    }
-  }
+      responseSchema: LOOP_ANALYSIS_SCHEMA,
+    },
+  };
 
-  let rawText: string
+  let rawText: string;
   try {
-    rawText = await callGeminiWithRetry(ai, call, prompt, 'loop-optimizer')
+    rawText = await callGeminiWithRetry(ai, call, prompt, 'loop-optimizer');
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.warn(`Loop analysis AI call failed, returning default: ${msg}`)
-    return { ...DEFAULT_LOOP_ANALYSIS, reason: `Loop analysis skipped: ${msg}` }
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`Loop analysis AI call failed, returning default: ${msg}`);
+    return { ...DEFAULT_LOOP_ANALYSIS, reason: `Loop analysis skipped: ${msg}` };
   }
 
   // Parse and validate — sanitize bad escapes, then fall back to default on failure
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(rawText)
+    parsed = JSON.parse(rawText);
   } catch {
     // Fix #1: sanitize common bad escape sequences and retry
     try {
-      const sanitized = sanitizeJsonEscapes(rawText)
-      parsed = JSON.parse(sanitized)
+      const sanitized = sanitizeJsonEscapes(rawText);
+      parsed = JSON.parse(sanitized);
     } catch {
       // Fix #1b: try extracting JSON object from surrounding text
-      const match = sanitizeJsonEscapes(rawText).match(/\{[\s\S]*\}/)
+      const match = sanitizeJsonEscapes(rawText).match(/\{[\s\S]*\}/);
       if (!match) {
-        console.warn('Gemini returned unparseable JSON for loop analysis, using default')
-        return { ...DEFAULT_LOOP_ANALYSIS }
+        console.warn('Gemini returned unparseable JSON for loop analysis, using default');
+        return { ...DEFAULT_LOOP_ANALYSIS };
       }
       try {
-        parsed = JSON.parse(match[0])
+        parsed = JSON.parse(match[0]);
       } catch {
-        console.warn('Gemini returned unparseable JSON for loop analysis, using default')
-        return { ...DEFAULT_LOOP_ANALYSIS }
+        console.warn('Gemini returned unparseable JSON for loop analysis, using default');
+        return { ...DEFAULT_LOOP_ANALYSIS };
       }
     }
   }
 
-  const raw = parsed as Record<string, unknown>
+  const raw = parsed as Record<string, unknown>;
 
-  const loopScore = typeof raw.loopScore === 'number'
-    ? Math.min(100, Math.max(0, Math.round(raw.loopScore)))
-    : 0
+  const loopScore =
+    typeof raw.loopScore === 'number' ? Math.min(100, Math.max(0, Math.round(raw.loopScore))) : 0;
 
-  const validStrategies: LoopStrategy[] = ['hard-cut', 'thematic', 'audio-match', 'crossfade', 'none']
+  const validStrategies: LoopStrategy[] = [
+    'hard-cut',
+    'thematic',
+    'audio-match',
+    'crossfade',
+    'none',
+  ];
   const strategy: LoopStrategy = validStrategies.includes(raw.strategy as LoopStrategy)
     ? (raw.strategy as LoopStrategy)
-    : 'none'
+    : 'none';
 
   const clampAdj = (v: unknown): number => {
-    const n = typeof v === 'number' ? v : parseFloat(String(v))
-    if (isNaN(n)) return 0
-    return Math.min(5, Math.max(-5, n))
-  }
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    if (Number.isNaN(n)) return 0;
+    return Math.min(5, Math.max(-5, n));
+  };
 
   return {
     loopScore,
     strategy,
     suggestedEndAdjust: clampAdj(raw.suggestedEndAdjust),
     suggestedStartAdjust: clampAdj(raw.suggestedStartAdjust),
-    reason: typeof raw.reason === 'string' ? raw.reason.trim() : ''
-  }
+    reason: typeof raw.reason === 'string' ? raw.reason.trim() : '',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -316,67 +327,65 @@ export function optimizeForLoop(
   clipStart: number,
   clipEnd: number,
   transcript: TranscriptionResult,
-  analysis: LoopAnalysis
+  analysis: LoopAnalysis,
 ): LoopOptimizedClip {
   if (analysis.strategy === 'none' || analysis.loopScore < 30) {
-    return { start: clipStart, end: clipEnd, strategy: 'none' }
+    return { start: clipStart, end: clipEnd, strategy: 'none' };
   }
 
-  let newStart = clipStart + analysis.suggestedStartAdjust
-  let newEnd = clipEnd + analysis.suggestedEndAdjust
+  let newStart = clipStart + analysis.suggestedStartAdjust;
+  let newEnd = clipEnd + analysis.suggestedEndAdjust;
 
   // Snap newEnd to the nearest word boundary to avoid cutting mid-phoneme
   if (transcript.words.length > 0 && analysis.suggestedEndAdjust !== 0) {
-    const targetEnd = newEnd
-    const wordsInRange = transcript.words.filter(
-      (w) => w.end >= clipStart + 1 && w.end <= clipEnd
-    )
+    const targetEnd = newEnd;
+    const wordsInRange = transcript.words.filter((w) => w.end >= clipStart + 1 && w.end <= clipEnd);
     if (wordsInRange.length > 0) {
       const closest = wordsInRange.reduce((best, w) => {
-        return Math.abs(w.end - targetEnd) < Math.abs(best.end - targetEnd) ? w : best
-      })
-      newEnd = closest.end
+        return Math.abs(w.end - targetEnd) < Math.abs(best.end - targetEnd) ? w : best;
+      });
+      newEnd = closest.end;
     }
   }
 
   // Snap newStart to word boundary if adjusted
   if (transcript.words.length > 0 && analysis.suggestedStartAdjust !== 0) {
-    const targetStart = newStart
+    const targetStart = newStart;
     const wordsInRange = transcript.words.filter(
-      (w) => w.start >= clipStart && w.start <= clipEnd - 2
-    )
+      (w) => w.start >= clipStart && w.start <= clipEnd - 2,
+    );
     if (wordsInRange.length > 0) {
       const closest = wordsInRange.reduce((best, w) => {
-        return Math.abs(w.start - targetStart) < Math.abs(best.start - targetStart) ? w : best
-      })
-      newStart = closest.start
+        return Math.abs(w.start - targetStart) < Math.abs(best.start - targetStart) ? w : best;
+      });
+      newStart = closest.start;
     }
   }
 
   // Ensure minimum clip duration of 5 seconds
-  const MIN_DURATION = 5
+  const MIN_DURATION = 5;
   if (newEnd - newStart < MIN_DURATION) {
-    newEnd = newStart + MIN_DURATION
+    newEnd = newStart + MIN_DURATION;
   }
 
   // Crossfade strategy: add a short audio crossfade at the loop boundary
   if (analysis.strategy === 'crossfade') {
     // Crossfade duration: 0.2s default, but clamp to 3% of clip duration
-    const clipDuration = newEnd - newStart
-    const crossfadeDuration = Math.min(0.3, Math.max(0.1, clipDuration * 0.03))
+    const clipDuration = newEnd - newStart;
+    const crossfadeDuration = Math.min(0.3, Math.max(0.1, clipDuration * 0.03));
     return {
       start: newStart,
       end: newEnd,
       strategy: 'crossfade',
-      crossfadeDuration
-    }
+      crossfadeDuration,
+    };
   }
 
   return {
     start: newStart,
     end: newEnd,
-    strategy: analysis.strategy
-  }
+    strategy: analysis.strategy,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -397,12 +406,9 @@ export function optimizeForLoop(
  * @param clipDuration       Total duration of the clip in seconds
  * @param crossfadeDuration  Length of the crossfade blend in seconds (0.1–0.3 recommended)
  */
-export function buildLoopCrossfadeFilter(
-  clipDuration: number,
-  crossfadeDuration: number
-): string {
+export function buildLoopCrossfadeFilter(clipDuration: number, crossfadeDuration: number): string {
   // Clamp crossfade to sane bounds
-  const cf = Math.min(clipDuration * 0.1, Math.max(0.05, crossfadeDuration))
+  const cf = Math.min(clipDuration * 0.1, Math.max(0.05, crossfadeDuration));
 
   // Split audio into main body and two tail segments for crossfading
   // The loop crossfade blends:
@@ -410,8 +416,8 @@ export function buildLoopCrossfadeFilter(
   //   - B: a copy of the first `cf` seconds  (loop head)
   // Combined they replace the tail so when the player loops back the seam is blended.
 
-  const tailStart = (clipDuration - cf).toFixed(6)
-  const cfStr = cf.toFixed(6)
+  const tailStart = (clipDuration - cf).toFixed(6);
+  const cfStr = cf.toFixed(6);
 
   return [
     // Split audio into three parts:
@@ -428,8 +434,8 @@ export function buildLoopCrossfadeFilter(
     // Crossfade tail → head
     `[a_tail][a_head]acrossfade=d=${cfStr}:c1=tri:c2=tri[a_cf]`,
     // Concatenate body + crossfaded segment
-    `[a_body][a_cf]concat=n=2:v=0:a=1[aout]`
-  ].join(';')
+    `[a_body][a_cf]concat=n=2:v=0:a=1[aout]`,
+  ].join(';');
 }
 
 // ---------------------------------------------------------------------------
@@ -447,21 +453,23 @@ export function buildLoopCrossfadeFilter(
  */
 export function scoreLoopQuality(analysis: LoopAnalysis): number {
   const strategyBonus: Record<LoopStrategy, number> = {
-    'crossfade': 8,
+    crossfade: 8,
     'audio-match': 10,
-    'thematic': 6,
+    thematic: 6,
     'hard-cut': 2,
-    'none': 0
-  }
+    none: 0,
+  };
 
   // Penalty for large adjustments (each second beyond 1s costs 2 points)
-  const totalAdjust = Math.abs(analysis.suggestedEndAdjust) + Math.abs(analysis.suggestedStartAdjust)
-  const adjustPenalty = Math.max(0, (totalAdjust - 1) * 2)
+  const totalAdjust =
+    Math.abs(analysis.suggestedEndAdjust) + Math.abs(analysis.suggestedStartAdjust);
+  const adjustPenalty = Math.max(0, (totalAdjust - 1) * 2);
 
-  const raw = analysis.loopScore * 0.7 +
+  const raw =
+    analysis.loopScore * 0.7 +
     strategyBonus[analysis.strategy] +
     (analysis.loopScore > 0 ? analysis.loopScore * 0.3 : 0) -
-    adjustPenalty
+    adjustPenalty;
 
-  return Math.min(100, Math.max(0, Math.round(raw)))
+  return Math.min(100, Math.max(0, Math.round(raw)));
 }

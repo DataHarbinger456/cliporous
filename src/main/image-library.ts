@@ -10,118 +10,118 @@
  * semantic similarity (cosine over pre-normalized embeddings).
  */
 
-import Database from 'better-sqlite3'
-import type { Database as DatabaseType, Statement } from 'better-sqlite3'
-import { app } from 'electron'
-import { createHash } from 'crypto'
-import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
-import { join } from 'path'
-import { log } from './logger'
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Database as DatabaseType, Statement } from 'better-sqlite3';
+import Database from 'better-sqlite3';
+import { app } from 'electron';
+import { log } from './logger';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ImageSource = 'gemini' | 'pexels' | 'fal'
+export type ImageSource = 'gemini' | 'pexels' | 'fal';
 
 export interface AssetRow {
-  id: number
-  sha256: string
-  path: string
-  prompt: string
-  normalized_prompt: string
-  keyword: string
-  style: string | null
-  aspect_ratio: string
-  source: ImageSource
-  model: string | null
-  width: number
-  height: number
-  embedding: Float32Array | null
-  tags: string[]
-  created_at: number
-  last_used_at: number
-  use_count: number
-  favorite: boolean
+  id: number;
+  sha256: string;
+  path: string;
+  prompt: string;
+  normalized_prompt: string;
+  keyword: string;
+  style: string | null;
+  aspect_ratio: string;
+  source: ImageSource;
+  model: string | null;
+  width: number;
+  height: number;
+  embedding: Float32Array | null;
+  tags: string[];
+  created_at: number;
+  last_used_at: number;
+  use_count: number;
+  favorite: boolean;
 }
 
 export interface LookupExactInput {
-  keyword: string
-  style?: string | null
-  aspectRatio: string
-  source: ImageSource
-  prompt?: string
+  keyword: string;
+  style?: string | null;
+  aspectRatio: string;
+  source: ImageSource;
+  prompt?: string;
 }
 
 export interface LookupSemanticInput {
-  keyword: string
-  style?: string | null
-  aspectRatio: string
-  source: ImageSource
-  queryEmbedding: Float32Array
-  threshold?: number
+  keyword: string;
+  style?: string | null;
+  aspectRatio: string;
+  source: ImageSource;
+  queryEmbedding: Float32Array;
+  threshold?: number;
 }
 
 export interface SaveAssetInput {
-  buffer: Buffer
-  prompt: string
-  keyword: string
-  style?: string | null
-  aspectRatio: string
-  source: ImageSource
-  model?: string | null
-  width: number
-  height: number
-  embedding?: Float32Array | null
-  tags?: string[]
+  buffer: Buffer;
+  prompt: string;
+  keyword: string;
+  style?: string | null;
+  aspectRatio: string;
+  source: ImageSource;
+  model?: string | null;
+  width: number;
+  height: number;
+  embedding?: Float32Array | null;
+  tags?: string[];
 }
 
 export interface ListAssetsOptions {
-  limit?: number
-  offset?: number
-  sort?: 'recent' | 'oldest' | 'most_used' | 'favorites_first'
+  limit?: number;
+  offset?: number;
+  sort?: 'recent' | 'oldest' | 'most_used' | 'favorites_first';
 }
 
 export interface SearchAssetsOptions {
-  query?: string
-  tags?: string[]
+  query?: string;
+  tags?: string[];
 }
 
 export interface LibraryStats {
-  count: number
-  totalBytes: number
-  favorites: number
+  count: number;
+  totalBytes: number;
+  favorites: number;
 }
 
 export interface EvictResult {
-  evicted: number
-  freedBytes: number
+  evicted: number;
+  freedBytes: number;
 }
 
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
 
-let db: DatabaseType | null = null
-let rootDir = ''
-let blobsDir = ''
-let dbPath = ''
-let initialized = false
+let db: DatabaseType | null = null;
+let rootDir = '';
+let blobsDir = '';
+let dbPath = '';
+let initialized = false;
 
 // Prepared statements (lazily set after init)
-let stmtSelectBySha: Statement | null = null
-let stmtSelectExactByKey: Statement | null = null
-let stmtSelectExactByPrompt: Statement | null = null
-let stmtTouch: Statement | null = null
-let stmtInsert: Statement | null = null
-let stmtSelectById: Statement | null = null
-let stmtDelete: Statement | null = null
-let stmtSetTags: Statement | null = null
-let stmtSetFavorite: Statement | null = null
-let stmtCount: Statement | null = null
-let stmtCountFavorites: Statement | null = null
-let stmtSelectSemanticPool: Statement | null = null
-let stmtSelectEvictionCandidates: Statement | null = null
+let stmtSelectBySha: Statement | null = null;
+let stmtSelectExactByKey: Statement | null = null;
+let stmtSelectExactByPrompt: Statement | null = null;
+let stmtTouch: Statement | null = null;
+let stmtInsert: Statement | null = null;
+let stmtSelectById: Statement | null = null;
+let stmtDelete: Statement | null = null;
+let stmtSetTags: Statement | null = null;
+let stmtSetFavorite: Statement | null = null;
+let stmtCount: Statement | null = null;
+let stmtCountFavorites: Statement | null = null;
+let stmtSelectSemanticPool: Statement | null = null;
+let stmtSelectEvictionCandidates: Statement | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,65 +129,65 @@ let stmtSelectEvictionCandidates: Statement | null = null
 
 function ensureInit(): DatabaseType {
   if (!db || !initialized) {
-    throw new Error('[ImageLibrary] initImageLibrary() must be called before use')
+    throw new Error('[ImageLibrary] initImageLibrary() must be called before use');
   }
-  return db
+  return db;
 }
 
 function normalizePrompt(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, ' ')
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function sha256(buf: Buffer): string {
-  return createHash('sha256').update(buf).digest('hex')
+  return createHash('sha256').update(buf).digest('hex');
 }
 
 function embeddingToBuffer(emb: Float32Array | null | undefined): Buffer | null {
-  if (!emb || emb.length === 0) return null
+  if (!emb || emb.length === 0) return null;
   // Copy to a fresh ArrayBuffer to avoid shared-buffer surprises.
-  const f32 = emb instanceof Float32Array ? emb : new Float32Array(emb)
-  return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength)
+  const f32 = emb instanceof Float32Array ? emb : new Float32Array(emb);
+  return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength);
 }
 
 function bufferToEmbedding(buf: Buffer | null | undefined): Float32Array | null {
-  if (!buf || buf.byteLength === 0) return null
+  if (!buf || buf.byteLength === 0) return null;
   // Copy bytes into a fresh ArrayBuffer to avoid alignment / offset issues
   // when slicing from Node's pooled Buffers.
-  const copy = new Uint8Array(buf.byteLength)
-  copy.set(buf)
-  return new Float32Array(copy.buffer)
+  const copy = new Uint8Array(buf.byteLength);
+  copy.set(buf);
+  return new Float32Array(copy.buffer);
 }
 
 interface AssetRowRaw {
-  id: number
-  sha256: string
-  path: string
-  prompt: string
-  normalized_prompt: string
-  keyword: string
-  style: string | null
-  aspect_ratio: string
-  source: string
-  model: string | null
-  width: number
-  height: number
-  embedding: Buffer | null
-  tags: string | null
-  created_at: number
-  last_used_at: number
-  use_count: number
-  favorite: number
+  id: number;
+  sha256: string;
+  path: string;
+  prompt: string;
+  normalized_prompt: string;
+  keyword: string;
+  style: string | null;
+  aspect_ratio: string;
+  source: string;
+  model: string | null;
+  width: number;
+  height: number;
+  embedding: Buffer | null;
+  tags: string | null;
+  created_at: number;
+  last_used_at: number;
+  use_count: number;
+  favorite: number;
 }
 
 function rowToAsset(raw: AssetRowRaw | undefined): AssetRow | null {
-  if (!raw) return null
-  let tags: string[] = []
+  if (!raw) return null;
+  let tags: string[] = [];
   if (raw.tags) {
     try {
-      const parsed = JSON.parse(raw.tags) as unknown
-      if (Array.isArray(parsed)) tags = parsed.filter((t): t is string => typeof t === 'string')
+      const parsed = JSON.parse(raw.tags) as unknown;
+      if (Array.isArray(parsed)) tags = parsed.filter((t): t is string => typeof t === 'string');
     } catch {
-      tags = []
+      tags = [];
     }
   }
   return {
@@ -208,8 +208,8 @@ function rowToAsset(raw: AssetRowRaw | undefined): AssetRow | null {
     created_at: raw.created_at,
     last_used_at: raw.last_used_at,
     use_count: raw.use_count,
-    favorite: raw.favorite === 1
-  }
+    favorite: raw.favorite === 1,
+  };
 }
 
 /**
@@ -217,12 +217,12 @@ function rowToAsset(raw: AssetRowRaw | undefined): AssetRow | null {
  * dot product. Returns 0 when lengths mismatch or either is empty.
  */
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0
-  let sum = 0
+  if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
+  let sum = 0;
   for (let i = 0; i < a.length; i++) {
-    sum += a[i] * b[i]
+    sum += a[i] * b[i];
   }
-  return sum
+  return sum;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_assets_keyword ON assets(keyword);
   CREATE INDEX IF NOT EXISTS idx_assets_last_used_at ON assets(last_used_at);
   CREATE INDEX IF NOT EXISTS idx_assets_favorite ON assets(favorite);
-`
+`;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -267,25 +267,25 @@ const SCHEMA_SQL = `
  * Idempotent — safe to call multiple times. Must be called once at app start.
  */
 export function initImageLibrary(): void {
-  if (initialized) return
+  if (initialized) return;
 
   try {
-    rootDir = join(app.getPath('userData'), 'image-library')
-    blobsDir = join(rootDir, 'blobs')
-    dbPath = join(rootDir, 'library.sqlite')
+    rootDir = join(app.getPath('userData'), 'image-library');
+    blobsDir = join(rootDir, 'blobs');
+    dbPath = join(rootDir, 'library.sqlite');
 
-    if (!existsSync(rootDir)) mkdirSync(rootDir, { recursive: true })
-    if (!existsSync(blobsDir)) mkdirSync(blobsDir, { recursive: true })
+    if (!existsSync(rootDir)) mkdirSync(rootDir, { recursive: true });
+    if (!existsSync(blobsDir)) mkdirSync(blobsDir, { recursive: true });
 
-    db = new Database(dbPath)
-    db.pragma('journal_mode = WAL')
-    db.pragma('synchronous = NORMAL')
-    db.pragma('foreign_keys = ON')
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('foreign_keys = ON');
 
-    db.exec(SCHEMA_SQL)
+    db.exec(SCHEMA_SQL);
 
     // Prepare frequently used statements
-    stmtSelectBySha = db.prepare('SELECT * FROM assets WHERE sha256 = ?')
+    stmtSelectBySha = db.prepare('SELECT * FROM assets WHERE sha256 = ?');
     stmtSelectExactByKey = db.prepare(
       `SELECT * FROM assets
        WHERE keyword = @keyword
@@ -293,19 +293,19 @@ export function initImageLibrary(): void {
          AND aspect_ratio = @aspect_ratio
          AND source = @source
        ORDER BY last_used_at DESC
-       LIMIT 1`
-    )
+       LIMIT 1`,
+    );
     stmtSelectExactByPrompt = db.prepare(
       `SELECT * FROM assets
        WHERE normalized_prompt = @normalized_prompt
          AND aspect_ratio = @aspect_ratio
          AND source = @source
        ORDER BY last_used_at DESC
-       LIMIT 1`
-    )
+       LIMIT 1`,
+    );
     stmtTouch = db.prepare(
-      'UPDATE assets SET last_used_at = @now, use_count = use_count + 1 WHERE id = @id'
-    )
+      'UPDATE assets SET last_used_at = @now, use_count = use_count + 1 WHERE id = @id',
+    );
     stmtInsert = db.prepare(
       `INSERT INTO assets (
          sha256, path, prompt, normalized_prompt, keyword, style,
@@ -315,32 +315,32 @@ export function initImageLibrary(): void {
          @sha256, @path, @prompt, @normalized_prompt, @keyword, @style,
          @aspect_ratio, @source, @model, @width, @height, @embedding, @tags,
          @created_at, @last_used_at, 1, 0
-       )`
-    )
-    stmtSelectById = db.prepare('SELECT * FROM assets WHERE id = ?')
-    stmtDelete = db.prepare('DELETE FROM assets WHERE id = ?')
-    stmtSetTags = db.prepare('UPDATE assets SET tags = @tags WHERE id = @id')
-    stmtSetFavorite = db.prepare('UPDATE assets SET favorite = @favorite WHERE id = @id')
-    stmtCount = db.prepare('SELECT COUNT(*) AS c FROM assets')
-    stmtCountFavorites = db.prepare('SELECT COUNT(*) AS c FROM assets WHERE favorite = 1')
+       )`,
+    );
+    stmtSelectById = db.prepare('SELECT * FROM assets WHERE id = ?');
+    stmtDelete = db.prepare('DELETE FROM assets WHERE id = ?');
+    stmtSetTags = db.prepare('UPDATE assets SET tags = @tags WHERE id = @id');
+    stmtSetFavorite = db.prepare('UPDATE assets SET favorite = @favorite WHERE id = @id');
+    stmtCount = db.prepare('SELECT COUNT(*) AS c FROM assets');
+    stmtCountFavorites = db.prepare('SELECT COUNT(*) AS c FROM assets WHERE favorite = 1');
     stmtSelectSemanticPool = db.prepare(
       `SELECT * FROM assets
        WHERE IFNULL(style, '') = IFNULL(@style, '')
          AND aspect_ratio = @aspect_ratio
          AND source = @source
-         AND embedding IS NOT NULL`
-    )
+         AND embedding IS NOT NULL`,
+    );
     stmtSelectEvictionCandidates = db.prepare(
       `SELECT id, path FROM assets
        WHERE favorite = 0
-       ORDER BY last_used_at ASC`
-    )
+       ORDER BY last_used_at ASC`,
+    );
 
-    initialized = true
-    log('info', 'ImageLibrary', `Initialized at ${rootDir}`)
+    initialized = true;
+    log('info', 'ImageLibrary', `Initialized at ${rootDir}`);
   } catch (err) {
-    log('error', 'ImageLibrary', `Init failed: ${(err as Error).message}`)
-    throw err
+    log('error', 'ImageLibrary', `Init failed: ${(err as Error).message}`);
+    throw err;
   }
 }
 
@@ -350,8 +350,8 @@ export function initImageLibrary(): void {
  * Touches the hit row's last_used_at / use_count.
  */
 export function lookupExact(input: LookupExactInput): AssetRow | null {
-  ensureInit()
-  const style = input.style ?? null
+  ensureInit();
+  const style = input.style ?? null;
 
   // Try keyword-tuple match first.
   if (stmtSelectExactByKey && stmtTouch) {
@@ -359,11 +359,11 @@ export function lookupExact(input: LookupExactInput): AssetRow | null {
       keyword: input.keyword,
       style,
       aspect_ratio: input.aspectRatio,
-      source: input.source
-    }) as AssetRowRaw | undefined
+      source: input.source,
+    }) as AssetRowRaw | undefined;
     if (raw) {
-      stmtTouch.run({ now: Date.now(), id: raw.id })
-      return rowToAsset(raw)
+      stmtTouch.run({ now: Date.now(), id: raw.id });
+      return rowToAsset(raw);
     }
   }
 
@@ -372,15 +372,15 @@ export function lookupExact(input: LookupExactInput): AssetRow | null {
     const raw = stmtSelectExactByPrompt.get({
       normalized_prompt: normalizePrompt(input.prompt),
       aspect_ratio: input.aspectRatio,
-      source: input.source
-    }) as AssetRowRaw | undefined
+      source: input.source,
+    }) as AssetRowRaw | undefined;
     if (raw) {
-      stmtTouch.run({ now: Date.now(), id: raw.id })
-      return rowToAsset(raw)
+      stmtTouch.run({ now: Date.now(), id: raw.id });
+      return rowToAsset(raw);
     }
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -389,37 +389,37 @@ export function lookupExact(input: LookupExactInput): AssetRow | null {
  * score ≥ threshold. Touches the hit row's last_used_at / use_count.
  */
 export function lookupSemantic(
-  input: LookupSemanticInput
+  input: LookupSemanticInput,
 ): { row: AssetRow; score: number } | null {
-  ensureInit()
-  const threshold = input.threshold ?? 0.85
-  if (!stmtSelectSemanticPool || !stmtTouch) return null
-  if (!input.queryEmbedding || input.queryEmbedding.length === 0) return null
+  ensureInit();
+  const threshold = input.threshold ?? 0.85;
+  if (!stmtSelectSemanticPool || !stmtTouch) return null;
+  if (!input.queryEmbedding || input.queryEmbedding.length === 0) return null;
 
   const rows = stmtSelectSemanticPool.all({
     style: input.style ?? null,
     aspect_ratio: input.aspectRatio,
-    source: input.source
-  }) as AssetRowRaw[]
+    source: input.source,
+  }) as AssetRowRaw[];
 
-  let bestScore = -Infinity
-  let bestRaw: AssetRowRaw | null = null
+  let bestScore = -Infinity;
+  let bestRaw: AssetRowRaw | null = null;
   for (const raw of rows) {
-    const emb = bufferToEmbedding(raw.embedding)
-    if (!emb) continue
-    const score = cosineSimilarity(input.queryEmbedding, emb)
+    const emb = bufferToEmbedding(raw.embedding);
+    if (!emb) continue;
+    const score = cosineSimilarity(input.queryEmbedding, emb);
     if (score > bestScore) {
-      bestScore = score
-      bestRaw = raw
+      bestScore = score;
+      bestRaw = raw;
     }
   }
 
   if (bestRaw && bestScore >= threshold) {
-    stmtTouch.run({ now: Date.now(), id: bestRaw.id })
-    const asset = rowToAsset(bestRaw)
-    if (asset) return { row: asset, score: bestScore }
+    stmtTouch.run({ now: Date.now(), id: bestRaw.id });
+    const asset = rowToAsset(bestRaw);
+    if (asset) return { row: asset, score: bestScore };
   }
-  return null
+  return null;
 }
 
 /**
@@ -428,29 +428,29 @@ export function lookupSemantic(
  * already exists, returns it unchanged (does not overwrite metadata).
  */
 export function saveAsset(input: SaveAssetInput): AssetRow {
-  ensureInit()
-  if (!stmtSelectBySha || !stmtInsert) throw new Error('[ImageLibrary] Not initialized')
+  ensureInit();
+  if (!stmtSelectBySha || !stmtInsert) throw new Error('[ImageLibrary] Not initialized');
 
-  const hash = sha256(input.buffer)
+  const hash = sha256(input.buffer);
 
   // Existing row? Return it (idempotent).
-  const existingRaw = stmtSelectBySha.get(hash) as AssetRowRaw | undefined
+  const existingRaw = stmtSelectBySha.get(hash) as AssetRowRaw | undefined;
   if (existingRaw) {
-    const asset = rowToAsset(existingRaw)
-    if (asset) return asset
+    const asset = rowToAsset(existingRaw);
+    if (asset) return asset;
   }
 
-  const blobPath = join(blobsDir, `${hash}.png`)
+  const blobPath = join(blobsDir, `${hash}.png`);
   if (!existsSync(blobPath)) {
     try {
-      writeFileSync(blobPath, input.buffer)
+      writeFileSync(blobPath, input.buffer);
     } catch (err) {
-      log('error', 'ImageLibrary', `Failed to write blob ${hash}: ${(err as Error).message}`)
-      throw err
+      log('error', 'ImageLibrary', `Failed to write blob ${hash}: ${(err as Error).message}`);
+      throw err;
     }
   }
 
-  const now = Date.now()
+  const now = Date.now();
   const params = {
     sha256: hash,
     path: blobPath,
@@ -466,23 +466,23 @@ export function saveAsset(input: SaveAssetInput): AssetRow {
     embedding: embeddingToBuffer(input.embedding),
     tags: JSON.stringify(input.tags ?? []),
     created_at: now,
-    last_used_at: now
-  }
+    last_used_at: now,
+  };
 
   try {
-    const info = stmtInsert.run(params)
-    const insertedRaw = (stmtSelectById?.get(info.lastInsertRowid) as AssetRowRaw | undefined)
-    const asset = rowToAsset(insertedRaw)
-    if (!asset) throw new Error('Failed to read back inserted row')
-    return asset
+    const info = stmtInsert.run(params);
+    const insertedRaw = stmtSelectById?.get(info.lastInsertRowid) as AssetRowRaw | undefined;
+    const asset = rowToAsset(insertedRaw);
+    if (!asset) throw new Error('Failed to read back inserted row');
+    return asset;
   } catch (err) {
     // Race: another writer inserted the same sha256 between our check and
     // insert. Re-read and return the existing row.
-    const raceRaw = stmtSelectBySha.get(hash) as AssetRowRaw | undefined
-    const asset = rowToAsset(raceRaw)
-    if (asset) return asset
-    log('error', 'ImageLibrary', `saveAsset failed: ${(err as Error).message}`)
-    throw err
+    const raceRaw = stmtSelectBySha.get(hash) as AssetRowRaw | undefined;
+    const asset = rowToAsset(raceRaw);
+    if (asset) return asset;
+    log('error', 'ImageLibrary', `saveAsset failed: ${(err as Error).message}`);
+    throw err;
   }
 }
 
@@ -490,40 +490,39 @@ export function saveAsset(input: SaveAssetInput): AssetRow {
  * Touch an asset — bump last_used_at to now, increment use_count.
  */
 export function touchAsset(id: number): void {
-  ensureInit()
-  if (!stmtTouch) return
-  stmtTouch.run({ now: Date.now(), id })
+  ensureInit();
+  if (!stmtTouch) return;
+  stmtTouch.run({ now: Date.now(), id });
 }
 
 /**
  * List assets, optionally paginated and sorted.
  */
 export function listAssets(options: ListAssetsOptions = {}): AssetRow[] {
-  const database = ensureInit()
-  const limit = Math.max(0, options.limit ?? 100)
-  const offset = Math.max(0, options.offset ?? 0)
-  const sort = options.sort ?? 'recent'
+  const database = ensureInit();
+  const limit = Math.max(0, options.limit ?? 100);
+  const offset = Math.max(0, options.offset ?? 0);
+  const sort = options.sort ?? 'recent';
 
-  let orderBy: string
+  let orderBy: string;
   switch (sort) {
     case 'oldest':
-      orderBy = 'created_at ASC'
-      break
+      orderBy = 'created_at ASC';
+      break;
     case 'most_used':
-      orderBy = 'use_count DESC, last_used_at DESC'
-      break
+      orderBy = 'use_count DESC, last_used_at DESC';
+      break;
     case 'favorites_first':
-      orderBy = 'favorite DESC, last_used_at DESC'
-      break
-    case 'recent':
+      orderBy = 'favorite DESC, last_used_at DESC';
+      break;
     default:
-      orderBy = 'last_used_at DESC'
-      break
+      orderBy = 'last_used_at DESC';
+      break;
   }
 
-  const sql = `SELECT * FROM assets ORDER BY ${orderBy} LIMIT ? OFFSET ?`
-  const rows = database.prepare(sql).all(limit, offset) as AssetRowRaw[]
-  return rows.map((r) => rowToAsset(r)).filter((a): a is AssetRow => a !== null)
+  const sql = `SELECT * FROM assets ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
+  const rows = database.prepare(sql).all(limit, offset) as AssetRowRaw[];
+  return rows.map((r) => rowToAsset(r)).filter((a): a is AssetRow => a !== null);
 }
 
 /**
@@ -531,46 +530,46 @@ export function listAssets(options: ListAssetsOptions = {}): AssetRow[] {
  * filters to rows whose tag array contains any of `tags`.
  */
 export function searchAssets(options: SearchAssetsOptions): AssetRow[] {
-  const database = ensureInit()
-  const clauses: string[] = []
-  const params: unknown[] = []
+  const database = ensureInit();
+  const clauses: string[] = [];
+  const params: unknown[] = [];
 
-  if (options.query && options.query.trim()) {
-    const like = `%${options.query.trim().toLowerCase()}%`
-    clauses.push('(normalized_prompt LIKE ? OR keyword LIKE ? OR LOWER(IFNULL(tags, "")) LIKE ?)')
-    params.push(like, like, like)
+  if (options.query?.trim()) {
+    const like = `%${options.query.trim().toLowerCase()}%`;
+    clauses.push('(normalized_prompt LIKE ? OR keyword LIKE ? OR LOWER(IFNULL(tags, "")) LIKE ?)');
+    params.push(like, like, like);
   }
 
   if (options.tags && options.tags.length > 0) {
-    const tagClauses = options.tags.map(() => 'LOWER(IFNULL(tags, "")) LIKE ?').join(' OR ')
-    clauses.push(`(${tagClauses})`)
+    const tagClauses = options.tags.map(() => 'LOWER(IFNULL(tags, "")) LIKE ?').join(' OR ');
+    clauses.push(`(${tagClauses})`);
     for (const t of options.tags) {
-      params.push(`%"${t.toLowerCase()}"%`)
+      params.push(`%"${t.toLowerCase()}"%`);
     }
   }
 
-  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
-  const sql = `SELECT * FROM assets ${where} ORDER BY last_used_at DESC LIMIT 500`
-  const rows = database.prepare(sql).all(...params) as AssetRowRaw[]
-  return rows.map((r) => rowToAsset(r)).filter((a): a is AssetRow => a !== null)
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const sql = `SELECT * FROM assets ${where} ORDER BY last_used_at DESC LIMIT 500`;
+  const rows = database.prepare(sql).all(...params) as AssetRowRaw[];
+  return rows.map((r) => rowToAsset(r)).filter((a): a is AssetRow => a !== null);
 }
 
 /**
  * Replace an asset's tags.
  */
 export function setTags(id: number, tags: string[]): void {
-  ensureInit()
-  if (!stmtSetTags) return
-  stmtSetTags.run({ id, tags: JSON.stringify(tags) })
+  ensureInit();
+  if (!stmtSetTags) return;
+  stmtSetTags.run({ id, tags: JSON.stringify(tags) });
 }
 
 /**
  * Toggle an asset's favorite flag.
  */
 export function setFavorite(id: number, favorite: boolean): void {
-  ensureInit()
-  if (!stmtSetFavorite) return
-  stmtSetFavorite.run({ id, favorite: favorite ? 1 : 0 })
+  ensureInit();
+  if (!stmtSetFavorite) return;
+  stmtSetFavorite.run({ id, favorite: favorite ? 1 : 0 });
 }
 
 /**
@@ -579,22 +578,22 @@ export function setFavorite(id: number, favorite: boolean): void {
  * blobs share a one-row-per-sha invariant so this is safe.
  */
 export function deleteAsset(id: number): void {
-  const database = ensureInit()
-  if (!stmtSelectById || !stmtDelete) return
+  const database = ensureInit();
+  if (!stmtSelectById || !stmtDelete) return;
 
-  const raw = stmtSelectById.get(id) as AssetRowRaw | undefined
-  if (!raw) return
+  const raw = stmtSelectById.get(id) as AssetRowRaw | undefined;
+  if (!raw) return;
 
   const tx = database.transaction(() => {
-    stmtDelete!.run(id)
-  })
-  tx()
+    stmtDelete?.run(id);
+  });
+  tx();
 
   if (raw.path && existsSync(raw.path)) {
     try {
-      unlinkSync(raw.path)
+      unlinkSync(raw.path);
     } catch (err) {
-      log('warn', 'ImageLibrary', `Failed to delete blob ${raw.path}: ${(err as Error).message}`)
+      log('warn', 'ImageLibrary', `Failed to delete blob ${raw.path}: ${(err as Error).message}`);
     }
   }
 }
@@ -604,36 +603,34 @@ export function deleteAsset(id: number): void {
  * last_used_at non-favorite rows until under the cap. Favorites are never
  * deleted.
  */
-export function evictIfNeeded(
-  options: { maxBytes?: number } = {}
-): EvictResult {
-  ensureInit()
-  if (!stmtSelectEvictionCandidates) return { evicted: 0, freedBytes: 0 }
+export function evictIfNeeded(options: { maxBytes?: number } = {}): EvictResult {
+  ensureInit();
+  if (!stmtSelectEvictionCandidates) return { evicted: 0, freedBytes: 0 };
 
-  const maxBytes = options.maxBytes ?? 2 * 1024 * 1024 * 1024 // 2 GiB
-  const stats = getLibraryStats()
-  if (stats.totalBytes <= maxBytes) return { evicted: 0, freedBytes: 0 }
+  const maxBytes = options.maxBytes ?? 2 * 1024 * 1024 * 1024; // 2 GiB
+  const stats = getLibraryStats();
+  if (stats.totalBytes <= maxBytes) return { evicted: 0, freedBytes: 0 };
 
-  const candidates = stmtSelectEvictionCandidates.all() as Array<{ id: number; path: string }>
-  let total = stats.totalBytes
-  let evicted = 0
-  let freed = 0
+  const candidates = stmtSelectEvictionCandidates.all() as Array<{ id: number; path: string }>;
+  let total = stats.totalBytes;
+  let evicted = 0;
+  let freed = 0;
 
   for (const cand of candidates) {
-    if (total <= maxBytes) break
-    let size = 0
+    if (total <= maxBytes) break;
+    let size = 0;
     try {
-      if (existsSync(cand.path)) size = statSync(cand.path).size
+      if (existsSync(cand.path)) size = statSync(cand.path).size;
     } catch {
-      size = 0
+      size = 0;
     }
     try {
-      deleteAsset(cand.id)
-      evicted += 1
-      freed += size
-      total -= size
+      deleteAsset(cand.id);
+      evicted += 1;
+      freed += size;
+      total -= size;
     } catch (err) {
-      log('warn', 'ImageLibrary', `Eviction failed for id=${cand.id}: ${(err as Error).message}`)
+      log('warn', 'ImageLibrary', `Eviction failed for id=${cand.id}: ${(err as Error).message}`);
     }
   }
 
@@ -641,27 +638,27 @@ export function evictIfNeeded(
     log(
       'info',
       'ImageLibrary',
-      `Evicted ${evicted} asset(s), freed ${(freed / (1024 * 1024)).toFixed(1)} MiB`
-    )
+      `Evicted ${evicted} asset(s), freed ${(freed / (1024 * 1024)).toFixed(1)} MiB`,
+    );
   }
-  return { evicted, freedBytes: freed }
+  return { evicted, freedBytes: freed };
 }
 
 /**
  * Aggregate stats: row count, sum of blob byte sizes on disk, favorite count.
  */
 export function getLibraryStats(): LibraryStats {
-  const database = ensureInit()
-  const countRow = stmtCount!.get() as { c: number }
-  const favRow = stmtCountFavorites!.get() as { c: number }
+  const database = ensureInit();
+  const countRow = stmtCount?.get() as { c: number };
+  const favRow = stmtCountFavorites?.get() as { c: number };
 
   // Sum sizes from disk so we reflect ground truth even if rows / blobs
   // diverged due to manual edits or crashes.
-  const rows = database.prepare('SELECT path FROM assets').all() as Array<{ path: string }>
-  let totalBytes = 0
+  const rows = database.prepare('SELECT path FROM assets').all() as Array<{ path: string }>;
+  let totalBytes = 0;
   for (const r of rows) {
     try {
-      if (r.path && existsSync(r.path)) totalBytes += statSync(r.path).size
+      if (r.path && existsSync(r.path)) totalBytes += statSync(r.path).size;
     } catch {
       // ignore individual stat failures
     }
@@ -670,6 +667,6 @@ export function getLibraryStats(): LibraryStats {
   return {
     count: countRow.c,
     totalBytes,
-    favorites: favRow.c
-  }
+    favorites: favRow.c,
+  };
 }

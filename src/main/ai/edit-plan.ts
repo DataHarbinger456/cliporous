@@ -12,22 +12,22 @@
 // This module replicates that holistic judgment in one structured AI call.
 // ---------------------------------------------------------------------------
 
-import { GoogleGenAI } from '@google/genai'
-import { callGeminiWithRetry, MODELS, type GeminiCall } from './gemini-client'
-import {
-  buildEditPlanCacheKey,
-  getCachedEditPlan,
-  setCachedEditPlan,
-  evictEditPlanCache
-} from './edit-plan-cache'
+import { GoogleGenAI } from '@google/genai';
 import type {
   AIEditPlan,
-  AIEditPlanWordEmphasis,
   AIEditPlanBRollSuggestion,
   AIEditPlanSFXSuggestion,
   AIEditPlanSFXType,
-  WordTimestamp
-} from '@shared/types'
+  AIEditPlanWordEmphasis,
+  WordTimestamp,
+} from '@shared/types';
+import {
+  buildEditPlanCacheKey,
+  evictEditPlanCache,
+  getCachedEditPlan,
+  setCachedEditPlan,
+} from './edit-plan-cache';
+import { callGeminiWithRetry, type GeminiCall, MODELS } from './gemini-client';
 
 // ---------------------------------------------------------------------------
 // Style-calibration constants
@@ -68,8 +68,8 @@ const STYLE_CATEGORY_GUIDANCE: Record<string, string> = {
 
   custom:
     'This is a CUSTOM style. Apply balanced editorial judgment across all three layers ' +
-    'with moderate density: 10–20% emphasis, B-Roll every 5–7s, standard SFX.'
-}
+    'with moderate density: 10–20% emphasis, B-Roll every 5–7s, standard SFX.',
+};
 
 // ---------------------------------------------------------------------------
 // Prompt builder
@@ -80,14 +80,13 @@ export function buildEditPlanPrompt(
   clipDuration: number,
   stylePresetName: string,
   stylePresetCategory: string,
-  wordCount: number
+  wordCount: number,
 ): string {
   const categoryGuidance =
-    STYLE_CATEGORY_GUIDANCE[stylePresetCategory] ??
-    STYLE_CATEGORY_GUIDANCE['custom']
+    STYLE_CATEGORY_GUIDANCE[stylePresetCategory] ?? STYLE_CATEGORY_GUIDANCE.custom;
 
-  const maxEmphasis = Math.ceil(wordCount * 0.25)
-  const maxSupersize = Math.ceil(wordCount * 0.10)
+  const maxEmphasis = Math.ceil(wordCount * 0.25);
+  const maxSupersize = Math.ceil(wordCount * 0.1);
 
   return `You are a senior short-form video editor with deep expertise in TikTok, Instagram Reels, and YouTube Shorts. You think in three edit layers simultaneously: caption emphasis, visual B-Roll, and sound design.
 
@@ -128,7 +127,7 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
     {"timestamp": 0.0, "type": "whoosh-soft", "reason": "Opens the clip with energy to signal fast-paced content"}
   ],
   "reasoning": "2-3 sentence editorial reasoning explaining the overall approach taken for this clip and style."
-}`
+}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,97 +141,117 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
 export function formatWordsForPrompt(
   words: WordTimestamp[],
   clipStart: number,
-  clipEnd: number
-): { formatted: string; clippedWords: Array<WordTimestamp & { clipRelStart: number; clipRelEnd: number }> } {
+  clipEnd: number,
+): {
+  formatted: string;
+  clippedWords: Array<WordTimestamp & { clipRelStart: number; clipRelEnd: number }>;
+} {
   const clipped = words
     .filter((w) => w.start >= clipStart - 0.1 && w.end <= clipEnd + 0.1)
     .map((w) => ({
       ...w,
       clipRelStart: Math.max(0, w.start - clipStart),
-      clipRelEnd: Math.min(clipEnd - clipStart, w.end - clipStart)
-    }))
+      clipRelEnd: Math.min(clipEnd - clipStart, w.end - clipStart),
+    }));
 
   const lines = clipped.map(
-    (w, i) =>
-      `[${i}|${w.clipRelStart.toFixed(2)}|${w.clipRelEnd.toFixed(2)}|${w.text}]`
-  )
+    (w, i) => `[${i}|${w.clipRelStart.toFixed(2)}|${w.clipRelEnd.toFixed(2)}|${w.text}]`,
+  );
 
-  return { formatted: lines.join('\n'), clippedWords: clipped }
+  return { formatted: lines.join('\n'), clippedWords: clipped };
 }
 
 // ---------------------------------------------------------------------------
 // Response validation & parsing
 // ---------------------------------------------------------------------------
 
-const VALID_DISPLAY_MODES = new Set(['fullscreen', 'split-top', 'split-bottom', 'pip'])
-const VALID_TRANSITIONS = new Set(['hard-cut', 'crossfade', 'swipe-up', 'swipe-down'])
+const VALID_DISPLAY_MODES = new Set(['fullscreen', 'split-top', 'split-bottom', 'pip']);
+const VALID_TRANSITIONS = new Set(['hard-cut', 'crossfade', 'swipe-up', 'swipe-down']);
 const VALID_SFX_TYPES = new Set<AIEditPlanSFXType>([
-  'whoosh-soft', 'whoosh-hard', 'impact-low', 'impact-high',
-  'rise-tension', 'notification-pop', 'word-pop', 'bass-drop', 'rise-tension-short'
-])
-const VALID_EMPHASIS_LEVELS = new Set(['emphasis', 'supersize'])
+  'whoosh-soft',
+  'whoosh-hard',
+  'impact-low',
+  'impact-high',
+  'rise-tension',
+  'notification-pop',
+  'word-pop',
+  'bass-drop',
+  'rise-tension-short',
+]);
+const VALID_EMPHASIS_LEVELS = new Set(['emphasis', 'supersize']);
 
 export function parseEditPlanResponse(
   raw: string,
   clippedWords: Array<{ clipRelStart: number; clipRelEnd: number; text: string }>,
-  clipDuration: number
-): { wordEmphasis: AIEditPlanWordEmphasis[]; brollSuggestions: AIEditPlanBRollSuggestion[]; sfxSuggestions: AIEditPlanSFXSuggestion[]; reasoning: string } {
+  clipDuration: number,
+): {
+  wordEmphasis: AIEditPlanWordEmphasis[];
+  brollSuggestions: AIEditPlanBRollSuggestion[];
+  sfxSuggestions: AIEditPlanSFXSuggestion[];
+  reasoning: string;
+} {
   // Strip markdown fences if the model added them
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error('No JSON object found in response')
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON object found in response');
 
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0])
+    parsed = JSON.parse(jsonMatch[0]);
   } catch (err) {
-    throw new Error(`Failed to parse edit plan JSON: ${err}`)
+    throw new Error(`Failed to parse edit plan JSON: ${err}`);
   }
 
-  const obj = parsed as Record<string, unknown>
+  const obj = parsed as Record<string, unknown>;
 
   // ---- Word emphasis -------------------------------------------------------
-  const wordEmphasis: AIEditPlanWordEmphasis[] = []
-  const rawEmphasis = Array.isArray(obj.word_emphasis) ? obj.word_emphasis : []
+  const wordEmphasis: AIEditPlanWordEmphasis[] = [];
+  const rawEmphasis = Array.isArray(obj.word_emphasis) ? obj.word_emphasis : [];
   for (const item of rawEmphasis) {
-    if (typeof item !== 'object' || item === null) continue
-    const e = item as Record<string, unknown>
-    const idx = Number(e.word_index)
-    const level = String(e.level ?? '')
+    if (typeof item !== 'object' || item === null) continue;
+    const e = item as Record<string, unknown>;
+    const idx = Number(e.word_index);
+    const level = String(e.level ?? '');
     if (
       !Number.isFinite(idx) ||
       idx < 0 ||
       idx >= clippedWords.length ||
       !VALID_EMPHASIS_LEVELS.has(level)
-    ) continue
+    )
+      continue;
 
-    const word = clippedWords[idx]
+    const word = clippedWords[idx];
     wordEmphasis.push({
       wordIndex: idx,
       text: String(e.text ?? word.text),
       start: Number.isFinite(Number(e.start)) ? Number(e.start) : word.clipRelStart,
       end: Number.isFinite(Number(e.end)) ? Number(e.end) : word.clipRelEnd,
-      level: level as 'emphasis' | 'supersize' | 'box'
-    })
+      level: level as 'emphasis' | 'supersize' | 'box',
+    });
   }
 
   // ---- B-Roll suggestions --------------------------------------------------
-  const brollSuggestions: AIEditPlanBRollSuggestion[] = []
-  const rawBroll = Array.isArray(obj.broll_suggestions) ? obj.broll_suggestions : []
+  const brollSuggestions: AIEditPlanBRollSuggestion[] = [];
+  const rawBroll = Array.isArray(obj.broll_suggestions) ? obj.broll_suggestions : [];
   for (const item of rawBroll) {
-    if (typeof item !== 'object' || item === null) continue
-    const b = item as Record<string, unknown>
-    const ts = Number(b.timestamp)
-    const dur = Number(b.duration)
-    const displayMode = String(b.display_mode ?? '')
-    const transition = String(b.transition ?? '')
-    const keyword = String(b.keyword ?? '').trim()
+    if (typeof item !== 'object' || item === null) continue;
+    const b = item as Record<string, unknown>;
+    const ts = Number(b.timestamp);
+    const dur = Number(b.duration);
+    const displayMode = String(b.display_mode ?? '');
+    const transition = String(b.transition ?? '');
+    const keyword = String(b.keyword ?? '').trim();
     if (
-      !Number.isFinite(ts) || ts < 0 || ts >= clipDuration ||
-      !Number.isFinite(dur) || dur < 1 || dur > 8 ||
+      !Number.isFinite(ts) ||
+      ts < 0 ||
+      ts >= clipDuration ||
+      !Number.isFinite(dur) ||
+      dur < 1 ||
+      dur > 8 ||
       !VALID_DISPLAY_MODES.has(displayMode) ||
       !VALID_TRANSITIONS.has(transition) ||
       keyword.length === 0
-    ) continue
+    )
+      continue;
 
     brollSuggestions.push({
       timestamp: ts,
@@ -240,30 +259,32 @@ export function parseEditPlanResponse(
       keyword,
       displayMode: displayMode as AIEditPlanBRollSuggestion['displayMode'],
       transition: transition as AIEditPlanBRollSuggestion['transition'],
-      reason: String(b.reason ?? '').slice(0, 200)
-    })
+      reason: String(b.reason ?? '').slice(0, 200),
+    });
   }
 
   // ---- SFX suggestions -----------------------------------------------------
-  const sfxSuggestions: AIEditPlanSFXSuggestion[] = []
-  const rawSfx = Array.isArray(obj.sfx_suggestions) ? obj.sfx_suggestions : []
+  const sfxSuggestions: AIEditPlanSFXSuggestion[] = [];
+  const rawSfx = Array.isArray(obj.sfx_suggestions) ? obj.sfx_suggestions : [];
   for (const item of rawSfx) {
-    if (typeof item !== 'object' || item === null) continue
-    const s = item as Record<string, unknown>
-    const ts = Number(s.timestamp)
-    const type = String(s.type ?? '') as AIEditPlanSFXType
-    if (!Number.isFinite(ts) || ts < 0 || ts > clipDuration || !VALID_SFX_TYPES.has(type)) continue
+    if (typeof item !== 'object' || item === null) continue;
+    const s = item as Record<string, unknown>;
+    const ts = Number(s.timestamp);
+    const type = String(s.type ?? '') as AIEditPlanSFXType;
+    if (!Number.isFinite(ts) || ts < 0 || ts > clipDuration || !VALID_SFX_TYPES.has(type)) continue;
 
     sfxSuggestions.push({
       timestamp: ts,
       type,
-      reason: String(s.reason ?? '').slice(0, 200)
-    })
+      reason: String(s.reason ?? '').slice(0, 200),
+    });
   }
 
-  const reasoning = String(obj.reasoning ?? '').trim().slice(0, 600)
+  const reasoning = String(obj.reasoning ?? '')
+    .trim()
+    .slice(0, 600);
 
-  return { wordEmphasis, brollSuggestions, sfxSuggestions, reasoning }
+  return { wordEmphasis, brollSuggestions, sfxSuggestions, reasoning };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,17 +292,17 @@ export function parseEditPlanResponse(
 // ---------------------------------------------------------------------------
 
 export interface GenerateEditPlanOptions {
-  apiKey: string
-  clipId: string
-  clipStart: number
-  clipEnd: number
-  words: WordTimestamp[]
+  apiKey: string;
+  clipId: string;
+  clipStart: number;
+  clipEnd: number;
+  words: WordTimestamp[];
   /** Raw transcript text for context */
-  transcriptText: string
-  stylePresetId: string
-  stylePresetName: string
+  transcriptText: string;
+  stylePresetId: string;
+  stylePresetName: string;
   /** Category from EditStylePreset — controls prompt calibration */
-  stylePresetCategory: string
+  stylePresetCategory: string;
 }
 
 /**
@@ -301,19 +322,19 @@ export async function generateEditPlan(options: GenerateEditPlanOptions): Promis
     words,
     stylePresetId,
     stylePresetName,
-    stylePresetCategory
-  } = options
+    stylePresetCategory,
+  } = options;
 
-  if (!apiKey) throw new Error('Gemini API key is required to generate an edit plan.')
+  if (!apiKey) throw new Error('Gemini API key is required to generate an edit plan.');
 
-  const clipDuration = clipEnd - clipStart
+  const clipDuration = clipEnd - clipStart;
 
   // Build clip-relative word list and formatted transcript
   const { formatted: formattedTranscript, clippedWords } = formatWordsForPrompt(
     words,
     clipStart,
-    clipEnd
-  )
+    clipEnd,
+  );
 
   if (clippedWords.length === 0) {
     // No words in range — return an empty plan
@@ -325,20 +346,20 @@ export async function generateEditPlan(options: GenerateEditPlanOptions): Promis
       brollSuggestions: [],
       sfxSuggestions: [],
       reasoning: 'No transcript words found in this clip range.',
-      generatedAt: Date.now()
-    }
+      generatedAt: Date.now(),
+    };
   }
 
   // ---- Cache lookup --------------------------------------------------------
-  const cacheKey = buildEditPlanCacheKey(words, clipStart, clipEnd, stylePresetId)
-  const cached = getCachedEditPlan(cacheKey)
+  const cacheKey = buildEditPlanCacheKey(words, clipStart, clipEnd, stylePresetId);
+  const cached = getCachedEditPlan(cacheKey);
   if (cached) {
-    console.log(`[EditPlan] Cache HIT for clip ${clipId} (key=${cacheKey})`)
+    console.log(`[EditPlan] Cache HIT for clip ${clipId} (key=${cacheKey})`);
     // Preserve the original clipId in case the same transcript is shared
-    return { ...cached, clipId, generatedAt: Date.now() }
+    return { ...cached, clipId, generatedAt: Date.now() };
   }
 
-  console.log(`[EditPlan] Cache MISS for clip ${clipId} (key=${cacheKey}) — calling Gemini`)
+  console.log(`[EditPlan] Cache MISS for clip ${clipId} (key=${cacheKey}) — calling Gemini`);
 
   // ---- API call ------------------------------------------------------------
   const prompt = buildEditPlanPrompt(
@@ -346,28 +367,31 @@ export async function generateEditPlan(options: GenerateEditPlanOptions): Promis
     clipDuration,
     stylePresetName,
     stylePresetCategory,
-    clippedWords.length
-  )
+    clippedWords.length,
+  );
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   // Use BALANCED chain — this complex multi-layer analysis needs Flash-class reasoning.
   const call: GeminiCall = {
     model: MODELS.BALANCED[0],
     fallbacks: MODELS.BALANCED.slice(1),
     config: {
       responseMimeType: 'application/json',
-      temperature: 0.3 // lower temperature for consistent, structured output
-    }
-  }
-  const raw = await callGeminiWithRetry(ai, call, prompt, 'edit-plan')
+      temperature: 0.3, // lower temperature for consistent, structured output
+    },
+  };
+  const raw = await callGeminiWithRetry(ai, call, prompt, 'edit-plan');
 
-  const { wordEmphasis, brollSuggestions, sfxSuggestions, reasoning } =
-    parseEditPlanResponse(raw, clippedWords, clipDuration)
+  const { wordEmphasis, brollSuggestions, sfxSuggestions, reasoning } = parseEditPlanResponse(
+    raw,
+    clippedWords,
+    clipDuration,
+  );
 
   console.log(
     `[EditPlan] Clip ${clipId}: ${wordEmphasis.length} emphasis tags, ` +
-    `${brollSuggestions.length} B-Roll suggestions, ${sfxSuggestions.length} SFX hits`
-  )
+      `${brollSuggestions.length} B-Roll suggestions, ${sfxSuggestions.length} SFX hits`,
+  );
 
   const plan: AIEditPlan = {
     clipId,
@@ -377,13 +401,13 @@ export async function generateEditPlan(options: GenerateEditPlanOptions): Promis
     brollSuggestions,
     sfxSuggestions,
     reasoning,
-    generatedAt: Date.now()
-  }
+    generatedAt: Date.now(),
+  };
 
   // ---- Cache store ---------------------------------------------------------
-  setCachedEditPlan(cacheKey, plan)
+  setCachedEditPlan(cacheKey, plan);
   // Opportunistic eviction — lightweight, runs after every write
-  evictEditPlanCache()
+  evictEditPlanCache();
 
-  return plan
+  return plan;
 }

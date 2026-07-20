@@ -1,12 +1,13 @@
-import { GoogleGenAI } from '@google/genai'
-import { callGeminiWithRetry, MODELS, type GeminiCall } from './ai/gemini-client'
+import { GoogleGenAI, Type } from '@google/genai';
+import { callGeminiWithRetry, type GeminiCall, MODELS } from './ai/gemini-client';
 
 // ---------------------------------------------------------------------------
 // Types (canonical definitions live in @shared/types)
 // ---------------------------------------------------------------------------
 
-import type { TargetDuration, ScoredSegment, ScoringResult, ScoringProgress } from '@shared/types'
-export type { TargetDuration, ScoredSegment, ScoringResult, ScoringProgress }
+import type { ScoredSegment, ScoringProgress, ScoringResult, TargetDuration } from '@shared/types';
+
+export type { ScoredSegment, ScoringProgress, ScoringResult, TargetDuration };
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -18,16 +19,15 @@ export type { TargetDuration, ScoredSegment, ScoringResult, ScoringProgress }
 function getTimingRule(targetDuration: TargetDuration): string {
   switch (targetDuration) {
     case '15-30':
-      return 'Each segment MUST be 15-30 seconds (optimal: 18-25 seconds)'
+      return 'Each segment MUST be 15-30 seconds (optimal: 18-25 seconds)';
     case '30-60':
-      return 'Each segment MUST be 30-60 seconds (optimal: 35-50 seconds)'
+      return 'Each segment MUST be 30-60 seconds (optimal: 35-50 seconds)';
     case '60-90':
-      return 'Each segment MUST be 60-90 seconds (optimal: 65-80 seconds)'
+      return 'Each segment MUST be 60-90 seconds (optimal: 65-80 seconds)';
     case '90-120':
-      return 'Each segment MUST be 90-120 seconds (optimal: 95-110 seconds)'
-    case 'auto':
+      return 'Each segment MUST be 90-120 seconds (optimal: 95-110 seconds)';
     default:
-      return 'Each segment should be 15 seconds MINIMUM, with ~40 seconds being ideal. Clips can be up to 3 minutes if every second is pure value. There is no such thing as too long, only too boring.'
+      return 'Each segment should be 15 seconds MINIMUM, with ~40 seconds being ideal. Clips can be up to 3 minutes if every second is pure value. There is no such thing as too long, only too boring.';
   }
 }
 
@@ -37,23 +37,22 @@ function getTimingRule(targetDuration: TargetDuration): string {
 function getMinDuration(targetDuration: TargetDuration): number {
   switch (targetDuration) {
     case '15-30':
-      return 15
+      return 15;
     case '30-60':
-      return 25
+      return 25;
     case '60-90':
-      return 50
+      return 50;
     case '90-120':
-      return 75
-    case 'auto':
+      return 75;
     default:
-      return 15
+      return 15;
   }
 }
 
 function buildSystemPrompt(targetDuration: TargetDuration, targetAudience: string): string {
   const audienceBlock = targetAudience
     ? `\nTARGET AUDIENCE:\n${targetAudience}\n\nEvery clip MUST pass this filter: "Would the person I want to attract find this valuable?" If the answer is no, do NOT include it. You are playing the CONVERSION GAME — education, on-target views, shares, average view duration. NOT the awareness/entertainment game.`
-    : ''
+    : '';
 
   return `You are an expert at analyzing video transcripts to find the most valuable, complete segments for short-form vertical video content (TikTok, Instagram Reels, YouTube Shorts).
 ${audienceBlock}
@@ -147,7 +146,7 @@ Return valid JSON with this exact structure:
   ],
   "summary": "Brief summary of the full video",
   "key_topics": ["topic1", "topic2"]
-}`
+}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,30 +158,115 @@ Return valid JSON with this exact structure:
  * Returns NaN if the format is unrecognised.
  */
 function parseTimestamp(ts: string): number {
-  const parts = ts.trim().split(':').map(Number)
-  if (parts.some(isNaN)) return NaN
+  const parts = ts.trim().split(':').map(Number);
+  if (parts.some(Number.isNaN)) return NaN;
   if (parts.length === 2) {
-    return parts[0] * 60 + parts[1]
+    return parts[0] * 60 + parts[1];
   }
   if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
   }
-  return NaN
+  return NaN;
 }
 
 interface RawSegment {
-  start_time?: unknown
-  end_time?: unknown
-  text?: unknown
-  score?: unknown
-  hook_text?: unknown
-  reasoning?: unknown
+  start_time?: unknown;
+  end_time?: unknown;
+  text?: unknown;
+  score?: unknown;
+  hook_text?: unknown;
+  reasoning?: unknown;
 }
 
 interface RawResponse {
-  segments?: unknown
-  summary?: unknown
-  key_topics?: unknown
+  segments?: unknown;
+  summary?: unknown;
+  key_topics?: unknown;
+}
+
+const SCORING_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    segments: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          start_time: { type: Type.STRING },
+          end_time: { type: Type.STRING },
+          text: { type: Type.STRING },
+          score: { type: Type.INTEGER },
+          hook_text: { type: Type.STRING },
+          reasoning: { type: Type.STRING },
+        },
+        required: ['start_time', 'end_time', 'text', 'score', 'hook_text', 'reasoning'],
+      },
+    },
+    summary: { type: Type.STRING },
+    key_topics: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ['segments', 'summary', 'key_topics'],
+};
+
+/**
+ * Parse the first complete JSON object in a Gemini response.
+ *
+ * Structured output should return one object, but preview models can occasionally
+ * concatenate a second object or wrap the payload in prose/code fences. A greedy
+ * `{...}` regex captures both objects and reproduces the original parse failure.
+ * This scanner respects quoted braces and stops at the first valid root object.
+ */
+function parseScoringResponse(text: string): RawResponse {
+  try {
+    return JSON.parse(text) as RawResponse;
+  } catch {
+    let objectStart = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < text.length; index++) {
+      const character = text[index];
+
+      if (objectStart === -1) {
+        if (character === '{') {
+          objectStart = index;
+          depth = 1;
+        }
+        continue;
+      }
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (character === '\\') {
+          escaped = true;
+        } else if (character === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (character === '"') {
+        inString = true;
+      } else if (character === '{') {
+        depth++;
+      } else if (character === '}') {
+        depth--;
+        if (depth === 0) {
+          try {
+            return JSON.parse(text.slice(objectStart, index + 1)) as RawResponse;
+          } catch {
+            objectStart = -1;
+            inString = false;
+            escaped = false;
+          }
+        }
+      }
+    }
+  }
+
+  throw new Error('Gemini returned an unparseable scoring response');
 }
 
 /**
@@ -196,74 +280,78 @@ interface RawResponse {
  * through and show up in the grid so the user can see what was rejected
  * and decide for themselves.
  */
-const VALIDATOR_MIN_SCORE = 50
+const VALIDATOR_MIN_SCORE = 50;
 
 interface ValidationOutcome {
-  segments: ScoredSegment[]
-  rejectionReasons: Record<string, number>
+  segments: ScoredSegment[];
+  rejectionReasons: Record<string, number>;
 }
 
-function validateSegments(raw: RawSegment[], videoDuration: number, targetDuration: TargetDuration = 'auto'): ValidationOutcome {
-  const minDuration = getMinDuration(targetDuration)
-  const parsed: ScoredSegment[] = []
-  const rejectionReasons: Record<string, number> = {}
+function validateSegments(
+  raw: RawSegment[],
+  videoDuration: number,
+  targetDuration: TargetDuration = 'auto',
+): ValidationOutcome {
+  const minDuration = getMinDuration(targetDuration);
+  const parsed: ScoredSegment[] = [];
+  const rejectionReasons: Record<string, number> = {};
   const reject = (reason: string): void => {
-    rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1
-  }
+    rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1;
+  };
 
   // If videoDuration is zero/negative/non-finite, treat the bound as unknown
   // rather than rejecting every segment. This guards against an upstream bug
   // where the source's duration was never written back after download — in
   // that case we'd rather accept Gemini's timestamps than throw away every
   // segment with `start-past-video-end`.
-  const hasVideoBound = Number.isFinite(videoDuration) && videoDuration > 0
+  const hasVideoBound = Number.isFinite(videoDuration) && videoDuration > 0;
 
   for (const seg of raw) {
     if (typeof seg.start_time !== 'string' || typeof seg.end_time !== 'string') {
-      reject('missing-timestamps')
-      continue
+      reject('missing-timestamps');
+      continue;
     }
     if (typeof seg.text !== 'string' || seg.text.trim().split(/\s+/).length < 3) {
-      reject('text-too-short')
-      continue
+      reject('text-too-short');
+      continue;
     }
 
-    const startTime = parseTimestamp(seg.start_time)
-    const endTime = parseTimestamp(seg.end_time)
+    const startTime = parseTimestamp(seg.start_time);
+    const endTime = parseTimestamp(seg.end_time);
 
-    if (isNaN(startTime) || isNaN(endTime)) {
-      reject('unparseable-timestamps')
-      continue
+    if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
+      reject('unparseable-timestamps');
+      continue;
     }
     if (startTime >= endTime) {
-      reject('start-after-end')
-      continue
+      reject('start-after-end');
+      continue;
     }
 
-    const duration = endTime - startTime
+    const duration = endTime - startTime;
     if (duration < minDuration) {
-      reject(`duration-below-${minDuration}s`)
-      continue
+      reject(`duration-below-${minDuration}s`);
+      continue;
     }
 
-    const score = typeof seg.score === 'number' ? seg.score : Number(seg.score)
-    if (isNaN(score)) {
-      reject('invalid-score')
-      continue
+    const score = typeof seg.score === 'number' ? seg.score : Number(seg.score);
+    if (Number.isNaN(score)) {
+      reject('invalid-score');
+      continue;
     }
     if (score < VALIDATOR_MIN_SCORE) {
-      reject(`score-below-${VALIDATOR_MIN_SCORE}`)
-      continue
+      reject(`score-below-${VALIDATOR_MIN_SCORE}`);
+      continue;
     }
 
     // Clamp to video duration only when we know it.
-    let clampedEnd = endTime
+    let clampedEnd = endTime;
     if (hasVideoBound) {
       if (startTime >= videoDuration) {
-        reject('start-past-video-end')
-        continue
+        reject('start-past-video-end');
+        continue;
       }
-      clampedEnd = Math.min(endTime, videoDuration)
+      clampedEnd = Math.min(endTime, videoDuration);
     }
 
     parsed.push({
@@ -272,8 +360,8 @@ function validateSegments(raw: RawSegment[], videoDuration: number, targetDurati
       text: String(seg.text).trim(),
       score: Math.min(100, Math.max(0, Math.round(score))),
       hookText: typeof seg.hook_text === 'string' ? seg.hook_text.trim() : '',
-      reasoning: typeof seg.reasoning === 'string' ? seg.reasoning.trim() : ''
-    })
+      reasoning: typeof seg.reasoning === 'string' ? seg.reasoning.trim() : '',
+    });
   }
 
   if (raw.length > 0 && parsed.length === 0) {
@@ -282,40 +370,42 @@ function validateSegments(raw: RawSegment[], videoDuration: number, targetDurati
       rejectionReasons,
       `videoDuration=${videoDuration}`,
       'Sample raw scores:',
-      raw.slice(0, 5).map((s) => ({ score: s.score, start: s.start_time, end: s.end_time }))
-    )
+      raw.slice(0, 5).map((s) => ({ score: s.score, start: s.start_time, end: s.end_time })),
+    );
   } else if (raw.length > 0) {
     console.log(
       `[scoring] Gemini returned ${raw.length} segments, ${parsed.length} passed validation.`,
-      Object.keys(rejectionReasons).length > 0 ? `Rejections: ${JSON.stringify(rejectionReasons)}` : ''
-    )
+      Object.keys(rejectionReasons).length > 0
+        ? `Rejections: ${JSON.stringify(rejectionReasons)}`
+        : '',
+    );
   }
 
   // Sort by score descending
-  parsed.sort((a, b) => b.score - a.score)
+  parsed.sort((a, b) => b.score - a.score);
 
   // Remove overlapping segments — keep the higher-scored one (already sorted)
-  const result: ScoredSegment[] = []
+  const result: ScoredSegment[] = [];
   for (const seg of parsed) {
     const overlaps = result.some(
-      (kept) => seg.startTime < kept.endTime && seg.endTime > kept.startTime
-    )
+      (kept) => seg.startTime < kept.endTime && seg.endTime > kept.startTime,
+    );
     if (!overlaps) {
-      result.push(seg)
+      result.push(seg);
     }
   }
 
-  return { segments: result, rejectionReasons }
+  return { segments: result, rejectionReasons };
 }
 
 /** Format a rejection-reasons map as a compact, human-readable string. */
 function formatRejectionReasons(reasons: Record<string, number>): string {
-  const entries = Object.entries(reasons)
-  if (entries.length === 0) return ''
+  const entries = Object.entries(reasons);
+  if (entries.length === 0) return '';
   return entries
     .sort((a, b) => b[1] - a[1])
     .map(([reason, count]) => `${reason}×${count}`)
-    .join(', ')
+    .join(', ');
 }
 
 // ---------------------------------------------------------------------------
@@ -328,68 +418,68 @@ export async function scoreTranscript(
   videoDuration: number,
   onProgress: (p: ScoringProgress) => void,
   targetDuration: TargetDuration = 'auto',
-  targetAudience: string = ''
+  targetAudience: string = '',
 ): Promise<ScoringResult> {
-  onProgress({ stage: 'sending', message: 'Sending transcript to Gemini AI...' })
+  onProgress({ stage: 'sending', message: 'Sending transcript to Gemini AI...' });
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.FAST[0],
     fallbacks: MODELS.FAST.slice(1),
-    config: { responseMimeType: 'application/json' }
-  }
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: SCORING_RESPONSE_SCHEMA,
+    },
+  };
 
-  const systemPrompt = buildSystemPrompt(targetDuration, targetAudience)
+  const systemPrompt = buildSystemPrompt(targetDuration, targetAudience);
 
   const prompt = `${systemPrompt}
 
 Analyze this video transcript and identify the most engaging segments for short-form content.
 
 Transcript:
-${formattedTranscript}`
+${formattedTranscript}`;
 
-  onProgress({ stage: 'analyzing', message: 'Gemini is analyzing the transcript...' })
+  onProgress({ stage: 'analyzing', message: 'Gemini is analyzing the transcript...' });
 
-  const text = await callGeminiWithRetry(ai, call, prompt, 'scoring')
+  const text = await callGeminiWithRetry(ai, call, prompt, 'scoring');
 
-  onProgress({ stage: 'validating', message: 'Validating and scoring segments...' })
+  onProgress({ stage: 'validating', message: 'Validating and scoring segments...' });
 
-  let rawResponse: RawResponse
-  try {
-    rawResponse = JSON.parse(text) as RawResponse
-  } catch {
-    // Try to extract JSON from within the text if the model wrapped it
-    const match = text.match(/\{[\s\S]*\}/)
-    if (!match) {
-      throw new Error('Gemini returned an unparseable response')
-    }
-    rawResponse = JSON.parse(match[0]) as RawResponse
-  }
+  const rawResponse = parseScoringResponse(text);
 
-  const rawSegments = Array.isArray(rawResponse.segments) ? (rawResponse.segments as RawSegment[]) : []
-  const { segments, rejectionReasons } = validateSegments(rawSegments, videoDuration, targetDuration)
+  const rawSegments = Array.isArray(rawResponse.segments)
+    ? (rawResponse.segments as RawSegment[])
+    : [];
+  const { segments, rejectionReasons } = validateSegments(
+    rawSegments,
+    videoDuration,
+    targetDuration,
+  );
 
   if (segments.length === 0) {
-    const rawCount = rawSegments.length
+    const rawCount = rawSegments.length;
     if (rawCount === 0) {
       throw new Error(
-        'Gemini returned 0 segments. The transcript may be too short, silent, or unintelligible. Check the source video.'
-      )
+        'Gemini returned 0 segments. The transcript may be too short, silent, or unintelligible. Check the source video.',
+      );
     }
     const sampleScores = rawSegments
       .slice(0, 5)
       .map((s) => (typeof s.score === 'number' ? s.score : Number(s.score)))
-      .filter((n) => !isNaN(n))
-    const reasonStr = formatRejectionReasons(rejectionReasons)
+      .filter((n) => !Number.isNaN(n));
+    const reasonStr = formatRejectionReasons(rejectionReasons);
     const durationNote =
-      rejectionReasons['start-past-video-end'] && (!Number.isFinite(videoDuration) || videoDuration <= 0)
+      rejectionReasons['start-past-video-end'] &&
+      (!Number.isFinite(videoDuration) || videoDuration <= 0)
         ? ' (videoDuration was 0 — source metadata likely missing)'
-        : ''
+        : '';
     throw new Error(
       `Gemini returned ${rawCount} segments but all were filtered out by validation. ` +
-      `Sample scores: [${sampleScores.join(', ')}]. ` +
-      `Rejection reasons: ${reasonStr || '(none recorded)'}${durationNote}.`
-    )
+        `Sample scores: [${sampleScores.join(', ')}]. ` +
+        `Rejection reasons: ${reasonStr || '(none recorded)'}${durationNote}.`,
+    );
   }
 
   return {
@@ -397,8 +487,8 @@ ${formattedTranscript}`
     summary: typeof rawResponse.summary === 'string' ? rawResponse.summary : '',
     keyTopics: Array.isArray(rawResponse.key_topics)
       ? (rawResponse.key_topics as unknown[]).filter((t): t is string => typeof t === 'string')
-      : []
-  }
+      : [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -406,9 +496,9 @@ ${formattedTranscript}`
 // ---------------------------------------------------------------------------
 
 export interface SingleClipRescoreResult {
-  score: number
-  reasoning: string
-  hookText: string
+  score: number;
+  reasoning: string;
+  hookText: string;
 }
 
 /**
@@ -418,14 +508,14 @@ export interface SingleClipRescoreResult {
 export async function rescoreSingleClip(
   apiKey: string,
   clipText: string,
-  clipDuration: number
+  clipDuration: number,
 ): Promise<SingleClipRescoreResult> {
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.FAST[0],
     fallbacks: MODELS.FAST.slice(1),
-    config: { responseMimeType: 'application/json' }
-  }
+    config: { responseMimeType: 'application/json' },
+  };
 
   const prompt = `You are an expert at scoring short-form video clips for viral potential on TikTok, Instagram Reels, and YouTube Shorts.
 
@@ -462,46 +552,51 @@ Return valid JSON:
   "hook_text": "$47K/month from rentals?"
 }
 
-Transcript: "${clipText.trim()}"`
+Transcript: "${clipText.trim()}"`;
 
-  const text = await callGeminiWithRetry(ai, call, prompt, 'rescore')
+  const text = await callGeminiWithRetry(ai, call, prompt, 'rescore');
 
-  let raw: { score?: unknown; reasoning?: unknown; hook_text?: unknown }
+  let raw: { score?: unknown; reasoning?: unknown; hook_text?: unknown };
   try {
-    raw = JSON.parse(text) as typeof raw
+    raw = JSON.parse(text) as typeof raw;
   } catch {
-    const match = text.match(/\{[\s\S]*\}/)
-    if (!match) throw new Error('Gemini returned an unparseable response for re-score')
-    raw = JSON.parse(match[0]) as typeof raw
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Gemini returned an unparseable response for re-score');
+    raw = JSON.parse(match[0]) as typeof raw;
   }
 
-  const score = typeof raw.score === 'number' ? raw.score : Number(raw.score)
-  if (isNaN(score)) throw new Error('Gemini returned an invalid score')
+  const score = typeof raw.score === 'number' ? raw.score : Number(raw.score);
+  if (Number.isNaN(score)) throw new Error('Gemini returned an invalid score');
 
   return {
     score: Math.min(100, Math.max(0, Math.round(score))),
     reasoning: typeof raw.reasoning === 'string' ? raw.reasoning.trim() : '',
-    hookText: typeof raw.hook_text === 'string' ? raw.hook_text.trim() : ''
-  }
+    hookText: typeof raw.hook_text === 'string' ? raw.hook_text.trim() : '',
+  };
 }
 
 // ---------------------------------------------------------------------------
 // generateHookText
 // ---------------------------------------------------------------------------
 
-export async function generateHookText(apiKey: string, transcript: string, videoSummary?: string, keyTopics?: string[]): Promise<string> {
-  const ai = new GoogleGenAI({ apiKey })
+export async function generateHookText(
+  apiKey: string,
+  transcript: string,
+  videoSummary?: string,
+  keyTopics?: string[],
+): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.BALANCED[0],
-    fallbacks: MODELS.BALANCED.slice(1)
-  }
+    fallbacks: MODELS.BALANCED.slice(1),
+  };
 
-  let contextBlock = ''
+  let contextBlock = '';
   if (videoSummary || (keyTopics && keyTopics.length > 0)) {
-    const parts: string[] = []
-    if (videoSummary) parts.push(`Video context: ${videoSummary}`)
-    if (keyTopics && keyTopics.length > 0) parts.push(`Key topics: ${keyTopics.join(', ')}`)
-    contextBlock = parts.join('\n') + '\n\n'
+    const parts: string[] = [];
+    if (videoSummary) parts.push(`Video context: ${videoSummary}`);
+    if (keyTopics && keyTopics.length > 0) parts.push(`Key topics: ${keyTopics.join(', ')}`);
+    contextBlock = `${parts.join('\n')}\n\n`;
   }
 
   try {
@@ -536,10 +631,10 @@ Do NOT:
 Given the transcript below, write ONE piece of on-screen hook text. Return ONLY the text, nothing else.
 
 ${contextBlock}Transcript: "${transcript}"`,
-      'hooks'
-    )
+      'hooks',
+    );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    throw new Error(`Failed to generate hook text: ${msg}`)
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to generate hook text: ${msg}`);
   }
 }

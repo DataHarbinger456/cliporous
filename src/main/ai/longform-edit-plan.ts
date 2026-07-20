@@ -12,25 +12,25 @@
 // because we feed the model absolute word times.
 // ---------------------------------------------------------------------------
 
-import { GoogleGenAI } from '@google/genai'
-import { log } from '../logger'
-import { callGeminiWithRetry, MODELS, type GeminiCall } from './gemini-client'
+import { GoogleGenAI } from '@google/genai';
 import type {
-  WordTimestamp,
+  BlockPlacement,
+  DelosCardKind,
+  DelosCardPlacement,
+  LongformBlockKind,
   LongformEditPlan,
   PhraseEmphasis,
-  BlockPlacement,
-  LongformBlockKind,
-  DelosCardKind,
-  DelosCardPlacement
-} from '@shared/types'
+  WordTimestamp,
+} from '@shared/types';
+import { log } from '../logger';
+import { callGeminiWithRetry, type GeminiCall, MODELS } from './gemini-client';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /** Window size (seconds) the transcript is chunked into for the AI call. */
-const WINDOW_SECONDS = 300
+const WINDOW_SECONDS = 300;
 
 // ── Content-block cadence ──────────────────────────────────────────────────
 // Blocks keep the video visually engaging — business viewers aren't goldfish,
@@ -42,7 +42,7 @@ const WINDOW_SECONDS = 300
 // assembler thin them to cadence.
 
 /** Target one content block per this many seconds of speech (~one per 8s). */
-const SECONDS_PER_BLOCK = 8
+const SECONDS_PER_BLOCK = 8;
 
 // ── Intro phrase cadence ───────────────────────────────────────────────────
 // Phrase overlays (floating lower-third emphasis text) only need punchy spoken
@@ -53,13 +53,13 @@ const SECONDS_PER_BLOCK = 8
 // INTRO HOOK in render/longform-pipeline.ts (INTRO_SECONDS = 60).
 
 /** Opening window (seconds, from video start) that runs the denser phrase pace. */
-const INTRO_PHRASE_SECONDS = 60
+const INTRO_PHRASE_SECONDS = 60;
 /** Target one intro phrase per this many seconds of speech (~one per 3.5s). */
-const INTRO_SECONDS_PER_PHRASE = 3.5
+const INTRO_SECONDS_PER_PHRASE = 3.5;
 /** Never ask for fewer than this many blocks in a full-size window. */
-const MIN_BLOCKS_PER_WINDOW = 2
+const MIN_BLOCKS_PER_WINDOW = 2;
 /** Never ask for more than this many blocks in a single window (anti-spam ceiling). */
-const MAX_BLOCKS_PER_WINDOW = 36
+const MAX_BLOCKS_PER_WINDOW = 36;
 
 /**
  * Per-window upper bound on content blocks the model may emit. Scales with the
@@ -68,12 +68,12 @@ const MAX_BLOCKS_PER_WINDOW = 36
  * window size. Deterministic: a given duration always yields the same cap.
  */
 function maxBlocksForWindow(windowDurationSec: number): number {
-  const target = Math.round(windowDurationSec / SECONDS_PER_BLOCK)
+  const target = Math.round(windowDurationSec / SECONDS_PER_BLOCK);
   // A very short trailing window can legitimately warrant a single block; only
   // apply the MIN floor once the window is long enough to host two at cadence.
   const floor =
-    windowDurationSec >= SECONDS_PER_BLOCK * MIN_BLOCKS_PER_WINDOW ? MIN_BLOCKS_PER_WINDOW : 1
-  return Math.min(MAX_BLOCKS_PER_WINDOW, Math.max(floor, target))
+    windowDurationSec >= SECONDS_PER_BLOCK * MIN_BLOCKS_PER_WINDOW ? MIN_BLOCKS_PER_WINDOW : 1;
+  return Math.min(MAX_BLOCKS_PER_WINDOW, Math.max(floor, target));
 }
 
 // NOTE: 'callout' is intentionally omitted. It rendered as a full-frame text
@@ -103,8 +103,8 @@ const VALID_BLOCK_KINDS = new Set<LongformBlockKind>([
   'leaderboard',
   'donut',
   'funnel',
-  'map'
-])
+  'map',
+]);
 
 // ---------------------------------------------------------------------------
 // Prompt
@@ -113,10 +113,11 @@ const VALID_BLOCK_KINDS = new Set<LongformBlockKind>([
 function buildLongformPrompt(
   formattedTranscript: string,
   windowDurationSec: number,
-  windowStart: number
+  windowStart: number,
+  feedback: readonly string[] = [],
 ): string {
-  const baseMaxPhrases = Math.max(2, Math.round((windowDurationSec / 120) * 5))
-  const maxBlocks = maxBlocksForWindow(windowDurationSec)
+  const baseMaxPhrases = Math.max(2, Math.round((windowDurationSec / 120) * 5));
+  const maxBlocks = maxBlocksForWindow(windowDurationSec);
 
   // The intro window (the chunk that contains video time 0) gets an extra
   // phrase allowance sized to the denser intro pace, on top of the body quota
@@ -124,21 +125,30 @@ function buildLongformPrompt(
   const introCoverage =
     windowStart < INTRO_PHRASE_SECONDS
       ? Math.min(INTRO_PHRASE_SECONDS, windowStart + windowDurationSec) - windowStart
-      : 0
+      : 0;
   const introPhraseBoost =
-    introCoverage > 0 ? Math.round(introCoverage / INTRO_SECONDS_PER_PHRASE) : 0
-  const maxPhrases = baseMaxPhrases + introPhraseBoost
+    introCoverage > 0 ? Math.round(introCoverage / INTRO_SECONDS_PER_PHRASE) : 0;
+  const maxPhrases = baseMaxPhrases + introPhraseBoost;
 
   const introPhraseHint =
     introCoverage > 0
       ? `\n  - INTRO PHRASES: pack the first ${INTRO_PHRASE_SECONDS} seconds (any phrase with start < ${INTRO_PHRASE_SECONDS}) with emphasis text — aim for a NEW phrase roughly every ${INTRO_SECONDS_PER_PHRASE} seconds of speech (target ~${Math.round(
-          Math.min(30, introCoverage) / INTRO_SECONDS_PER_PHRASE
+          Math.min(30, introCoverage) / INTRO_SECONDS_PER_PHRASE,
         )} phrases in the first 30s), then ease to the body pace. The open decides whether viewers stay, so give it the most emphasis text. Every phrase must still be real spoken words, 2-6 words, punchy.`
-      : ''
+      : '';
+
+  const feedbackInstructions = feedback.length
+    ? `\nCREATOR FEEDBACK TO APPLY:\n${feedback
+        .slice(0, 20)
+        .map((item, index) => `  ${index + 1}. ${item.slice(0, 500)}`)
+        .join(
+          '\n',
+        )}\nApply these notes where they are relevant to this transcript window. Keep every visual grounded in spoken evidence.\n`
+    : '';
 
   return `You are a senior YouTube editor specializing in Alex Hormozi-style talking head videos.
 
-Given this transcript window, produce an edit plan with two layers. All timestamps you return MUST be absolute seconds copied from the transcript word times below (do not invent times).
+Given this transcript window, produce an edit plan with two layers. All timestamps you return MUST be absolute seconds copied from the transcript word times below (do not invent times).${feedbackInstructions}
 
 TRANSCRIPT (format: [absolute_start_sec|absolute_end_sec|word_text]):
 ${formattedTranscript}
@@ -221,7 +231,7 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
     {"kind": "numbered-list", "start": 120.0, "end": 125.0, "kicker": "THE PLAYBOOK", "heading": "Three Steps To Start", "items": [{"text": "Validate the pain", "detail": "Ten conversations first"}, {"text": "Pre-sell the offer"}, {"text": "Ship the ugly version"}]},
     {"kind": "stat-hero", "start": 200.0, "end": 205.0, "kicker": "ONE YEAR IN", "heading": "Annual Revenue", "value": 1.2, "decimals": 1, "prefix": "$", "suffix": "M", "label": "Up from $310K", "trend": "up", "delta": "+287%"}
   ]
-}`
+}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,9 +239,7 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
 // ---------------------------------------------------------------------------
 
 function formatWindow(words: WordTimestamp[]): string {
-  return words
-    .map((w) => `[${w.start.toFixed(2)}|${w.end.toFixed(2)}|${w.text}]`)
-    .join('\n')
+  return words.map((w) => `[${w.start.toFixed(2)}|${w.end.toFixed(2)}|${w.text}]`).join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -241,45 +249,45 @@ function formatWindow(words: WordTimestamp[]): string {
 function parseWindowResponse(
   raw: string,
   windowStart: number,
-  windowEnd: number
+  windowEnd: number,
 ): {
-  phrases: PhraseEmphasis[]
-  blocks: BlockPlacement[]
+  phrases: PhraseEmphasis[];
+  blocks: BlockPlacement[];
 } {
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) return { phrases: [], blocks: [] }
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return { phrases: [], blocks: [] };
 
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0])
+    parsed = JSON.parse(jsonMatch[0]);
   } catch {
-    return { phrases: [], blocks: [] }
+    return { phrases: [], blocks: [] };
   }
-  const obj = parsed as Record<string, unknown>
+  const obj = parsed as Record<string, unknown>;
 
   const inRange = (start: number, end: number): boolean =>
     Number.isFinite(start) &&
     Number.isFinite(end) &&
     end > start &&
     start >= windowStart - 1 &&
-    start <= windowEnd + 1
+    start <= windowEnd + 1;
 
   // ---- Phrases -------------------------------------------------------------
-  const phrases: PhraseEmphasis[] = []
+  const phrases: PhraseEmphasis[] = [];
   for (const item of Array.isArray(obj.phrases) ? obj.phrases : []) {
-    if (typeof item !== 'object' || item === null) continue
-    const p = item as Record<string, unknown>
-    const text = String(p.text ?? '').trim()
-    const start = Number(p.start)
-    const end = Number(p.end)
-    if (text.length === 0 || !inRange(start, end)) continue
-    phrases.push({ text, startTime: start, endTime: end })
+    if (typeof item !== 'object' || item === null) continue;
+    const p = item as Record<string, unknown>;
+    const text = String(p.text ?? '').trim();
+    const start = Number(p.start);
+    const end = Number(p.end);
+    if (text.length === 0 || !inRange(start, end)) continue;
+    phrases.push({ text, startTime: start, endTime: end });
   }
 
   // ---- Content blocks ------------------------------------------------------
-  const blocks = parseBlocks(obj.blocks, inRange)
+  const blocks = parseBlocks(obj.blocks, inRange);
 
-  return { phrases, blocks }
+  return { phrases, blocks };
 }
 
 // ---------------------------------------------------------------------------
@@ -288,20 +296,23 @@ function parseWindowResponse(
 // ---------------------------------------------------------------------------
 
 function str(v: unknown): string {
-  return v == null ? '' : String(v).trim()
+  return v == null ? '' : String(v).trim();
 }
 
 function strList(v: unknown, max: number): string[] {
   return Array.isArray(v)
-    ? v.map((x) => str(x)).filter((x) => x.length > 0).slice(0, max)
-    : []
+    ? v
+        .map((x) => str(x))
+        .filter((x) => x.length > 0)
+        .slice(0, max)
+    : [];
 }
 
 /** Clamp a number into [0,1]; returns 0 for non-finite input. */
 function norm01(v: unknown): number {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return 0
-  return Math.min(1, Math.max(0, n))
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
 }
 
 /**
@@ -311,144 +322,151 @@ function norm01(v: unknown): number {
  * currency prefix must be dropped from those.
  */
 const CURRENCY_COMPATIBLE_SUFFIXES = new Set([
-  'm', 'b', 'k', 't', 'bn', 'mm', 'million', 'billion', 'thousand', 'trillion'
-])
+  'm',
+  'b',
+  'k',
+  't',
+  'bn',
+  'mm',
+  'million',
+  'billion',
+  'thousand',
+  'trillion',
+]);
 
 /**
  * Resolve a stat-hero prefix/suffix pair, dropping a currency prefix that
  * contradicts a unit suffix. Examples: "$90%" → ("", "%"), "$5s" → ("", "s"),
  * "$1.2M" → ("$", "M"), "$90" → ("$", "").
  */
-function resolveStatHeroUnits(prefix: string, suffix: string): {
-  prefix: string
-  suffix: string
+function resolveStatHeroUnits(
+  prefix: string,
+  suffix: string,
+): {
+  prefix: string;
+  suffix: string;
 } {
-  const isCurrency = /^[$€£¥₹]/.test(prefix)
-  if (!isCurrency || suffix.trim().length === 0) return { prefix, suffix }
-  const firstToken = suffix.trim().split(/\s+/)[0].toLowerCase()
-  return CURRENCY_COMPATIBLE_SUFFIXES.has(firstToken)
-    ? { prefix, suffix }
-    : { prefix: '', suffix }
+  const isCurrency = /^[$€£¥₹]/.test(prefix);
+  if (!isCurrency || suffix.trim().length === 0) return { prefix, suffix };
+  const firstToken = suffix.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  return CURRENCY_COMPATIBLE_SUFFIXES.has(firstToken) ? { prefix, suffix } : { prefix: '', suffix };
 }
 
 function parseBlocks(
   raw: unknown,
-  inRange: (start: number, end: number) => boolean
+  inRange: (start: number, end: number) => boolean,
 ): BlockPlacement[] {
-  const out: BlockPlacement[] = []
-  if (!Array.isArray(raw)) return out
+  const out: BlockPlacement[] = [];
+  if (!Array.isArray(raw)) return out;
 
   for (const item of raw) {
-    if (typeof item !== 'object' || item === null) continue
-    const b = item as Record<string, unknown>
-    const kind = str(b.kind) as LongformBlockKind
-    const start = Number(b.start)
-    const end = Number(b.end)
-    if (!VALID_BLOCK_KINDS.has(kind) || !inRange(start, end)) continue
+    if (typeof item !== 'object' || item === null) continue;
+    const b = item as Record<string, unknown>;
+    const kind = str(b.kind) as LongformBlockKind;
+    const start = Number(b.start);
+    const end = Number(b.end);
+    if (!VALID_BLOCK_KINDS.has(kind) || !inRange(start, end)) continue;
 
-    const kicker = str(b.kicker)
-    const heading = str(b.heading)
+    const kicker = str(b.kicker);
+    const heading = str(b.heading);
     // Most blocks require a heading; `callout` is hero-on-body, heading optional.
-    if (heading.length === 0 && kind !== 'callout') continue
-    const accentColor = str(b.accentColor)
+    if (heading.length === 0 && kind !== 'callout') continue;
+    const accentColor = str(b.accentColor);
     const common = {
       startTime: start,
       endTime: end,
       kicker,
       heading,
-      ...(accentColor ? { accentColor } : {})
-    }
+      ...(accentColor ? { accentColor } : {}),
+    };
 
     switch (kind) {
       case 'bar-chart':
       case 'progress-bars': {
         const bars = (Array.isArray(b.bars) ? b.bars : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { label: str(o.label), value: norm01(o.value), valueLabel: str(o.valueLabel) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { label: str(o.label), value: norm01(o.value), valueLabel: str(o.valueLabel) };
           })
           .filter((x) => x.label.length > 0)
-          .slice(0, 5)
-        if (bars.length < 2) continue
-        out.push({ kind, ...common, bars })
-        break
+          .slice(0, 5);
+        if (bars.length < 2) continue;
+        out.push({ kind, ...common, bars });
+        break;
       }
       case 'stat-grid': {
         const stats = (Array.isArray(b.stats) ? b.stats : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { value: str(o.value), label: str(o.label) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { value: str(o.value), label: str(o.label) };
           })
           .filter((x) => x.value.length > 0)
-          .slice(0, 4)
-        if (stats.length < 2) continue
-        out.push({ kind, ...common, stats })
-        break
+          .slice(0, 4);
+        if (stats.length < 2) continue;
+        out.push({ kind, ...common, stats });
+        break;
       }
       case 'icon-stat-grid': {
         const items = (Array.isArray(b.items) ? b.items : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { icon: str(o.icon), value: str(o.value), label: str(o.label) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { icon: str(o.icon), value: str(o.value), label: str(o.label) };
           })
           .filter((x) => x.value.length > 0)
-          .slice(0, 4)
-        if (items.length < 2) continue
-        out.push({ kind, ...common, items })
-        break
+          .slice(0, 4);
+        if (items.length < 2) continue;
+        out.push({ kind, ...common, items });
+        break;
       }
       case 'icon-row': {
         const items = (Array.isArray(b.items) ? b.items : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { icon: str(o.icon), label: str(o.label) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { icon: str(o.icon), label: str(o.label) };
           })
           .filter((x) => x.label.length > 0)
-          .slice(0, 4)
-        if (items.length < 2) continue
-        out.push({ kind, ...common, items })
-        break
+          .slice(0, 4);
+        if (items.length < 2) continue;
+        out.push({ kind, ...common, items });
+        break;
       }
       case 'numbered-list': {
         const items = (Array.isArray(b.items) ? b.items : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            const detail = str(o.detail)
-            return { text: str(o.text), ...(detail ? { detail } : {}) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            const detail = str(o.detail);
+            return { text: str(o.text), ...(detail ? { detail } : {}) };
           })
           .filter((x) => x.text.length > 0)
-          .slice(0, 5)
-        if (items.length < 2) continue
-        out.push({ kind, ...common, items })
-        break
+          .slice(0, 5);
+        if (items.length < 2) continue;
+        out.push({ kind, ...common, items });
+        break;
       }
       case 'checklist': {
         const items = (Array.isArray(b.items) ? b.items : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { text: str(o.text), done: o.done === true }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { text: str(o.text), done: o.done === true };
           })
           .filter((x) => x.text.length > 0)
-          .slice(0, 5)
-        if (items.length < 2) continue
-        out.push({ kind, ...common, items })
-        break
+          .slice(0, 5);
+        if (items.length < 2) continue;
+        out.push({ kind, ...common, items });
+        break;
       }
       case 'stat-hero': {
-        const value = Number(b.value)
-        const label = str(b.label)
-        if (!Number.isFinite(value) || label.length === 0) continue
-        const decimals = Number.isFinite(Number(b.decimals)) ? Number(b.decimals) : undefined
-        const suffix = str(b.suffix)
+        const value = Number(b.value);
+        const label = str(b.label);
+        if (!Number.isFinite(value) || label.length === 0) continue;
+        const decimals = Number.isFinite(Number(b.decimals)) ? Number(b.decimals) : undefined;
+        const suffix = str(b.suffix);
         // A currency prefix only makes sense for money: it combines with a bare
         // number or a magnitude suffix ("$1.2M", "$5B"), but contradicts any real
         // unit ("%", "s", "kg", …). Drop the stray currency prefix in that case.
-        const { prefix, suffix: resolvedSuffix } = resolveStatHeroUnits(
-          str(b.prefix),
-          suffix
-        )
-        const delta = str(b.delta)
-        const trend = b.trend === 'up' || b.trend === 'down' ? b.trend : undefined
+        const { prefix, suffix: resolvedSuffix } = resolveStatHeroUnits(str(b.prefix), suffix);
+        const delta = str(b.delta);
+        const trend = b.trend === 'up' || b.trend === 'down' ? b.trend : undefined;
         out.push({
           kind,
           ...common,
@@ -458,72 +476,73 @@ function parseBlocks(
           ...(prefix ? { prefix } : {}),
           ...(resolvedSuffix ? { suffix: resolvedSuffix } : {}),
           ...(trend ? { trend } : {}),
-          ...(delta ? { delta } : {})
-        })
-        break
+          ...(delta ? { delta } : {}),
+        });
+        break;
       }
       case 'kpi-ticker': {
         const items = (Array.isArray(b.items) ? b.items : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            const delta = str(o.delta)
-            const trend = o.trend === 'up' || o.trend === 'down' ? o.trend : undefined
+            const o = (x ?? {}) as Record<string, unknown>;
+            const delta = str(o.delta);
+            const trend: 'up' | 'down' | undefined =
+              o.trend === 'up' || o.trend === 'down' ? o.trend : undefined;
             return {
               value: str(o.value),
               label: str(o.label),
               ...(delta ? { delta } : {}),
-              ...(trend ? { trend } : {})
-            }
+              ...(trend ? { trend } : {}),
+            };
           })
           .filter((x) => x.value.length > 0)
-          .slice(0, 4)
-        if (items.length < 2) continue
-        out.push({ kind, ...common, items })
-        break
+          .slice(0, 4);
+        if (items.length < 2) continue;
+        out.push({ kind, ...common, items });
+        break;
       }
       case 'comparison':
       case 'comparison-table': {
-        const leftTitle = str(b.leftTitle)
-        const rightTitle = str(b.rightTitle)
-        const leftItems = strList(b.leftItems, 4)
-        const rightItems = strList(b.rightItems, 4)
-        if (leftTitle.length === 0 || rightTitle.length === 0) continue
-        if (leftItems.length === 0 || rightItems.length === 0) continue
-        out.push({ kind, ...common, leftTitle, rightTitle, leftItems, rightItems })
-        break
+        const leftTitle = str(b.leftTitle);
+        const rightTitle = str(b.rightTitle);
+        const leftItems = strList(b.leftItems, 4);
+        const rightItems = strList(b.rightItems, 4);
+        if (leftTitle.length === 0 || rightTitle.length === 0) continue;
+        if (leftItems.length === 0 || rightItems.length === 0) continue;
+        out.push({ kind, ...common, leftTitle, rightTitle, leftItems, rightItems });
+        break;
       }
       case 'quote-card': {
-        const quote = str(b.quote)
-        const name = str(b.name)
-        if (quote.length === 0 || name.length === 0) continue
-        const role = str(b.role)
-        out.push({ kind, ...common, quote, name, ...(role ? { role } : {}) })
-        break
+        const quote = str(b.quote);
+        const name = str(b.name);
+        if (quote.length === 0 || name.length === 0) continue;
+        const role = str(b.role);
+        out.push({ kind, ...common, quote, name, ...(role ? { role } : {}) });
+        break;
       }
       case 'portrait-quote': {
-        const quote = str(b.quote)
-        const name = str(b.name)
-        if (quote.length === 0 || name.length === 0) continue
-        const role = str(b.role)
-        const imageUrl = str(b.imageUrl)
+        const quote = str(b.quote);
+        const name = str(b.name);
+        if (quote.length === 0 || name.length === 0) continue;
+        const role = str(b.role);
+        const imageUrl = str(b.imageUrl);
         out.push({
           kind,
           ...common,
           quote,
           name,
           ...(role ? { role } : {}),
-          ...(imageUrl ? { imageUrl } : {})
-        })
-        break
+          ...(imageUrl ? { imageUrl } : {}),
+        });
+        break;
       }
       case 'tweet-card': {
-        const name = str(b.name)
-        const handle = str(b.handle).replace(/^@/, '')
-        const body = str(b.body)
-        if (name.length === 0 || handle.length === 0 || body.length === 0) continue
-        const replies = str(b.replies)
-        const reposts = str(b.reposts)
-        const likes = str(b.likes)
+        const name = str(b.name);
+        const handle = str(b.handle).replace(/^@/, '');
+        const body = str(b.body);
+        if (name.length === 0 || handle.length === 0 || body.length === 0) continue;
+        const replies = str(b.replies);
+        const reposts = str(b.reposts);
+        const likes = str(b.likes);
         out.push({
           kind,
           ...common,
@@ -533,132 +552,132 @@ function parseBlocks(
           verified: b.verified === true,
           ...(replies ? { replies } : {}),
           ...(reposts ? { reposts } : {}),
-          ...(likes ? { likes } : {})
-        })
-        break
+          ...(likes ? { likes } : {}),
+        });
+        break;
       }
       case 'definition-card': {
-        const term = str(b.term)
-        const definition = str(b.definition)
-        if (term.length === 0 || definition.length === 0) continue
-        const partOfSpeech = str(b.partOfSpeech)
+        const term = str(b.term);
+        const definition = str(b.definition);
+        if (term.length === 0 || definition.length === 0) continue;
+        const partOfSpeech = str(b.partOfSpeech);
         out.push({
           kind,
           ...common,
           term,
           definition,
-          ...(partOfSpeech ? { partOfSpeech } : {})
-        })
-        break
+          ...(partOfSpeech ? { partOfSpeech } : {}),
+        });
+        break;
       }
       case 'timeline': {
         const steps = (Array.isArray(b.steps) ? b.steps : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            const detail = str(o.detail)
-            return { title: str(o.title), ...(detail ? { detail } : {}) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            const detail = str(o.detail);
+            return { title: str(o.title), ...(detail ? { detail } : {}) };
           })
           .filter((x) => x.title.length > 0)
-          .slice(0, 4)
-        if (steps.length < 2) continue
-        out.push({ kind, ...common, steps })
-        break
+          .slice(0, 4);
+        if (steps.length < 2) continue;
+        out.push({ kind, ...common, steps });
+        break;
       }
       case 'timeline-cards': {
         const steps = (Array.isArray(b.steps) ? b.steps : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            const detail = str(o.detail)
-            return { icon: str(o.icon), title: str(o.title), ...(detail ? { detail } : {}) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            const detail = str(o.detail);
+            return { icon: str(o.icon), title: str(o.title), ...(detail ? { detail } : {}) };
           })
           .filter((x) => x.title.length > 0)
-          .slice(0, 4)
-        if (steps.length < 2) continue
-        out.push({ kind, ...common, steps })
-        break
+          .slice(0, 4);
+        if (steps.length < 2) continue;
+        out.push({ kind, ...common, steps });
+        break;
       }
       case 'feature-grid': {
         const items = (Array.isArray(b.items) ? b.items : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { icon: str(o.icon), title: str(o.title), description: str(o.description) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { icon: str(o.icon), title: str(o.title), description: str(o.description) };
           })
           .filter((x) => x.title.length > 0)
-          .slice(0, 4)
-        if (items.length < 2) continue
-        out.push({ kind, ...common, items })
-        break
+          .slice(0, 4);
+        if (items.length < 2) continue;
+        out.push({ kind, ...common, items });
+        break;
       }
       case 'leaderboard': {
         const rows = (Array.isArray(b.rows) ? b.rows : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            const rank = Number(o.rank)
+            const o = (x ?? {}) as Record<string, unknown>;
+            const rank = Number(o.rank);
             return {
               label: str(o.label),
               value: str(o.value),
-              ...(Number.isFinite(rank) ? { rank } : {})
-            }
+              ...(Number.isFinite(rank) ? { rank } : {}),
+            };
           })
           .filter((x) => x.label.length > 0 && x.value.length > 0)
-          .slice(0, 5)
-        if (rows.length < 2) continue
-        out.push({ kind, ...common, rows })
-        break
+          .slice(0, 5);
+        if (rows.length < 2) continue;
+        out.push({ kind, ...common, rows });
+        break;
       }
       case 'donut': {
         const slices = (Array.isArray(b.slices) ? b.slices : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { label: str(o.label), value: norm01(o.value), valueLabel: str(o.valueLabel) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { label: str(o.label), value: norm01(o.value), valueLabel: str(o.valueLabel) };
           })
           .filter((x) => x.label.length > 0)
-          .slice(0, 4)
-        if (slices.length < 2) continue
-        out.push({ kind, ...common, slices })
-        break
+          .slice(0, 4);
+        if (slices.length < 2) continue;
+        out.push({ kind, ...common, slices });
+        break;
       }
       case 'funnel': {
         const stages = (Array.isArray(b.stages) ? b.stages : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            return { label: str(o.label), value: norm01(o.value), valueLabel: str(o.valueLabel) }
+            const o = (x ?? {}) as Record<string, unknown>;
+            return { label: str(o.label), value: norm01(o.value), valueLabel: str(o.valueLabel) };
           })
           .filter((x) => x.label.length > 0)
-          .slice(0, 5)
-        if (stages.length < 2) continue
-        out.push({ kind, ...common, stages })
-        break
+          .slice(0, 5);
+        if (stages.length < 2) continue;
+        out.push({ kind, ...common, stages });
+        break;
       }
       case 'callout': {
-        const body = str(b.body)
-        if (body.length === 0) continue
-        const attribution = str(b.attribution)
-        out.push({ kind, ...common, body, ...(attribution ? { attribution } : {}) })
-        break
+        const body = str(b.body);
+        if (body.length === 0) continue;
+        const attribution = str(b.attribution);
+        out.push({ kind, ...common, body, ...(attribution ? { attribution } : {}) });
+        break;
       }
       case 'map': {
         const pins = (Array.isArray(b.pins) ? b.pins : [])
           .map((x) => {
-            const o = (x ?? {}) as Record<string, unknown>
-            const valueLabel = str(o.valueLabel)
+            const o = (x ?? {}) as Record<string, unknown>;
+            const valueLabel = str(o.valueLabel);
             return {
               label: str(o.label),
               x: norm01(o.x),
               y: norm01(o.y),
-              ...(valueLabel ? { valueLabel } : {})
-            }
+              ...(valueLabel ? { valueLabel } : {}),
+            };
           })
           .filter((x) => x.label.length > 0)
-          .slice(0, 6)
-        if (pins.length < 1) continue
-        out.push({ kind, ...common, pins })
-        break
+          .slice(0, 6);
+        if (pins.length < 1) continue;
+        out.push({ kind, ...common, pins });
+        break;
       }
     }
   }
 
-  return out
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -678,42 +697,42 @@ function parseBlocks(
 // ---------------------------------------------------------------------------
 
 /** Base spacing (seconds) two blocks of the SAME kind must keep apart. */
-const MIN_SAME_KIND_GAP_SECONDS = 20
+const MIN_SAME_KIND_GAP_SECONDS = 20;
 
 export function diversifyBlocks(blocks: BlockPlacement[]): BlockPlacement[] {
-  if (blocks.length <= 1) return blocks
+  if (blocks.length <= 1) return blocks;
 
   // Chronological order is the contract; sort defensively (stable on ties).
-  const sorted = [...blocks].sort((a, b) => a.startTime - b.startTime)
+  const sorted = [...blocks].sort((a, b) => a.startTime - b.startTime);
 
-  const kept: BlockPlacement[] = []
+  const kept: BlockPlacement[] = [];
   /** How many blocks of each kind we've already accepted. */
-  const usesByKind = new Map<LongformBlockKind, number>()
+  const usesByKind = new Map<LongformBlockKind, number>();
   /** startTime of the last accepted block of each kind. */
-  const lastStartByKind = new Map<LongformBlockKind, number>()
+  const lastStartByKind = new Map<LongformBlockKind, number>();
 
   for (const block of sorted) {
-    const lastStart = lastStartByKind.get(block.kind)
+    const lastStart = lastStartByKind.get(block.kind);
 
     if (lastStart != null) {
-      const uses = usesByKind.get(block.kind) ?? 0
+      const uses = usesByKind.get(block.kind) ?? 0;
       // Required gap escalates with prior uses: 2nd needs 2×, 3rd needs 3×, …
       // This both blocks immediate same-kind succession (small real gaps) and
       // gently penalizes kinds that have already appeared several times.
-      const requiredGap = MIN_SAME_KIND_GAP_SECONDS * (uses + 1)
+      const requiredGap = MIN_SAME_KIND_GAP_SECONDS * (uses + 1);
       if (block.startTime - lastStart < requiredGap) {
         // Too close to the previous block of this kind — drop the weaker (later,
         // closer) one. The earlier block is always retained.
-        continue
+        continue;
       }
     }
 
-    kept.push(block)
-    usesByKind.set(block.kind, (usesByKind.get(block.kind) ?? 0) + 1)
-    lastStartByKind.set(block.kind, block.startTime)
+    kept.push(block);
+    usesByKind.set(block.kind, (usesByKind.get(block.kind) ?? 0) + 1);
+    lastStartByKind.set(block.kind, block.startTime);
   }
 
-  return kept
+  return kept;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,11 +748,11 @@ export function diversifyBlocks(blocks: BlockPlacement[]): BlockPlacement[] {
 // ---------------------------------------------------------------------------
 
 /** Target spacing between card STARTS (seconds). One card per ~15–20s. */
-export const SECONDS_PER_CARD = 17
+export const SECONDS_PER_CARD = 17;
 /** How long each card stays on screen (seconds). */
-export const CARD_DISPLAY_SECONDS = 5
+export const CARD_DISPLAY_SECONDS = 5;
 /** A card needs at least this many spoken words in its window to be worth it. */
-const MIN_CARD_WORDS = 4
+const MIN_CARD_WORDS = 4;
 
 /**
  * Text-forward card kinds, in rotation order. These distil the spoken words
@@ -746,11 +765,11 @@ const TEXT_FORWARD_KINDS: DelosCardKind[] = [
   'delos-scan-result',
   'delos-console',
   'delos-system-diagnostics',
-  'delos-alert'
-]
+  'delos-alert',
+];
 
 /** Hard default card kind (text-forward) used when rotation lookup is empty. */
-const DEFAULT_CARD_KIND: DelosCardKind = 'delos-scan-result'
+const DEFAULT_CARD_KIND: DelosCardKind = 'delos-scan-result';
 
 /**
  * Pick a card kind for a spoken window. Strong keyword signals win (so an
@@ -761,29 +780,43 @@ const DEFAULT_CARD_KIND: DelosCardKind = 'delos-scan-result'
 export function selectCardKind(
   windowText: string,
   rotationIndex: number,
-  prevKind?: DelosCardKind
+  prevKind?: DelosCardKind,
 ): DelosCardKind {
-  const t = windowText.toLowerCase()
+  const t = windowText.toLowerCase();
 
-  let chosen: DelosCardKind | undefined
-  if (/\b(alert|critical|danger|warning|risk|threat|fail|failure|breach|emergency|problem|issue)\b/.test(t)) {
-    chosen = 'delos-alert'
-  } else if (/\b(system|status|health|uptime|online|offline|server|service|infrastructure|stack)\b/.test(t)) {
-    chosen = 'delos-system-diagnostics'
-  } else if (/\b(percent|%|number|metric|rate|growth|revenue|profit|roi|conversion|data|stat|average)\b/.test(t)) {
-    chosen = 'delos-console'
-  } else if (/\b(step|first|second|third|next|then|process|checklist|list|result|finding|found|scan)\b/.test(t)) {
-    chosen = 'delos-scan-result'
+  let chosen: DelosCardKind | undefined;
+  if (
+    /\b(alert|critical|danger|warning|risk|threat|fail|failure|breach|emergency|problem|issue)\b/.test(
+      t,
+    )
+  ) {
+    chosen = 'delos-alert';
+  } else if (
+    /\b(system|status|health|uptime|online|offline|server|service|infrastructure|stack)\b/.test(t)
+  ) {
+    chosen = 'delos-system-diagnostics';
+  } else if (
+    /\b(percent|%|number|metric|rate|growth|revenue|profit|roi|conversion|data|stat|average)\b/.test(
+      t,
+    )
+  ) {
+    chosen = 'delos-console';
+  } else if (
+    /\b(step|first|second|third|next|then|process|checklist|list|result|finding|found|scan)\b/.test(
+      t,
+    )
+  ) {
+    chosen = 'delos-scan-result';
   }
 
   // Avoid repeating the previous kind back-to-back — fall through to rotation.
   if (!chosen || chosen === prevKind) {
-    const n = TEXT_FORWARD_KINDS.length
-    const first = TEXT_FORWARD_KINDS[rotationIndex % n] ?? DEFAULT_CARD_KIND
-    const next = TEXT_FORWARD_KINDS[(rotationIndex + 1) % n] ?? DEFAULT_CARD_KIND
-    chosen = first === prevKind ? next : first
+    const n = TEXT_FORWARD_KINDS.length;
+    const first = TEXT_FORWARD_KINDS[rotationIndex % n] ?? DEFAULT_CARD_KIND;
+    const next = TEXT_FORWARD_KINDS[(rotationIndex + 1) % n] ?? DEFAULT_CARD_KIND;
+    chosen = first === prevKind ? next : first;
   }
-  return chosen
+  return chosen;
 }
 
 /**
@@ -797,42 +830,42 @@ export function planDelosCards(
   words: WordTimestamp[],
   videoDuration: number,
   secondsPerCard: number = SECONDS_PER_CARD,
-  displaySeconds: number = CARD_DISPLAY_SECONDS
+  displaySeconds: number = CARD_DISPLAY_SECONDS,
 ): DelosCardPlacement[] {
-  if (words.length === 0) return []
-  const totalDuration = Math.max(videoDuration, words[words.length - 1]?.end ?? 0)
-  if (totalDuration <= 0) return []
+  if (words.length === 0) return [];
+  const totalDuration = Math.max(videoDuration, words[words.length - 1]?.end ?? 0);
+  if (totalDuration <= 0) return [];
 
-  const cards: DelosCardPlacement[] = []
-  let rotationIndex = 0
-  let prevKind: DelosCardKind | undefined
-  let lastEnd = -Infinity
+  const cards: DelosCardPlacement[] = [];
+  let rotationIndex = 0;
+  let prevKind: DelosCardKind | undefined;
+  let lastEnd = -Infinity;
 
   for (let stride = 0; stride < totalDuration; stride += secondsPerCard) {
     // Anchor to the first word at/after the stride boundary so a card never
     // opens on silence.
-    const anchor = words.find((w) => w.start >= stride && w.start < stride + secondsPerCard)
-    if (!anchor) continue
+    const anchor = words.find((w) => w.start >= stride && w.start < stride + secondsPerCard);
+    if (!anchor) continue;
 
-    const startTime = anchor.start
+    const startTime = anchor.start;
     // Never overlap the previous card (defensive — strides are already spaced).
-    if (startTime < lastEnd) continue
-    const endTime = Math.min(startTime + displaySeconds, totalDuration)
-    if (endTime - startTime < 1) continue
+    if (startTime < lastEnd) continue;
+    const endTime = Math.min(startTime + displaySeconds, totalDuration);
+    if (endTime - startTime < 1) continue;
 
-    const windowWords = words.filter((w) => w.end > startTime && w.start < endTime)
-    if (windowWords.length < MIN_CARD_WORDS) continue
+    const windowWords = words.filter((w) => w.end > startTime && w.start < endTime);
+    if (windowWords.length < MIN_CARD_WORDS) continue;
 
-    const sourceText = windowWords.map((w) => w.text).join(' ')
-    const kind = selectCardKind(sourceText, rotationIndex, prevKind)
+    const sourceText = windowWords.map((w) => w.text).join(' ');
+    const kind = selectCardKind(sourceText, rotationIndex, prevKind);
 
-    cards.push({ kind, startTime, endTime, sourceText })
-    prevKind = kind
-    rotationIndex++
-    lastEnd = endTime
+    cards.push({ kind, startTime, endTime, sourceText });
+    prevKind = kind;
+    rotationIndex++;
+    lastEnd = endTime;
   }
 
-  return cards
+  return cards;
 }
 
 // ---------------------------------------------------------------------------
@@ -840,18 +873,20 @@ export function planDelosCards(
 // ---------------------------------------------------------------------------
 
 export interface GenerateLongformEditPlanOptions {
-  apiKey: string
+  apiKey: string;
   /** Word-level transcript timestamps (absolute source-video seconds). */
-  words: WordTimestamp[]
+  words: WordTimestamp[];
   /** Total video duration in seconds (used to bound the final window). */
-  videoDuration: number
+  videoDuration: number;
+  /** Focused creator feedback applied to each relevant transcript window. */
+  feedback?: string[];
   /** Window size override in seconds (default 300). */
-  windowSeconds?: number
+  windowSeconds?: number;
   /**
    * Invoked once per window before its Gemini call so the UI can advance with
    * "window N/total" granularity instead of freezing across the whole batch.
    */
-  onProgress?: (progress: { window: number; total: number }) => void
+  onProgress?: (progress: { window: number; total: number }) => void;
 }
 
 /**
@@ -864,16 +899,16 @@ export interface GenerateLongformEditPlanOptions {
  * @throws When no API key is provided.
  */
 export async function generateLongformEditPlan(
-  options: GenerateLongformEditPlanOptions
+  options: GenerateLongformEditPlanOptions,
 ): Promise<LongformEditPlan> {
-  const { apiKey, words, videoDuration } = options
-  const windowSeconds = options.windowSeconds ?? WINDOW_SECONDS
+  const { apiKey, words, videoDuration } = options;
+  const windowSeconds = options.windowSeconds ?? WINDOW_SECONDS;
 
   if (!apiKey) {
-    throw new Error('Gemini API key is required to generate a long-form edit plan.')
+    throw new Error('Gemini API key is required to generate a long-form edit plan.');
   }
 
-  const generatedAt = Date.now()
+  const generatedAt = Date.now();
 
   if (words.length === 0) {
     return {
@@ -881,86 +916,88 @@ export async function generateLongformEditPlan(
       blocks: [],
       cards: [],
       reasoning: 'No transcript words available.',
-      generatedAt
-    }
+      generatedAt,
+    };
   }
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.BALANCED[0],
     fallbacks: MODELS.BALANCED.slice(1),
-    config: { responseMimeType: 'application/json', temperature: 0.4 }
-  }
+    config: { responseMimeType: 'application/json', temperature: 0.4 },
+  };
 
-  const totalDuration = Math.max(videoDuration, words[words.length - 1]?.end ?? 0)
-  const totalWindows = Math.ceil(totalDuration / windowSeconds)
-  const allPhrases: PhraseEmphasis[] = []
-  const allBlocks: BlockPlacement[] = []
+  const totalDuration = Math.max(videoDuration, words[words.length - 1]?.end ?? 0);
+  const totalWindows = Math.ceil(totalDuration / windowSeconds);
+  const allPhrases: PhraseEmphasis[] = [];
+  const allBlocks: BlockPlacement[] = [];
 
-  let windowIndex = 0
+  let windowIndex = 0;
   // Count windows we actually attempted (had speech) and how many threw, so a
   // single bad window (SAFETY block, spent rate-limit, malformed JSON) is
   // skipped instead of discarding every prior window's accumulated work.
-  let attemptedWindows = 0
-  let failedWindows = 0
+  let attemptedWindows = 0;
+  let failedWindows = 0;
   for (let windowStart = 0; windowStart < totalDuration; windowStart += windowSeconds) {
-    windowIndex += 1
-    const windowEnd = Math.min(windowStart + windowSeconds, totalDuration)
-    const windowWords = words.filter((w) => w.start >= windowStart && w.start < windowEnd)
-    if (windowWords.length === 0) continue
+    windowIndex += 1;
+    const windowEnd = Math.min(windowStart + windowSeconds, totalDuration);
+    const windowWords = words.filter((w) => w.start >= windowStart && w.start < windowEnd);
+    if (windowWords.length === 0) continue;
 
-    options.onProgress?.({ window: windowIndex, total: totalWindows })
-    attemptedWindows += 1
+    options.onProgress?.({ window: windowIndex, total: totalWindows });
+    attemptedWindows += 1;
 
     const prompt = buildLongformPrompt(
       formatWindow(windowWords),
       windowEnd - windowStart,
-      windowStart
-    )
+      windowStart,
+      options.feedback ?? [],
+    );
     try {
-      const raw = await callGeminiWithRetry(ai, call, prompt, 'longform-edit-plan')
-      const { phrases, blocks } = parseWindowResponse(raw, windowStart, windowEnd)
-      allPhrases.push(...phrases)
-      allBlocks.push(...blocks)
+      const raw = await callGeminiWithRetry(ai, call, prompt, 'longform-edit-plan');
+      const { phrases, blocks } = parseWindowResponse(raw, windowStart, windowEnd);
+      allPhrases.push(...phrases);
+      allBlocks.push(...blocks);
     } catch (err) {
       // Keep the accumulated phrases/blocks from prior windows and carry on; one
       // failed window must not sink the whole plan.
-      failedWindows += 1
+      failedWindows += 1;
       log(
         'warn',
         'longform-edit-plan',
-        `window ${windowIndex}/${totalWindows} failed, skipping: ${err instanceof Error ? err.message : String(err)}`
-      )
+        `window ${windowIndex}/${totalWindows} failed, skipping: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
   // Every attempted window failed → there is no plan to salvage; surface it.
   if (attemptedWindows > 0 && failedWindows === attemptedWindows) {
     throw new Error(
-      `Long-form edit plan failed: all ${attemptedWindows} window(s) errored during generation.`
-    )
+      `Long-form edit plan failed: all ${attemptedWindows} window(s) errored during generation.`,
+    );
   }
 
   // Sort everything chronologically. Blocks additionally pass through a global
   // variety pass so the same kind doesn't cluster across window boundaries
   // (diversifyBlocks already returns chronological order). No accent is stamped:
   // phrases and blocks inherit the brand palette downstream (no Hormozi gold).
-  const byStart = <T extends { startTime: number }>(a: T, b: T): number => a.startTime - b.startTime
+  const byStart = <T extends { startTime: number }>(a: T, b: T): number =>
+    a.startTime - b.startTime;
 
-  const diversifiedBlocks = diversifyBlocks(allBlocks)
+  const diversifiedBlocks = diversifyBlocks(allBlocks);
 
   // Delos pop-up cards are candidates across the whole transcript; the render
   // timeline drops any that land during a full-frame block.
-  const cards = planDelosCards(words, totalDuration)
+  const cards = planDelosCards(words, totalDuration);
 
   const partialNote =
-    failedWindows > 0 ? ` ${failedWindows} of ${attemptedWindows} windows failed.` : ''
+    failedWindows > 0 ? ` ${failedWindows} of ${attemptedWindows} windows failed.` : '';
 
   return {
     phrases: [...allPhrases].sort(byStart),
     blocks: diversifiedBlocks,
     cards,
     reasoning: `Generated from ${words.length} words across ${Math.ceil(totalDuration / windowSeconds)} window(s). ${diversifiedBlocks.length} block(s), ${cards.length} card(s).${partialNote}`,
-    generatedAt
-  }
+    generatedAt,
+  };
 }

@@ -1,115 +1,115 @@
-import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
-import { unlink } from 'fs/promises'
-import { join } from 'path'
-import { tmpdir } from 'os'
-import { createHash } from 'crypto'
-import * as https from 'https'
-import * as http from 'http'
-import { URL } from 'url'
+import { createHash } from 'node:crypto';
+import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
+import * as http from 'node:http';
+import * as https from 'node:https';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { URL } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface PexelsVideoFile {
-  id: number
-  quality: string
-  file_type: string
-  width: number | null
-  height: number | null
-  fps: number | null
-  link: string
+  id: number;
+  quality: string;
+  file_type: string;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  link: string;
 }
 
 interface PexelsVideo {
-  id: number
-  width: number
-  height: number
-  duration: number
-  video_files: PexelsVideoFile[]
+  id: number;
+  width: number;
+  height: number;
+  duration: number;
+  video_files: PexelsVideoFile[];
 }
 
 interface PexelsSearchResponse {
-  total_results: number
-  page: number
-  per_page: number
-  videos: PexelsVideo[]
+  total_results: number;
+  page: number;
+  per_page: number;
+  videos: PexelsVideo[];
 }
 
 export interface BRollVideoResult {
   /** Local file path to the cached downloaded clip */
-  filePath: string
+  filePath: string;
   /** Duration of the clip in seconds */
-  duration: number
+  duration: number;
   /** The keyword used to find this clip */
-  keyword: string
+  keyword: string;
   /** Pexels video ID */
-  pexelsId: number
+  pexelsId: number;
 }
 
 // ---------------------------------------------------------------------------
 // Cache management
 // ---------------------------------------------------------------------------
 
-const CACHE_DIR = join(tmpdir(), 'batchcontent-broll-cache')
-const MAX_CACHE_SIZE_MB = 500
-const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+const CACHE_DIR = join(tmpdir(), 'batchcontent-broll-cache');
+const MAX_CACHE_SIZE_MB = 500;
+const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function ensureCacheDir(): void {
   if (!existsSync(CACHE_DIR)) {
-    mkdirSync(CACHE_DIR, { recursive: true })
+    mkdirSync(CACHE_DIR, { recursive: true });
   }
 }
 
 function cacheKey(keyword: string, pexelsId: number): string {
-  return createHash('md5').update(`${keyword}-${pexelsId}`).digest('hex').slice(0, 16)
+  return createHash('md5').update(`${keyword}-${pexelsId}`).digest('hex').slice(0, 16);
 }
 
 function getCachedPath(keyword: string, pexelsId: number): string {
-  return join(CACHE_DIR, `${cacheKey(keyword, pexelsId)}.mp4`)
+  return join(CACHE_DIR, `${cacheKey(keyword, pexelsId)}.mp4`);
 }
 
 /** Evict oldest files when cache exceeds MAX_CACHE_SIZE_MB */
 function evictOldCacheEntries(): void {
   try {
-    if (!existsSync(CACHE_DIR)) return
+    if (!existsSync(CACHE_DIR)) return;
 
     const files = readdirSync(CACHE_DIR)
       .map((f) => {
-        const full = join(CACHE_DIR, f)
+        const full = join(CACHE_DIR, f);
         try {
-          const s = statSync(full)
-          return { path: full, mtime: s.mtimeMs, size: s.size }
+          const s = statSync(full);
+          return { path: full, mtime: s.mtimeMs, size: s.size };
         } catch {
-          return null
+          return null;
         }
       })
-      .filter(Boolean) as { path: string; mtime: number; size: number }[]
+      .filter(Boolean) as { path: string; mtime: number; size: number }[];
 
     // Remove files older than MAX_CACHE_AGE_MS
-    const now = Date.now()
+    const now = Date.now();
     for (const f of files) {
       if (now - f.mtime > MAX_CACHE_AGE_MS) {
-        unlink(f.path).catch(() => {})
+        unlink(f.path).catch(() => {});
       }
     }
 
     // Check total size
-    const totalBytes = files.reduce((sum, f) => sum + f.size, 0)
-    const maxBytes = MAX_CACHE_SIZE_MB * 1024 * 1024
+    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+    const maxBytes = MAX_CACHE_SIZE_MB * 1024 * 1024;
 
     if (totalBytes > maxBytes) {
       // Sort by oldest first and delete until under limit
-      const sorted = [...files].sort((a, b) => a.mtime - b.mtime)
-      let running = totalBytes
+      const sorted = [...files].sort((a, b) => a.mtime - b.mtime);
+      let running = totalBytes;
       for (const f of sorted) {
-        if (running <= maxBytes) break
-        unlink(f.path).catch(() => {})
-        running -= f.size
+        if (running <= maxBytes) break;
+        unlink(f.path).catch(() => {});
+        running -= f.size;
       }
     }
   } catch (err) {
-    console.warn('[B-Roll] Cache eviction error:', err)
+    console.warn('[B-Roll] Cache eviction error:', err);
   }
 }
 
@@ -119,66 +119,71 @@ function evictOldCacheEntries(): void {
 
 function downloadFile(url: string, destPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url)
-    const transport = parsed.protocol === 'https:' ? https : http
+    const parsed = new URL(url);
+    const transport = parsed.protocol === 'https:' ? https : http;
 
-    const file = createWriteStream(destPath)
+    const file = createWriteStream(destPath);
 
     function get(currentUrl: string, redirectCount = 0): void {
       if (redirectCount > 5) {
-        file.close()
-        reject(new Error('Too many redirects'))
-        return
+        file.close();
+        reject(new Error('Too many redirects'));
+        return;
       }
 
-      const parsedUrl = new URL(currentUrl)
+      const parsedUrl = new URL(currentUrl);
       const req = (parsedUrl.protocol === 'https:' ? https : http).get(currentUrl, (res) => {
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
           // Follow redirect
-          res.resume()
-          get(res.headers.location, redirectCount + 1)
-          return
+          res.resume();
+          get(res.headers.location, redirectCount + 1);
+          return;
         }
 
         if (res.statusCode && res.statusCode !== 200) {
-          file.close()
-          reject(new Error(`HTTP ${res.statusCode} downloading ${currentUrl}`))
-          return
+          file.close();
+          reject(new Error(`HTTP ${res.statusCode} downloading ${currentUrl}`));
+          return;
         }
 
-        res.pipe(file)
+        res.pipe(file);
         file.on('finish', () => {
-          file.close()
-          resolve()
-        })
-        file.on('error', reject)
-        res.on('error', reject)
-      })
+          file.close();
+          resolve();
+        });
+        file.on('error', reject);
+        res.on('error', reject);
+      });
 
       req.on('error', (err) => {
-        file.close()
-        reject(err)
-      })
+        file.close();
+        reject(err);
+      });
 
       req.setTimeout(30_000, () => {
-        req.destroy()
-        file.close()
-        reject(new Error('Download timeout'))
-      })
+        req.destroy();
+        file.close();
+        reject(new Error('Download timeout'));
+      });
     }
 
-    get(url)
+    get(url);
 
     // Silence unused transport variable (needed for protocol detection at call site)
-    void transport
-  })
+    void transport;
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Pexels API search
 // ---------------------------------------------------------------------------
 
-const PEXELS_API_BASE = 'https://api.pexels.com/videos/search'
+const PEXELS_API_BASE = 'https://api.pexels.com/videos/search';
 
 /**
  * Score a Pexels video file for suitability as 9:16 B-Roll:
@@ -187,66 +192,67 @@ const PEXELS_API_BASE = 'https://api.pexels.com/videos/search'
  * - Prefer smaller file sizes (sd/hd over 4k)
  */
 function scoreVideoFile(file: PexelsVideoFile): number {
-  let score = 0
+  let score = 0;
 
   // Quality preference: hd > sd > 4k (4k is too large to download quickly)
-  if (file.quality === 'hd') score += 30
-  else if (file.quality === 'sd') score += 20
-  else if (file.quality === 'uhd' || file.quality === '4k') score += 5
+  if (file.quality === 'hd') score += 30;
+  else if (file.quality === 'sd') score += 20;
+  else if (file.quality === 'uhd' || file.quality === '4k') score += 5;
 
   // Orientation preference
   if (file.width && file.height) {
-    const aspect = file.width / file.height
-    if (aspect <= 0.7) score += 20 // portrait
-    else if (aspect <= 1.1) score += 10 // square
+    const aspect = file.width / file.height;
+    if (aspect <= 0.7)
+      score += 20; // portrait
+    else if (aspect <= 1.1) score += 10; // square
     // landscape gets no bonus — it will be cropped to fill 9:16
   }
 
-  return score
+  return score;
 }
 
 function selectBestVideoFile(files: PexelsVideoFile[]): PexelsVideoFile | null {
-  if (files.length === 0) return null
+  if (files.length === 0) return null;
 
-  const mp4Files = files.filter((f) => f.file_type === 'video/mp4')
-  const candidates = mp4Files.length > 0 ? mp4Files : files
+  const mp4Files = files.filter((f) => f.file_type === 'video/mp4');
+  const candidates = mp4Files.length > 0 ? mp4Files : files;
 
-  return candidates.reduce((best, f) => (scoreVideoFile(f) >= scoreVideoFile(best) ? f : best))
+  return candidates.reduce((best, f) => (scoreVideoFile(f) >= scoreVideoFile(best) ? f : best));
 }
 
-export type PexelsOrientation = 'portrait' | 'landscape' | 'square'
+export type PexelsOrientation = 'portrait' | 'landscape' | 'square';
 
 async function searchPexels(
   keyword: string,
   apiKey: string,
   minDurationSeconds: number,
   maxDurationSeconds: number,
-  orientation?: PexelsOrientation
+  orientation?: PexelsOrientation,
 ): Promise<PexelsVideo[]> {
-  const url = new URL(PEXELS_API_BASE)
-  url.searchParams.set('query', keyword)
-  url.searchParams.set('per_page', '8')
-  url.searchParams.set('size', 'small')
+  const url = new URL(PEXELS_API_BASE);
+  url.searchParams.set('query', keyword);
+  url.searchParams.set('per_page', '8');
+  url.searchParams.set('size', 'small');
   if (orientation) {
-    url.searchParams.set('orientation', orientation)
+    url.searchParams.set('orientation', orientation);
   }
 
   const response = await fetch(url.toString(), {
     headers: {
-      Authorization: apiKey
-    }
-  })
+      Authorization: apiKey,
+    },
+  });
 
   if (!response.ok) {
-    throw new Error(`Pexels API error: ${response.status} ${response.statusText}`)
+    throw new Error(`Pexels API error: ${response.status} ${response.statusText}`);
   }
 
-  const data = (await response.json()) as PexelsSearchResponse
+  const data = (await response.json()) as PexelsSearchResponse;
 
   // Filter to suitable durations
   return data.videos.filter(
-    (v) => v.duration >= minDurationSeconds && v.duration <= maxDurationSeconds + 2
-  )
+    (v) => v.duration >= minDurationSeconds && v.duration <= maxDurationSeconds + 2,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -268,64 +274,66 @@ export async function fetchBRollClip(
   keyword: string,
   pexelsApiKey: string,
   clipDuration: number,
-  orientation?: PexelsOrientation
+  orientation?: PexelsOrientation,
 ): Promise<BRollVideoResult | null> {
   if (!pexelsApiKey) {
-    console.warn('[B-Roll] No Pexels API key configured — skipping B-Roll fetch')
-    return null
+    console.warn('[B-Roll] No Pexels API key configured — skipping B-Roll fetch');
+    return null;
   }
 
-  ensureCacheDir()
+  ensureCacheDir();
 
-  const minDuration = Math.max(2, clipDuration - 1)
-  const maxDuration = Math.min(30, clipDuration + 4)
+  const minDuration = Math.max(2, clipDuration - 1);
+  const maxDuration = Math.min(30, clipDuration + 4);
 
   try {
-    const videos = await searchPexels(keyword, pexelsApiKey, minDuration, maxDuration, orientation)
+    const videos = await searchPexels(keyword, pexelsApiKey, minDuration, maxDuration, orientation);
 
     if (videos.length === 0) {
-      console.log(`[B-Roll] No Pexels results for "${keyword}"`)
-      return null
+      console.log(`[B-Roll] No Pexels results for "${keyword}"`);
+      return null;
     }
 
     // Pick a random video from the top 3 results for variety
-    const topN = Math.min(3, videos.length)
-    const video = videos[Math.floor(Math.random() * topN)]
+    const topN = Math.min(3, videos.length);
+    const video = videos[Math.floor(Math.random() * topN)];
 
-    const bestFile = selectBestVideoFile(video.video_files)
+    const bestFile = selectBestVideoFile(video.video_files);
     if (!bestFile) {
-      console.log(`[B-Roll] No suitable video file for "${keyword}"`)
-      return null
+      console.log(`[B-Roll] No suitable video file for "${keyword}"`);
+      return null;
     }
 
     // Check cache first
-    const cachedPath = getCachedPath(keyword, video.id)
+    const cachedPath = getCachedPath(keyword, video.id);
     if (existsSync(cachedPath)) {
-      console.log(`[B-Roll] Cache hit for "${keyword}" (pexels:${video.id})`)
+      console.log(`[B-Roll] Cache hit for "${keyword}" (pexels:${video.id})`);
       return {
         filePath: cachedPath,
         duration: video.duration,
         keyword,
-        pexelsId: video.id
-      }
+        pexelsId: video.id,
+      };
     }
 
     // Download to cache
-    console.log(`[B-Roll] Downloading "${keyword}" from Pexels (${bestFile.quality}, ${video.duration}s)`)
-    await downloadFile(bestFile.link, cachedPath)
+    console.log(
+      `[B-Roll] Downloading "${keyword}" from Pexels (${bestFile.quality}, ${video.duration}s)`,
+    );
+    await downloadFile(bestFile.link, cachedPath);
 
     // Opportunistically clean up old cache entries
-    evictOldCacheEntries()
+    evictOldCacheEntries();
 
     return {
       filePath: cachedPath,
       duration: video.duration,
       keyword,
-      pexelsId: video.id
-    }
+      pexelsId: video.id,
+    };
   } catch (err) {
-    console.error(`[B-Roll] Failed to fetch clip for "${keyword}":`, err)
-    return null
+    console.error(`[B-Roll] Failed to fetch clip for "${keyword}":`, err);
+    return null;
   }
 }
 
@@ -337,23 +345,23 @@ export async function fetchBRollClips(
   keywords: string[],
   pexelsApiKey: string,
   clipDuration: number,
-  orientation?: PexelsOrientation
+  orientation?: PexelsOrientation,
 ): Promise<Map<string, BRollVideoResult>> {
-  const results = new Map<string, BRollVideoResult>()
-  const CONCURRENCY = 4
+  const results = new Map<string, BRollVideoResult>();
+  const CONCURRENCY = 4;
 
   for (let i = 0; i < keywords.length; i += CONCURRENCY) {
-    const batch = keywords.slice(i, i + CONCURRENCY)
+    const batch = keywords.slice(i, i + CONCURRENCY);
     const settled = await Promise.allSettled(
-      batch.map((kw) => fetchBRollClip(kw, pexelsApiKey, clipDuration, orientation))
-    )
+      batch.map((kw) => fetchBRollClip(kw, pexelsApiKey, clipDuration, orientation)),
+    );
 
     settled.forEach((result, idx) => {
       if (result.status === 'fulfilled' && result.value) {
-        results.set(batch[idx], result.value)
+        results.set(batch[idx], result.value);
       }
-    })
+    });
   }
 
-  return results
+  return results;
 }

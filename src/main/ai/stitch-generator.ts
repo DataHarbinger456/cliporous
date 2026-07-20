@@ -1,40 +1,39 @@
-import { GoogleGenAI } from '@google/genai'
-import { callGeminiWithRetry, MODELS, type GeminiCall } from './gemini-client'
-
+import { GoogleGenAI } from '@google/genai';
 import type {
+  SourceRange,
   StitchedClipPlan,
   StitchedClipRole,
   StitchGenerationProgress,
   StitchGenerationResult,
-  SourceRange,
-} from '@shared/types'
+} from '@shared/types';
+import { callGeminiWithRetry, type GeminiCall, MODELS } from './gemini-client';
 
 export type {
+  SourceRange,
   StitchedClipPlan,
   StitchedClipRole,
   StitchGenerationProgress,
   StitchGenerationResult,
-  SourceRange,
-}
+};
 
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
 
 /** Floor used by the validator. Anything below this is filtered out. */
-const STITCH_MIN_SCORE = 70
+const STITCH_MIN_SCORE = 70;
 /** Hard lower duration bound (sum of all ranges). */
-const STITCH_MIN_TOTAL_DURATION_S = 3
+const STITCH_MIN_TOTAL_DURATION_S = 3;
 /** Hard upper duration bound (sum of all ranges). */
-const STITCH_MAX_TOTAL_DURATION_S = 120
+const STITCH_MAX_TOTAL_DURATION_S = 120;
 /** Minimum acceptable duration for a single range. */
-const STITCH_MIN_RANGE_DURATION_S = 1.5
+const STITCH_MIN_RANGE_DURATION_S = 1.5;
 /**
  * Spread requirement: when sorted by startTime, the first and last range must
  * span at least this many seconds of source video. Prevents pseudo-non-
  * contiguous stitches where all ranges sit within a tight window.
  */
-const STITCH_MIN_RANGE_SPREAD_S = 60
+const STITCH_MIN_RANGE_SPREAD_S = 60;
 
 const VALID_ROLES = new Set<StitchedClipRole>([
   'hook',
@@ -47,43 +46,43 @@ const VALID_ROLES = new Set<StitchedClipRole>([
   'main-payoff',
   'bonus-payoff',
   'bridge',
-])
+]);
 
 // ---------------------------------------------------------------------------
 // Prompt
 // ---------------------------------------------------------------------------
 
 function formatTimestamp(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds))
-  const mm = String(Math.floor(total / 60)).padStart(2, '0')
-  const ss = String(total % 60).padStart(2, '0')
-  return `${mm}:${ss}`
+  const total = Math.max(0, Math.floor(seconds));
+  const mm = String(Math.floor(total / 60)).padStart(2, '0');
+  const ss = String(total % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
 }
 
 function summarizeExistingClips(
-  existingClips: ReadonlyArray<{ startTime: number; endTime: number; score: number; text: string }>
+  existingClips: ReadonlyArray<{ startTime: number; endTime: number; score: number; text: string }>,
 ): string {
-  if (existingClips.length === 0) return '(none — pick freely)'
+  if (existingClips.length === 0) return '(none — pick freely)';
   return existingClips
     .slice(0, 24)
     .map((c) => {
-      const text = c.text.replace(/\s+/g, ' ').trim().slice(0, 80)
-      return `${formatTimestamp(c.startTime)}-${formatTimestamp(c.endTime)} score:${Math.round(c.score)} — ${text}`
+      const text = c.text.replace(/\s+/g, ' ').trim().slice(0, 80);
+      return `${formatTimestamp(c.startTime)}-${formatTimestamp(c.endTime)} score:${Math.round(c.score)} — ${text}`;
     })
-    .join('\n')
+    .join('\n');
 }
 
 function buildSystemPrompt(
   videoDuration: number,
   existingClips: ReadonlyArray<{ startTime: number; endTime: number; score: number; text: string }>,
-  targetAudience: string
+  targetAudience: string,
 ): string {
   const audienceBlock = targetAudience.trim()
     ? `\nTARGET AUDIENCE:\n${targetAudience.trim()}\n\nEvery stitched clip MUST pass this filter: "Would the person I want to attract find this valuable?" If the answer is no, do NOT include it.`
-    : ''
+    : '';
 
-  const totalMinutes = Math.max(1, Math.round(videoDuration / 60))
-  const existingSummary = summarizeExistingClips(existingClips)
+  const totalMinutes = Math.max(1, Math.round(videoDuration / 60));
+  const existingSummary = summarizeExistingClips(existingClips);
 
   return `You are an expert short-form editor identifying STITCHED CLIPS — single coherent shorts assembled from TWO OR MORE non-contiguous moments in the same long-form video.
 ${audienceBlock}
@@ -151,7 +150,7 @@ Return valid JSON with this exact structure:
       "reasoning": "Why this stitched composite works as a complete thought."
     }
   ]
-}`
+}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,161 +158,158 @@ Return valid JSON with this exact structure:
 // ---------------------------------------------------------------------------
 
 function parseTimestamp(ts: string): number {
-  const parts = ts.trim().split(':').map(Number)
-  if (parts.some(isNaN)) return NaN
-  if (parts.length === 2) return parts[0] * 60 + parts[1]
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-  return NaN
+  const parts = ts.trim().split(':').map(Number);
+  if (parts.some(Number.isNaN)) return NaN;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return NaN;
 }
 
 function normalizeRole(raw: unknown): StitchedClipRole {
-  const r = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
-  if (r === 'payoff') return 'main-payoff'
-  if (VALID_ROLES.has(r as StitchedClipRole)) return r as StitchedClipRole
-  return 'context'
+  const r = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (r === 'payoff') return 'main-payoff';
+  if (VALID_ROLES.has(r as StitchedClipRole)) return r as StitchedClipRole;
+  return 'context';
 }
 
 interface RawRange {
-  start_time?: unknown
-  end_time?: unknown
-  role?: unknown
+  start_time?: unknown;
+  end_time?: unknown;
+  role?: unknown;
 }
 
 interface RawClip {
-  ranges?: unknown
-  text?: unknown
-  score?: unknown
-  hook_text?: unknown
-  reasoning?: unknown
+  ranges?: unknown;
+  text?: unknown;
+  score?: unknown;
+  hook_text?: unknown;
+  reasoning?: unknown;
 }
 
 interface RawResponse {
-  clips?: unknown
+  clips?: unknown;
 }
 
 interface ValidationOutcome {
-  clips: StitchedClipPlan[]
-  rejectionReasons: Record<string, number>
+  clips: StitchedClipPlan[];
+  rejectionReasons: Record<string, number>;
 }
 
 /** Validate AI output and enforce the structural rules described above. */
-export function validateStitchedClips(
-  raw: RawClip[],
-  videoDuration: number
-): ValidationOutcome {
-  const rejectionReasons: Record<string, number> = {}
+export function validateStitchedClips(raw: RawClip[], videoDuration: number): ValidationOutcome {
+  const rejectionReasons: Record<string, number> = {};
   const reject = (reason: string): void => {
-    rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1
-  }
+    rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1;
+  };
 
-  const hasVideoBound = Number.isFinite(videoDuration) && videoDuration > 0
-  const accepted: StitchedClipPlan[] = []
+  const hasVideoBound = Number.isFinite(videoDuration) && videoDuration > 0;
+  const accepted: StitchedClipPlan[] = [];
 
   for (const clip of raw) {
     if (!Array.isArray(clip.ranges) || clip.ranges.length < 2) {
-      reject('fewer-than-2-ranges')
-      continue
+      reject('fewer-than-2-ranges');
+      continue;
     }
 
-    const ranges: SourceRange[] = []
-    let rangesOk = true
+    const ranges: SourceRange[] = [];
+    let rangesOk = true;
     for (const r of clip.ranges as RawRange[]) {
       if (typeof r.start_time !== 'string' || typeof r.end_time !== 'string') {
-        reject('range-missing-timestamps')
-        rangesOk = false
-        break
+        reject('range-missing-timestamps');
+        rangesOk = false;
+        break;
       }
-      const startTime = parseTimestamp(r.start_time)
-      const endTime = parseTimestamp(r.end_time)
-      if (isNaN(startTime) || isNaN(endTime)) {
-        reject('range-unparseable-timestamps')
-        rangesOk = false
-        break
+      const startTime = parseTimestamp(r.start_time);
+      const endTime = parseTimestamp(r.end_time);
+      if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
+        reject('range-unparseable-timestamps');
+        rangesOk = false;
+        break;
       }
       if (startTime >= endTime) {
-        reject('range-start-after-end')
-        rangesOk = false
-        break
+        reject('range-start-after-end');
+        rangesOk = false;
+        break;
       }
       if (endTime - startTime < STITCH_MIN_RANGE_DURATION_S) {
-        reject(`range-duration-below-${STITCH_MIN_RANGE_DURATION_S}s`)
-        rangesOk = false
-        break
+        reject(`range-duration-below-${STITCH_MIN_RANGE_DURATION_S}s`);
+        rangesOk = false;
+        break;
       }
       if (hasVideoBound && (startTime >= videoDuration || endTime > videoDuration + 1)) {
-        reject('range-past-video-end')
-        rangesOk = false
-        break
+        reject('range-past-video-end');
+        rangesOk = false;
+        break;
       }
       ranges.push({
         startTime,
         endTime: hasVideoBound ? Math.min(endTime, videoDuration) : endTime,
         role: normalizeRole(r.role),
-      })
+      });
     }
-    if (!rangesOk) continue
+    if (!rangesOk) continue;
 
     // Sort + check overlap.
-    ranges.sort((a, b) => a.startTime - b.startTime)
-    let overlaps = false
+    ranges.sort((a, b) => a.startTime - b.startTime);
+    let overlaps = false;
     for (let i = 1; i < ranges.length; i++) {
       if (ranges[i].startTime < ranges[i - 1].endTime) {
-        overlaps = true
-        break
+        overlaps = true;
+        break;
       }
     }
     if (overlaps) {
-      reject('ranges-overlap')
-      continue
+      reject('ranges-overlap');
+      continue;
     }
 
     // Role requirements.
-    const hasHook = ranges.some((r) => r.role === 'hook')
-    const hasPayoff = ranges.some((r) => /-payoff$/.test(r.role))
+    const hasHook = ranges.some((r) => r.role === 'hook');
+    const hasPayoff = ranges.some((r) => /-payoff$/.test(r.role));
     if (!hasHook) {
-      reject('missing-hook-role')
-      continue
+      reject('missing-hook-role');
+      continue;
     }
     if (!hasPayoff) {
-      reject('missing-payoff-role')
-      continue
+      reject('missing-payoff-role');
+      continue;
     }
 
     // Pseudo-non-contiguous check — spread between first and last start.
-    const spread = ranges[ranges.length - 1].startTime - ranges[0].startTime
+    const spread = ranges[ranges.length - 1].startTime - ranges[0].startTime;
     if (spread < STITCH_MIN_RANGE_SPREAD_S) {
-      reject(`spread-below-${STITCH_MIN_RANGE_SPREAD_S}s`)
-      continue
+      reject(`spread-below-${STITCH_MIN_RANGE_SPREAD_S}s`);
+      continue;
     }
 
     // Duration bounds.
-    const totalDuration = ranges.reduce((s, r) => s + (r.endTime - r.startTime), 0)
+    const totalDuration = ranges.reduce((s, r) => s + (r.endTime - r.startTime), 0);
     if (totalDuration < STITCH_MIN_TOTAL_DURATION_S) {
-      reject(`total-duration-below-${STITCH_MIN_TOTAL_DURATION_S}s`)
-      continue
+      reject(`total-duration-below-${STITCH_MIN_TOTAL_DURATION_S}s`);
+      continue;
     }
     if (totalDuration > STITCH_MAX_TOTAL_DURATION_S) {
-      reject(`total-duration-above-${STITCH_MAX_TOTAL_DURATION_S}s`)
-      continue
+      reject(`total-duration-above-${STITCH_MAX_TOTAL_DURATION_S}s`);
+      continue;
     }
 
     // Score.
-    const scoreNum = typeof clip.score === 'number' ? clip.score : Number(clip.score)
-    if (isNaN(scoreNum)) {
-      reject('invalid-score')
-      continue
+    const scoreNum = typeof clip.score === 'number' ? clip.score : Number(clip.score);
+    if (Number.isNaN(scoreNum)) {
+      reject('invalid-score');
+      continue;
     }
-    const score = Math.min(100, Math.max(0, Math.round(scoreNum)))
+    const score = Math.min(100, Math.max(0, Math.round(scoreNum)));
     if (score < STITCH_MIN_SCORE) {
-      reject(`score-below-${STITCH_MIN_SCORE}`)
-      continue
+      reject(`score-below-${STITCH_MIN_SCORE}`);
+      continue;
     }
 
     // Text.
-    const text = typeof clip.text === 'string' ? clip.text.trim() : ''
+    const text = typeof clip.text === 'string' ? clip.text.trim() : '';
     if (text.split(/\s+/).filter(Boolean).length < 3) {
-      reject('text-too-short')
-      continue
+      reject('text-too-short');
+      continue;
     }
 
     accepted.push({
@@ -322,22 +318,22 @@ export function validateStitchedClips(
       score,
       hookText: typeof clip.hook_text === 'string' ? clip.hook_text.trim() : '',
       reasoning: typeof clip.reasoning === 'string' ? clip.reasoning.trim() : '',
-    })
+    });
   }
 
   // Score-descending.
-  accepted.sort((a, b) => b.score - a.score)
+  accepted.sort((a, b) => b.score - a.score);
 
-  return { clips: accepted, rejectionReasons }
+  return { clips: accepted, rejectionReasons };
 }
 
 function formatRejectionReasons(reasons: Record<string, number>): string {
-  const entries = Object.entries(reasons)
-  if (entries.length === 0) return ''
+  const entries = Object.entries(reasons);
+  if (entries.length === 0) return '';
   return entries
     .sort((a, b) => b[1] - a[1])
     .map(([reason, count]) => `${reason}x${count}`)
-    .join(', ')
+    .join(', ');
 }
 
 // ---------------------------------------------------------------------------
@@ -350,61 +346,61 @@ export async function generateStitchedClips(
   videoDuration: number,
   existingClips: ReadonlyArray<{ startTime: number; endTime: number; score: number; text: string }>,
   onProgress: (p: StitchGenerationProgress) => void,
-  targetAudience: string = ''
+  targetAudience: string = '',
 ): Promise<StitchGenerationResult> {
-  onProgress({ stage: 'sending', message: 'Sending transcript to Gemini AI...' })
+  onProgress({ stage: 'sending', message: 'Sending transcript to Gemini AI...' });
 
-  const ai = new GoogleGenAI({ apiKey })
+  const ai = new GoogleGenAI({ apiKey });
   const call: GeminiCall = {
     model: MODELS.FAST[0],
     fallbacks: MODELS.FAST.slice(1),
     config: { responseMimeType: 'application/json' },
-  }
+  };
 
-  const systemPrompt = buildSystemPrompt(videoDuration, existingClips, targetAudience)
+  const systemPrompt = buildSystemPrompt(videoDuration, existingClips, targetAudience);
 
   const prompt = `${systemPrompt}
 
 Analyze this video transcript and propose stitched clips that compose 2+ non-contiguous moments into one coherent short.
 
 Transcript:
-${formattedTranscript}`
+${formattedTranscript}`;
 
-  onProgress({ stage: 'analyzing', message: 'Gemini is composing stitched clips...' })
+  onProgress({ stage: 'analyzing', message: 'Gemini is composing stitched clips...' });
 
-  const text = await callGeminiWithRetry(ai, call, prompt, 'stitching')
+  const text = await callGeminiWithRetry(ai, call, prompt, 'stitching');
 
-  onProgress({ stage: 'validating', message: 'Validating stitched clip plans...' })
+  onProgress({ stage: 'validating', message: 'Validating stitched clip plans...' });
 
-  let rawResponse: RawResponse
+  let rawResponse: RawResponse;
   try {
-    rawResponse = JSON.parse(text) as RawResponse
+    rawResponse = JSON.parse(text) as RawResponse;
   } catch {
-    const match = text.match(/\{[\s\S]*\}/)
+    const match = text.match(/\{[\s\S]*\}/);
     if (!match) {
-      throw new Error('Gemini returned an unparseable response for stitched clips')
+      throw new Error('Gemini returned an unparseable response for stitched clips');
     }
-    rawResponse = JSON.parse(match[0]) as RawResponse
+    rawResponse = JSON.parse(match[0]) as RawResponse;
   }
 
-  const rawClips = Array.isArray(rawResponse.clips) ? (rawResponse.clips as RawClip[]) : []
-  const { clips, rejectionReasons } = validateStitchedClips(rawClips, videoDuration)
+  const rawClips = Array.isArray(rawResponse.clips) ? (rawResponse.clips as RawClip[]) : [];
+  const { clips, rejectionReasons } = validateStitchedClips(rawClips, videoDuration);
 
   if (rawClips.length > 0 && clips.length === 0) {
     console.warn(
       `[stitching] All ${rawClips.length} stitched clips from Gemini were rejected. Reasons:`,
-      rejectionReasons
-    )
+      rejectionReasons,
+    );
   } else if (rawClips.length > 0) {
     console.log(
       `[stitching] Gemini returned ${rawClips.length} stitched clip(s), ${clips.length} passed validation.` +
         (Object.keys(rejectionReasons).length > 0
           ? ` Rejections: ${formatRejectionReasons(rejectionReasons)}`
-          : '')
-    )
+          : ''),
+    );
   } else {
-    console.log('[stitching] Gemini returned 0 stitched clip candidates.')
+    console.log('[stitching] Gemini returned 0 stitched clip candidates.');
   }
 
-  return { clips }
+  return { clips };
 }
