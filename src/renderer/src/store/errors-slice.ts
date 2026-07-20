@@ -1,15 +1,22 @@
-import type { StateCreator } from 'zustand'
-import { v4 as uuidv4 } from 'uuid'
-import type { AppState, ErrorLogEntry } from './types'
+import {
+  createStructuredError,
+  formatErrorDiagnostics,
+  isStructuredError,
+  type StructuredError,
+  type StructuredErrorInput,
+} from '@shared/errors';
+import { v4 as uuidv4 } from 'uuid';
+import type { StateCreator } from 'zustand';
+import type { AppState, ErrorLogEntry } from './types';
 
 // ---------------------------------------------------------------------------
 // Errors Slice
 // ---------------------------------------------------------------------------
 
 export interface ErrorsSlice {
-  errorLog: ErrorLogEntry[]
-  addError: (entry: Omit<ErrorLogEntry, 'id' | 'timestamp'>) => void
-  clearErrors: () => void
+  errorLog: ErrorLogEntry[];
+  addError: (entry: StructuredErrorInput | StructuredError) => ErrorLogEntry;
+  clearErrors: () => void;
 }
 
 export const createErrorsSlice: StateCreator<
@@ -20,20 +27,25 @@ export const createErrorsSlice: StateCreator<
 > = (set) => ({
   errorLog: [],
 
-  addError: (entry) => {
-    // Forward to the main-process session log so failures are observable in the
-    // log file. Renderer ErrorLog entries are otherwise in-memory only, which
-    // makes a stalled/failed pipeline run impossible to diagnose from the logs.
+  addError: (input) => {
+    const error = isStructuredError(input) ? input : createStructuredError(input);
+    const entry: ErrorLogEntry = { ...error, id: uuidv4(), timestamp: Date.now() };
+
+    // Correlation ID + redacted diagnostics are mirrored to the main log. The
+    // creator-facing UI never receives an unclassified provider or engine dump.
     try {
-      const detail = entry.details ? `${entry.message}\n${entry.details}` : entry.message
-      window.api?.logToMain?.('error', entry.source, detail)
+      window.api?.logToMain?.(
+        'error',
+        error.source,
+        `${error.headline}\n${formatErrorDiagnostics(error)}`,
+      );
     } catch {
-      // never let logging break error reporting
+      // Error reporting must never break the action that is already failing.
     }
-    set((state) => ({
-      errorLog: [...state.errorLog, { ...entry, id: uuidv4(), timestamp: Date.now() }]
-    }))
+
+    set((state) => ({ errorLog: [...state.errorLog, entry] }));
+    return entry;
   },
 
   clearErrors: () => set({ errorLog: [] }),
-})
+});

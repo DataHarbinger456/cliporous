@@ -1,9 +1,16 @@
+export type { RecoverySnapshot } from './project-service';
 export {
-  saveProject,
+  autoSaveProject,
+  clearRecovery,
+  createNewProject,
   loadProject,
   loadProjectFromPath,
-  autoSaveProject,
   loadRecovery,
-  clearRecovery,
-} from './project-service'
-export { startApprovedRender } from './render-service'
+  migrateProjectData,
+  migrateProjectJson,
+  parseRecoverySnapshot,
+  restoreProject,
+  saveProject,
+  saveProjectAs,
+} from './project-service';
+export { startApprovedRender } from './render-service';

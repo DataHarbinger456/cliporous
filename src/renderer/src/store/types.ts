@@ -1,4 +1,9 @@
+import type { TokenUsageAggregate, TokenUsageEvent } from '@shared/ai-usage';
+import type { StructuredError, StructuredErrorInput } from '@shared/errors';
+import type { CreatorJob } from '@shared/jobs';
 import type { Palette } from '@shared/palettes';
+import type { ProjectIdentity, ProjectSaveStatus } from '@shared/project';
+import type { PythonSetupProgress, PythonSetupStatus } from '@shared/python-setup';
 import type {
   CaptionAnimation,
   CaptionBackgroundBox,
@@ -95,6 +100,8 @@ export interface TemplateLayout {
 // Interfaces
 // ---------------------------------------------------------------------------
 
+export type MediaAvailability = 'checking' | 'online' | 'offline';
+
 export interface SourceVideo {
   id: string;
   path: string;
@@ -105,6 +112,8 @@ export interface SourceVideo {
   thumbnail?: string;
   origin: 'file' | 'youtube';
   youtubeUrl?: string;
+  /** Runtime availability, refreshed whenever a project opens. */
+  mediaStatus?: MediaAvailability;
 }
 
 /** Extends the shared TranscriptionResult with the pre-formatted AI transcript. */
@@ -125,9 +134,18 @@ export interface PartInfoUI {
  * Each key is either `true` (force on), `false` (force off), or absent (use global).
  */
 export interface ClipRenderSettings {
+  enableFillerRemoval?: boolean;
   enableCaptions?: boolean;
   enableHookTitle?: boolean;
+  /** Per-clip control for the registered mid-clip re-hook render feature. */
+  enableRehook?: boolean;
+  /** Creator-approved re-hook copy. An empty value keeps the renderer fallback. */
+  rehookText?: string;
   enableAutoZoom?: boolean;
+  enableBroll?: boolean;
+  enableWordEmphasis?: boolean;
+  enableShotTransitions?: boolean;
+  enableHyperframes?: boolean;
   /** 'default' = face-centred crop; 'blur-background' = letterboxed with blurred background */
   layout?: 'default' | 'blur-background';
   /**
@@ -151,6 +169,8 @@ export interface ClipCandidate {
   duration: number;
   text: string;
   score: number;
+  /** Transcript-created candidates remain explicitly unscored until a creator requests an AI read. */
+  scoreSource?: 'ai' | 'manual';
   /** The score assigned by the initial AI scoring pass — never overwritten after first set. */
   originalScore?: number;
   hookText: string;
@@ -267,20 +287,51 @@ export interface PipelineProgress {
   percent: number;
 }
 
+export type RenderQueueItemKind = 'clip' | 'stitched' | 'longform';
+
+export interface RenderPreparationActivity {
+  id: string;
+  label: string;
+  status: 'running' | 'done';
+  timestamp: number;
+}
+
+export interface RenderFallbackWarning {
+  id: string;
+  message: string;
+  reason: string;
+  actionable: boolean;
+  timestamp: number;
+}
+
 export interface RenderProgress {
   clipId: string;
+  kind?: RenderQueueItemKind;
+  label?: string;
+  sourceId?: string;
+  durationSeconds?: number;
+  requiresVisualAssets?: boolean;
+  queuePosition?: number;
+  optionsHash?: string;
   percent: number;
-  status: 'queued' | 'preparing' | 'rendering' | 'done' | 'error';
-  error?: string;
-  /** Suggested action shown alongside the error summary (RF-022). */
-  suggestion?: string;
-  /** Raw engine output (stderr tail), shown behind a "details" expander. */
-  details?: string;
+  status: 'queued' | 'preparing' | 'rendering' | 'done' | 'error' | 'cancelled';
+  error?: StructuredError;
   outputPath?: string;
   /** FFmpeg command string captured at render time (populated on error, or always in developer mode). */
   ffmpegCommand?: string;
-  /** Message shown during the prepare phase (B-Roll generation, filler removal, etc.) */
+  /** Current creator-facing preparation activity. */
   prepareMessage?: string;
+  /** Current and recent preparation events, newest last. */
+  preparationActivities?: RenderPreparationActivity[];
+  /** Visual substitutions made while preserving a playable output. */
+  fallbacks?: RenderFallbackWarning[];
+  /** Safe milestones retained across save, recovery, and restart. */
+  checkpoints?: Array<'prepared' | 'encoded' | 'output-verified'>;
+  queuedAt?: number;
+  startedAt?: number;
+  completedAt?: number;
+  estimatedRenderSeconds?: number;
+  estimatedSizeBytes?: number;
   /** One-line post-render note: what rendered vs. what was unavailable (RF-008). */
   summary?: string;
 }
@@ -379,6 +430,9 @@ export interface RenderQualitySettings {
   encodingPreset: EncodingPreset;
 }
 
+export type CreatorPresetId = 'clean' | 'signature' | 'visual' | 'custom';
+export type CaptionMode = 'standard' | 'emphasis' | 'emphasis_highlight';
+
 export interface AppSettings {
   geminiApiKey: string;
   /** fal.ai API key for AI-generated B-roll images. */
@@ -386,7 +440,15 @@ export interface AppSettings {
   /** Pexels API key for stock B-roll fetch. Loaded from safeStorage. */
   pexelsApiKey: string;
   outputDirectory: string | null;
+  /** App-scoped autosave debounce interval, hydrated from safeStorage. */
+  autosaveIntervalMs: number;
   minScore: number;
+  /** Creator-facing recipe. Advanced changes move this to `custom`. */
+  creatorPreset: CreatorPresetId;
+  captionsEnabled: boolean;
+  captionMode: CaptionMode;
+  wordEmphasisEnabled: boolean;
+  shotTransitionsEnabled: boolean;
   autoZoom: ZoomSettings;
   hookTitleOverlay: HookTitleOverlaySettings;
   rehookOverlay: RehookOverlaySettings;
@@ -447,19 +509,94 @@ export interface ProcessingConfig {
   promoMode: boolean;
 }
 
-export interface ErrorLogEntry {
+export type ClipFilter = 'all' | 'unreviewed' | 'approved' | 'rejected' | 'stitched';
+export type ClipSort = 'score' | 'source-time' | 'duration' | 'status';
+export type InspectorTab = 'edit' | 'transcript';
+
+export type CreativeBriefFields = {
+  audience: string;
+  goal: string;
+  callToAction: string;
+  tone: string;
+  mustInclude: string;
+  prohibitedClaims: string;
+  notes: string;
+};
+
+export interface CreativeBrief extends CreativeBriefFields {
+  /** Last creator-approved snapshot used by AI prompts. Draft fields still autosave with the project. */
+  committed: CreativeBriefFields | null;
+  savedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ProjectCreatorProfile {
+  /** Reusable app-scoped profile selected for this project. */
+  profileId: string | null;
+  /** Explicit project-only values. Clearing a key returns to the selected profile default. */
+  overrides: Partial<{
+    audience: string;
+    tone: string;
+    callToAction: string;
+    targetPlatform: Platform;
+    templateLayout: TemplateLayout;
+    longformSkin: LongformSkinId;
+    longformPaletteId: string;
+  }>;
+}
+
+export type PromoEvidenceCategory = 'none' | 'app-ui' | 'community-proof' | 'growth-stat';
+export type PromoCtaSource = 'profile' | 'brief' | 'none';
+
+export interface PromoScriptBeat {
+  id: string;
+  /** Approved spoken copy for one clip. The recorder says the generated marker before this copy. */
+  script: string;
+  /** Visual evidence family that should support this clip's claim. */
+  evidenceCategory: PromoEvidenceCategory;
+  /** Optional Creator Profile capture assigned to this beat. */
+  evidenceAssetPath: string | null;
+}
+
+export interface PromoProjectPlan {
+  beats: PromoScriptBeat[];
+  /** Where the spoken/written CTA copy comes from. */
+  ctaSource: PromoCtaSource;
+  /** Creator Profile asset used for the forced visual CTA. */
+  ctaAssetPath: string | null;
+  /** Last time the creator explicitly reviewed the workflow. Editing clears it. */
+  reviewedAt: string | null;
+}
+
+export interface ProjectWorkspace {
+  stage: PipelineStage;
+  activeSourceId: string | null;
+  selectedClipId: string | null;
+  clipFilter: ClipFilter;
+  clipSort: ClipSort;
+  inspectorTab: InspectorTab;
+  gridScrollTop: number;
+  previewPlayheadByClip: Record<string, number>;
+}
+
+export interface ErrorLogEntry extends StructuredError {
   id: string;
   timestamp: number;
-  source: string;
-  message: string;
-  /** Optional extra detail (e.g. FFmpeg command string) shown in an expandable section. */
-  details?: string;
+}
+
+export type CancellationStatus = 'idle' | 'cancelling' | 'failed';
+
+export interface CancellationState {
+  status: CancellationStatus;
+  error: StructuredError | null;
 }
 
 export type PythonSetupState =
   | 'checking'
   | 'not-setup'
+  | 'repair-needed'
   | 'installing'
+  | 'cancelling'
   | 'ready'
   | 'skipped'
   | 'error';
@@ -485,8 +622,16 @@ export interface AppState {
   // Long-form edit plans (keyed by source ID)
   longformPlans: Record<string, import('./longform-slice').LongformPlanRecord>;
 
-  // Pipeline
+  // Exact project workspace and creator guidance
+  workspace: ProjectWorkspace;
+  creativeBrief: CreativeBrief;
+  creatorProfile: ProjectCreatorProfile;
+  promoPlan: PromoProjectPlan;
+
+  // Pipeline and durable creator jobs
   pipeline: PipelineProgress;
+  creatorJobs: CreatorJob[];
+  currentProcessingJobId: string | null;
   /** Which pipeline stage failed (enables "Retry from stage" UI). */
   failedPipelineStage: PipelineStage | null;
   /** Stages that completed successfully — used to skip them on retry. */
@@ -497,12 +642,13 @@ export interface AppState {
   // Render
   renderProgress: RenderProgress[];
   isRendering: boolean;
+  renderCancellation: CancellationState;
   activeEncoder: { encoder: string; isHardware: boolean } | null;
   renderStartedAt: number | null;
   renderCompletedAt: number | null;
   clipRenderTimes: Record<string, { started: number; completed: number; duration: number }>;
-  /** Per-clip render error messages, keyed by clipId. */
-  renderErrors: Record<string, string>;
+  /** Per-clip structured render errors, keyed by clipId. */
+  renderErrors: Record<string, StructuredError>;
 
   // Single-clip render
   singleRenderClipId: string | null;
@@ -516,21 +662,16 @@ export interface AppState {
 
   // Python setup
   pythonStatus: PythonSetupState;
+  pythonSetupDetails: PythonSetupStatus | null;
   pythonSetupError: string | null;
-  pythonSetupProgress: {
-    stage: string;
-    message: string;
-    percent: number;
-    package?: string;
-    currentPackage?: number;
-    totalPackages?: number;
-  } | null;
+  pythonSetupProgress: PythonSetupProgress | null;
 
   // Processing config
   processingConfig: ProcessingConfig;
 
-  // Errors
+  // Errors and long-running work cancellation
   errorLog: ErrorLogEntry[];
+  processingCancellation: CancellationState;
 
   // Clip selection (keyboard navigation)
   selectedClipIndex: number;
@@ -540,8 +681,8 @@ export interface AppState {
   _redoStack: import('./history-slice').UndoableSnapshot[];
   canUndo: boolean;
   canRedo: boolean;
-  undo: () => void;
-  redo: () => void;
+  undo: () => import('./history-slice').HistoryResult | null;
+  redo: () => import('./history-slice').HistoryResult | null;
 
   // Undo / Redo — per-clip (edit actions)
   _clipUndoStacks: Record<string, import('./history-slice').ClipUndoEntry[]>;
@@ -551,9 +692,28 @@ export interface AppState {
   _lastEditedSourceId: string | null;
   canUndoClip: (clipId: string) => boolean;
   canRedoClip: (clipId: string) => boolean;
-  undoClip: (sourceId: string, clipId: string) => void;
-  redoClip: (sourceId: string, clipId: string) => void;
+  undoClip: (sourceId: string, clipId: string) => import('./history-slice').HistoryResult | null;
+  redoClip: (sourceId: string, clipId: string) => import('./history-slice').HistoryResult | null;
   clearClipUndoHistory: (clipId: string) => void;
+
+  // Actions — Project workspace
+  setWorkspaceStage: (stage: PipelineStage) => void;
+  setWorkspaceSelectedClip: (clipId: string | null) => void;
+  setWorkspaceFilter: (filter: ClipFilter) => void;
+  setWorkspaceSort: (sort: ClipSort) => void;
+  setWorkspaceInspectorTab: (tab: InspectorTab) => void;
+  setWorkspaceGridScrollTop: (scrollTop: number) => void;
+  setWorkspacePlayhead: (clipId: string, seconds: number) => void;
+  setCreativeBrief: (brief: Partial<CreativeBriefFields>) => void;
+  commitCreativeBrief: () => void;
+  setCreatorProfile: (profileId: string | null) => void;
+  setCreatorProfileOverride: <K extends keyof ProjectCreatorProfile['overrides']>(
+    key: K,
+    value: ProjectCreatorProfile['overrides'][K],
+  ) => void;
+  clearCreatorProfileOverride: (key: keyof ProjectCreatorProfile['overrides']) => void;
+  clearCreatorProfileOverrides: () => void;
+  setPromoPlan: (patch: Partial<PromoProjectPlan>) => void;
 
   // Actions — Sources
   addSource: (source: SourceVideo) => void;
@@ -569,11 +729,34 @@ export interface AppState {
     sourceId: string,
     record: import('./longform-slice').LongformPlanRecord,
   ) => void;
+  addLongformPlanVersion: (
+    sourceId: string,
+    plan: import('@shared/types').LongformEditPlan,
+    origin: import('./longform-slice').LongformPlanVersionOrigin,
+    note?: string,
+  ) => void;
+  restoreLongformPlanVersion: (sourceId: string, versionId: string) => void;
+  acceptLongformPlan: (sourceId: string, skin: LongformSkinId, paletteId: string) => void;
+  rejectLongformPlan: (sourceId: string) => void;
+  addLongformPlanFeedback: (
+    sourceId: string,
+    feedback: Omit<import('./longform-slice').LongformPlanFeedback, 'id' | 'createdAt' | 'status'>,
+  ) => void;
+  markLongformFeedbackApplied: (sourceId: string) => void;
+  setLongformPreservedItems: (
+    sourceId: string,
+    items: import('@/lib/longform-plan').PreservedLongformItem[],
+  ) => void;
+  setLongformReconciliation: (
+    sourceId: string,
+    reconciliation: import('@shared/types').LongformRenderReconciliation | null,
+  ) => void;
   clearLongformPlan: (sourceId: string) => void;
   getLongformPlan: (sourceId: string) => import('./longform-slice').LongformPlanRecord | null;
 
   // Actions — Clips
   setClips: (sourceId: string, clips: ClipCandidate[]) => void;
+  addClipCandidate: (sourceId: string, clip: ClipCandidate) => void;
   updateClipStatus: (sourceId: string, clipId: string, status: ClipCandidate['status']) => void;
   updateClipTrim: (sourceId: string, clipId: string, startTime: number, endTime: number) => void;
   updateClipThumbnail: (sourceId: string, clipId: string, thumbnail: string) => void;
@@ -671,9 +854,21 @@ export interface AppState {
       }
     >,
   ) => void;
+  batchUpdateReviewItems: (
+    sourceId: string,
+    clipIds: string[],
+    updates: Partial<Pick<ClipCandidate, 'status'> & { overrides: Partial<ClipRenderSettings> }>,
+  ) => boolean;
 
   // Actions — Pipeline
   setPipeline: (progress: PipelineProgress) => void;
+  startProcessingJob: (source: SourceVideo) => string;
+  resumeProcessingJob: (jobId: string) => void;
+  pauseProcessingJob: (failedStage: PipelineStage, message: string) => void;
+  syncRenderJob: () => void;
+  dismissCreatorJob: (jobId: string) => void;
+  discardProcessingWork: (jobId: string) => void;
+  setProcessingCancellation: (state: CancellationState) => void;
   setFailedPipelineStage: (stage: PipelineStage) => void;
   setCachedSourcePath: (path: string) => void;
   markStageCompleted: (stage: PipelineStage) => void;
@@ -682,7 +877,8 @@ export interface AppState {
   // Actions — Render
   setRenderProgress: (progress: RenderProgress[]) => void;
   setIsRendering: (rendering: boolean) => void;
-  setRenderError: (clipId: string, error: string) => void;
+  setRenderCancellation: (state: CancellationState) => void;
+  setRenderError: (clipId: string, error: StructuredError) => void;
   clearRenderErrors: () => void;
   setSingleRenderState: (patch: {
     clipId?: string | null;
@@ -786,17 +982,9 @@ export interface AppState {
 
   // Actions — Python setup
   setPythonStatus: (status: PythonSetupState) => void;
+  setPythonSetupDetails: (details: PythonSetupStatus | null) => void;
   setPythonSetupError: (error: string | null) => void;
-  setPythonSetupProgress: (
-    progress: {
-      stage: string;
-      message: string;
-      percent: number;
-      package?: string;
-      currentPackage?: number;
-      totalPackages?: number;
-    } | null,
-  ) => void;
+  setPythonSetupProgress: (progress: PythonSetupProgress | null) => void;
 
   // Actions — Processing Config
   setProcessingConfig: (config: Partial<ProcessingConfig>) => void;
@@ -807,7 +995,7 @@ export interface AppState {
   setIsOnline: (online: boolean) => void;
 
   // Actions — Errors
-  addError: (entry: Omit<ErrorLogEntry, 'id' | 'timestamp'>) => void;
+  addError: (entry: StructuredErrorInput | StructuredError) => ErrorLogEntry;
   clearErrors: () => void;
 
   // Actions — Stitched Clips
@@ -852,40 +1040,34 @@ export interface AppState {
   getActiveTranscription: () => TranscriptionData | null;
   getActiveClips: () => ClipCandidate[];
 
-  // Dirty state (unsaved changes)
+  // Project identity and save truth
+  currentProject: ProjectIdentity;
   isDirty: boolean;
+  projectRevision: number;
+  savedRevision: number;
+  saveStatus: ProjectSaveStatus;
   lastSavedAt: number | null;
+  lastSaveError: string | null;
 
   // Project (pure state — persistence lives in services/project-service.ts)
+  setProjectDisplayName: (displayName: string) => void;
   reset: () => void;
 
-  // Recovery acknowledgement (replaces hasCompletedOnboarding)
-  acknowledgedRecovery: boolean;
-  acknowledgeRecovery: () => void;
+  // Recovery acknowledgement is scoped to one autosave identity.
+  acknowledgedRecoverySnapshotId: string | null;
+  acknowledgeRecoverySnapshot: (snapshotId: string) => void;
 
   // AI Token Usage
   aiUsage: {
     totalPromptTokens: number;
     totalCompletionTokens: number;
     totalCalls: number;
-    callHistory: Array<{
-      source: string;
-      promptTokens: number;
-      completionTokens: number;
-      totalTokens: number;
-      model: string;
-      timestamp: number;
-    }>;
+    callHistory: TokenUsageEvent[];
+    byModel: Record<string, TokenUsageAggregate>;
+    bySource: Record<string, TokenUsageAggregate>;
     sessionStarted: number;
   };
-  trackTokenUsage: (event: {
-    source: string;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    model: string;
-    timestamp: number;
-  }) => void;
+  trackTokenUsage: (event: TokenUsageEvent) => void;
   resetAiUsage: () => void;
 
   // Secrets hydration (Electron safeStorage)

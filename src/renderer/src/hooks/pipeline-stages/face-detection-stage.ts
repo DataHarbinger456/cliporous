@@ -1,6 +1,6 @@
-import type { ClipCandidate } from '../../store'
-import { createStageReporter } from '../../lib/progress-reporter'
-import type { PipelineContext } from './types'
+import { createStageReporter } from '../../lib/progress-reporter';
+import type { ClipCandidate } from '../../store';
+import type { PipelineContext } from './types';
 
 /**
  * MediaPipe face detection + PySceneDetect per-scene crop timelines.
@@ -11,44 +11,44 @@ import type { PipelineContext } from './types'
 export async function faceDetectionStage(
   ctx: PipelineContext,
   sourcePath: string,
-  clips: ClipCandidate[]
+  clips: ClipCandidate[],
 ): Promise<void> {
-  const { source, check, setPipeline, store } = ctx
-  const reporter = createStageReporter(setPipeline, 'detecting-faces')
+  const { source, check, setPipeline, store } = ctx;
+  const reporter = createStageReporter(setPipeline, 'detecting-faces');
 
-  reporter.start('Starting face detection…')
-  check()
+  reporter.start('Starting face detection…');
+  check();
 
   // Preserve original indexing so we can write back to the right clip.
-  const indexed = clips.map((c, i) => ({ clip: c, i }))
-  const targets = indexed.filter(({ clip }) => clip.cropRegionSource !== 'manual')
+  const indexed = clips.map((c, i) => ({ clip: c, i }));
+  const targets = indexed.filter(({ clip }) => clip.cropRegionSource !== 'manual');
 
   if (targets.length === 0) {
-    reporter.done('All clips have manual crops — skipping detection')
-    return
+    reporter.done('All clips have manual crops — skipping detection');
+    return;
   }
 
-  const segments = targets.map(({ clip }) => ({ start: clip.startTime, end: clip.endTime }))
+  const segments = targets.map(({ clip }) => ({ start: clip.startTime, end: clip.endTime }));
 
   const unsubFace = window.api.onFaceDetectionProgress(({ segment, total }) => {
-    const percent = total > 0 ? Math.round((segment / total) * 100) : 0
-    reporter.update(`Detecting faces… ${segment}/${total}`, percent)
-  })
+    const percent = total > 0 ? Math.round((segment / total) * 100) : 0;
+    reporter.update(`Detecting faces… ${segment}/${total}`, percent);
+  });
 
-  let results
+  let results;
   try {
-    results = await window.api.detectFaceCrops(sourcePath, segments)
+    results = await window.api.detectFaceCrops(sourcePath, segments);
   } finally {
-    unsubFace()
+    unsubFace();
   }
-  check()
+  check();
 
   results.forEach((result, detIdx) => {
-    const target = targets[detIdx]
-    if (!target) return
+    const target = targets[detIdx];
+    if (!target) return;
     store.updateClipCrop(source.id, target.clip.id, result.crop, {
       timeline: result.timeline,
-      source: 'auto'
-    })
-  })
+      source: 'auto',
+    });
+  });
 }

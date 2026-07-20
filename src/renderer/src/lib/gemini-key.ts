@@ -13,25 +13,25 @@
 
 /** Canonical message shown when scoring can't run because no key is configured. */
 export const MISSING_GEMINI_KEY_MESSAGE =
-  'Gemini API key is required for scoring. Open Settings and paste your key under "API Keys".'
+  'Gemini API key is required for scoring. Open Settings and paste your key under "API Keys".';
 
 /**
  * Resolve a usable Gemini key: prefer the store value, else fall back to the
  * main-process safeStorage secret. Returns '' when no key is available.
  */
 export async function resolveGeminiKey(storeKey: string | null | undefined): Promise<string> {
-  if (storeKey && storeKey.trim()) return storeKey
+  if (storeKey?.trim()) return storeKey;
   try {
-    const fromMain = await window.api?.secrets?.get('gemini')
-    if (fromMain && fromMain.trim()) return fromMain
+    const fromMain = await window.api?.secrets?.get('gemini');
+    if (fromMain?.trim()) return fromMain;
   } catch {
     // ignore — caller treats an empty return as "no key"
   }
-  return ''
+  return '';
 }
 
 /** True when an error message stems from a missing Gemini key. */
 export function isMissingGeminiKeyError(message: string | null | undefined): boolean {
-  if (!message) return false
-  return /gemini api key is required/i.test(message)
+  if (!message) return false;
+  return /gemini api key is required/i.test(message);
 }

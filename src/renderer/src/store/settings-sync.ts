@@ -5,18 +5,18 @@
  * `broadcastSettingsChange()` notifies the other window(s) to reload.
  */
 
-const channel = new BroadcastChannel('batchclip-settings-sync')
+const channel = new BroadcastChannel('batchclip-settings-sync');
 
 export function broadcastSettingsChange(): void {
-  channel.postMessage({ type: 'settings-changed', timestamp: Date.now() })
+  channel.postMessage({ type: 'settings-changed', timestamp: Date.now() });
 }
 
 export function listenForSettingsChanges(callback: () => void): () => void {
   const handler = (event: MessageEvent): void => {
     if (event.data?.type === 'settings-changed') {
-      callback()
+      callback();
     }
-  }
-  channel.addEventListener('message', handler)
-  return () => channel.removeEventListener('message', handler)
+  };
+  channel.addEventListener('message', handler);
+  return () => channel.removeEventListener('message', handler);
 }

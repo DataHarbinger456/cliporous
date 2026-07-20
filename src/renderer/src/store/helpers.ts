@@ -1,21 +1,37 @@
+import { DEFAULT_FILENAME_TEMPLATE, DEFAULT_MIN_SCORE } from '@shared/constants';
+import type { CreatorJob } from '@shared/jobs';
+import { DEFAULT_PALETTE_ID } from '@shared/palettes';
+import {
+  DEFAULT_AUTOSAVE_INTERVAL_MS,
+  PROJECT_SCHEMA_VERSION,
+  type ProjectIdentity,
+  type RecoverySnapshotMetadata,
+} from '@shared/project';
 import type {
   AppSettings,
-  ZoomSettings,
-  HookTitleOverlaySettings,
-  RehookOverlaySettings,
   BRollSettings,
-  FillerRemovalSettings,
-  RenderQualitySettings,
-  ProcessingConfig,
-  SourceVideo,
-  TranscriptionData,
+  CaptionMode,
   ClipCandidate,
+  CreativeBrief,
+  CreatorPresetId,
+  FillerRemovalSettings,
+  HookTitleOverlaySettings,
+  PipelineStage,
+  Platform,
+  ProcessingConfig,
+  ProjectCreatorProfile,
+  ProjectWorkspace,
+  PromoProjectPlan,
+  PromoSettings,
+  RehookOverlaySettings,
+  RenderProgress,
+  RenderQualitySettings,
+  SourceVideo,
   StitchedClipCandidate,
   TemplateLayout,
-  Platform,
-} from './types'
-import { DEFAULT_MIN_SCORE, DEFAULT_FILENAME_TEMPLATE } from '@shared/constants'
-import { DEFAULT_PALETTE_ID } from '@shared/palettes'
+  TranscriptionData,
+  ZoomSettings,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // Generic helpers
@@ -29,25 +45,28 @@ import { DEFAULT_PALETTE_ID } from '@shared/palettes'
 export function updateItemById<T extends { id: string }>(
   items: T[],
   itemId: string,
-  update: Partial<T> | ((item: T) => Partial<T>)
+  update: Partial<T> | ((item: T) => Partial<T>),
 ): T[] {
-  return items.map(item =>
+  return items.map((item) =>
     item.id === itemId
       ? { ...item, ...(typeof update === 'function' ? update(item) : update) }
-      : item
-  )
+      : item,
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Default settings values
 // ---------------------------------------------------------------------------
 
+export const DEFAULT_CREATOR_PRESET: CreatorPresetId = 'signature';
+export const DEFAULT_CAPTION_MODE: CaptionMode = 'emphasis_highlight';
+
 export const DEFAULT_AUTO_ZOOM: ZoomSettings = {
   enabled: true,
   mode: 'ken-burns',
   intensity: 'subtle',
-  intervalSeconds: 4
-}
+  intervalSeconds: 4,
+};
 
 export const DEFAULT_HOOK_TITLE_OVERLAY: HookTitleOverlaySettings = {
   enabled: true,
@@ -58,8 +77,8 @@ export const DEFAULT_HOOK_TITLE_OVERLAY: HookTitleOverlaySettings = {
   fontSize: 72,
   textColor: '#FFFFFF',
   outlineColor: '#000000',
-  outlineWidth: 4
-}
+  outlineWidth: 4,
+};
 
 export const DEFAULT_REHOOK_OVERLAY: RehookOverlaySettings = {
   enabled: true,
@@ -67,8 +86,8 @@ export const DEFAULT_REHOOK_OVERLAY: RehookOverlaySettings = {
   displayDuration: 1.5,
   fadeIn: 0.2,
   fadeOut: 0.3,
-  positionFraction: 0.45
-}
+  positionFraction: 0.45,
+};
 
 export const DEFAULT_BROLL: BRollSettings = {
   enabled: false,
@@ -77,8 +96,15 @@ export const DEFAULT_BROLL: BRollSettings = {
   displayMode: 'split-top',
   transition: 'crossfade',
   pipSize: 0.25,
-  pipPosition: 'bottom-right'
-}
+  pipPosition: 'bottom-right',
+};
+
+/** PRESTYJ violet — the default promo evidence accent color. */
+export const DEFAULT_PROMO: PromoSettings = {
+  enabled: false,
+  forceCta: true,
+  accentColor: '#9f75ff',
+};
 
 /**
  * "Let It Ride" preset — the default. Trims only obvious hesitation sounds
@@ -93,10 +119,8 @@ export const FILLER_PRESET_LET_IT_RIDE: FillerRemovalSettings = {
   removeRepeats: true,
   silenceThreshold: 1.5,
   silenceTargetGap: 0.4,
-  fillerWords: [
-    'um', 'uh', 'erm', 'er', 'ah', 'hm', 'hmm', 'mm', 'mhm'
-  ]
-}
+  fillerWords: ['um', 'uh', 'erm', 'er', 'ah', 'hm', 'hmm', 'mm', 'mhm'],
+};
 
 /**
  * "Tight" preset — cuts hesitation + discourse markers + short pauses.
@@ -112,13 +136,29 @@ export const FILLER_PRESET_TIGHT: FillerRemovalSettings = {
   silenceThreshold: 0.8,
   silenceTargetGap: 0.15,
   fillerWords: [
-    'um', 'uh', 'erm', 'er', 'ah', 'hm', 'hmm', 'mm', 'mhm',
-    'like', 'you know', 'i mean', 'sort of', 'kind of',
-    'basically', 'actually', 'literally', 'right', 'okay so'
-  ]
-}
+    'um',
+    'uh',
+    'erm',
+    'er',
+    'ah',
+    'hm',
+    'hmm',
+    'mm',
+    'mhm',
+    'like',
+    'you know',
+    'i mean',
+    'sort of',
+    'kind of',
+    'basically',
+    'actually',
+    'literally',
+    'right',
+    'okay so',
+  ],
+};
 
-export const DEFAULT_FILLER_REMOVAL: FillerRemovalSettings = FILLER_PRESET_LET_IT_RIDE
+export const DEFAULT_FILLER_REMOVAL: FillerRemovalSettings = FILLER_PRESET_LET_IT_RIDE;
 
 /**
  * Resolve a saved filler-removal config from an older (pre-preset) schema
@@ -134,18 +174,18 @@ export const DEFAULT_FILLER_REMOVAL: FillerRemovalSettings = FILLER_PRESET_LET_I
  *     tweaks survive the upgrade.
  */
 export function migrateFillerRemoval(
-  saved: Partial<FillerRemovalSettings> | undefined
+  saved: Partial<FillerRemovalSettings> | undefined,
 ): FillerRemovalSettings {
-  if (!saved) return { ...FILLER_PRESET_LET_IT_RIDE }
+  if (!saved) return { ...FILLER_PRESET_LET_IT_RIDE };
 
   if (saved.preset === 'tight') {
-    return { ...FILLER_PRESET_TIGHT, ...saved, preset: 'tight' }
+    return { ...FILLER_PRESET_TIGHT, ...saved, preset: 'tight' };
   }
   if (saved.preset === 'let-it-ride') {
-    return { ...FILLER_PRESET_LET_IT_RIDE, ...saved, preset: 'let-it-ride' }
+    return { ...FILLER_PRESET_LET_IT_RIDE, ...saved, preset: 'let-it-ride' };
   }
   if (saved.preset === 'custom') {
-    return { ...FILLER_PRESET_LET_IT_RIDE, ...saved, preset: 'custom' }
+    return { ...FILLER_PRESET_LET_IT_RIDE, ...saved, preset: 'custom' };
   }
 
   // Legacy schema (no preset field). Detect users who were on the old
@@ -160,10 +200,10 @@ export function migrateFillerRemoval(
     Array.isArray(saved.fillerWords) &&
     saved.fillerWords.length === 19 &&
     saved.fillerWords.includes('like') &&
-    saved.fillerWords.includes('basically')
+    saved.fillerWords.includes('basically');
 
   if (isOldAutoSavedDefault) {
-    return { ...FILLER_PRESET_LET_IT_RIDE, enabled: saved.enabled ?? true }
+    return { ...FILLER_PRESET_LET_IT_RIDE, enabled: saved.enabled ?? true };
   }
 
   // Otherwise the user (or test fixture) had deliberately tweaked something
@@ -171,8 +211,8 @@ export function migrateFillerRemoval(
   return {
     ...FILLER_PRESET_LET_IT_RIDE,
     ...saved,
-    preset: 'custom'
-  }
+    preset: 'custom',
+  };
 }
 
 export const DEFAULT_RENDER_QUALITY: RenderQualitySettings = {
@@ -180,8 +220,8 @@ export const DEFAULT_RENDER_QUALITY: RenderQualitySettings = {
   customCrf: 20,
   outputResolution: '1080x1920',
   outputFormat: 'mp4',
-  encodingPreset: 'medium'
-}
+  encodingPreset: 'medium',
+};
 
 /**
  * Template layout defaults — percent-of-canvas (0–100) coordinates for the
@@ -190,24 +230,31 @@ export const DEFAULT_RENDER_QUALITY: RenderQualitySettings = {
  */
 export const DEFAULT_TEMPLATE_LAYOUT: TemplateLayout = {
   titleText: { x: 50, y: 18 },
-  subtitles: { x: 50, y: 85 }
-}
+  subtitles: { x: 50, y: 85 },
+};
 
-export const DEFAULT_TARGET_PLATFORM: Platform = 'universal'
+export const DEFAULT_TARGET_PLATFORM: Platform = 'universal';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   // API keys are loaded asynchronously from Electron safeStorage via
   // `hydrateSecretsFromMain()`. They default to empty strings here so the
   // store has a valid synchronous initial shape.
   geminiApiKey: '',
-  falApiKey: localStorage.getItem('batchclip-fal-key') || '',
+  falApiKey: '',
   pexelsApiKey: '',
   outputDirectory: null,
+  autosaveIntervalMs: DEFAULT_AUTOSAVE_INTERVAL_MS,
   minScore: DEFAULT_MIN_SCORE,
+  creatorPreset: DEFAULT_CREATOR_PRESET,
+  captionsEnabled: true,
+  captionMode: DEFAULT_CAPTION_MODE,
+  wordEmphasisEnabled: true,
+  shotTransitionsEnabled: true,
   autoZoom: DEFAULT_AUTO_ZOOM,
   hookTitleOverlay: DEFAULT_HOOK_TITLE_OVERLAY,
   rehookOverlay: DEFAULT_REHOOK_OVERLAY,
   broll: DEFAULT_BROLL,
+  promo: DEFAULT_PROMO,
   fillerRemoval: DEFAULT_FILLER_REMOVAL,
   enableNotifications: true,
   developerMode: false,
@@ -220,10 +267,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   outputMode: 'short',
   longformSkin: 'editorial',
   longformPaletteId: DEFAULT_PALETTE_ID,
-  customPalettes: []
-}
+  customPalettes: [],
+};
 
-export const DEFAULT_TARGET_AUDIENCE = ''
+export const DEFAULT_TARGET_AUDIENCE = '';
 
 export const DEFAULT_PROCESSING_CONFIG: ProcessingConfig = {
   targetDuration: 'auto',
@@ -231,49 +278,100 @@ export const DEFAULT_PROCESSING_CONFIG: ProcessingConfig = {
   clipEndMode: 'loop-first',
   enableMultiPart: false,
   enableAiEdit: true,
-  targetAudience: DEFAULT_TARGET_AUDIENCE
-}
+  targetAudience: DEFAULT_TARGET_AUDIENCE,
+  promoMode: false,
+};
 
 export const DEFAULT_PIPELINE = {
   stage: 'idle' as const,
   message: '',
-  percent: 0
-}
+  percent: 0,
+};
 
 // ---------------------------------------------------------------------------
 // Project file schema
 // ---------------------------------------------------------------------------
 
-/** Canonical shape written to / read from .batchclip files. */
+export { PROJECT_SCHEMA_VERSION };
+
+/**
+ * Settings that belong to one content project. Credentials, output-folder
+ * defaults, notifications, developer mode, render concurrency, and the reusable
+ * profile library stay app-scoped and never enter project files.
+ */
+export type ProjectSettings = Pick<
+  AppSettings,
+  | 'minScore'
+  | 'creatorPreset'
+  | 'captionsEnabled'
+  | 'captionMode'
+  | 'wordEmphasisEnabled'
+  | 'shotTransitionsEnabled'
+  | 'autoZoom'
+  | 'hookTitleOverlay'
+  | 'rehookOverlay'
+  | 'broll'
+  | 'promo'
+  | 'fillerRemoval'
+  | 'renderQuality'
+  | 'outputAspectRatio'
+  | 'filenameTemplate'
+  | 'templateLayout'
+  | 'targetPlatform'
+  | 'outputMode'
+>;
+
+/** Canonical versioned shape written to / read from .batchclip files. */
 export interface ProjectFileData {
-  version: number
-  sources: SourceVideo[]
-  transcriptions: Record<string, TranscriptionData>
-  clips: Record<string, ClipCandidate[]>
+  version: typeof PROJECT_SCHEMA_VERSION;
+  identity: ProjectIdentity;
+  sources: SourceVideo[];
+  transcriptions: Record<string, TranscriptionData>;
+  clips: Record<string, ClipCandidate[]>;
   /** Stitched (multi-range) clip candidates keyed by source ID. */
-  stitchedClips?: Record<string, StitchedClipCandidate[]>
+  stitchedClips?: Record<string, StitchedClipCandidate[]>;
   /**
    * Long-form (16:9) edit plans keyed by source ID. Persisted so a saved /
    * recovered long-form project can re-render without re-paying the Gemini
    * `longformEditPlan` call. Optional for back-compat with older project files.
    */
-  longformPlans?: Record<string, import('./longform-slice').LongformPlanRecord>
-  settings: AppSettings
-  processingConfig?: ProcessingConfig
+  longformPlans?: Record<string, import('./longform-slice').LongformPlanRecord>;
+  settings: ProjectSettings;
+  processingConfig?: ProcessingConfig;
+  /** Exact creator workspace restored when the project reopens. */
+  /** Exact creator workspace restored when the project reopens. */
+  workspace?: ProjectWorkspace;
+  creativeBrief?: CreativeBrief;
+  creatorProfile?: ProjectCreatorProfile;
+  promoPlan?: PromoProjectPlan;
+  /** Last safe processing checkpoint. Active work reopens paused and explicitly resumable. */
+  processingState?: {
+    job: CreatorJob;
+    completedStages: PipelineStage[];
+    cachedSourcePath: string | null;
+  };
+  /** Durable queue rows and completed output paths. Active encoders restart as queued. */
+  renderState?: {
+    progress: RenderProgress[];
+    startedAt: number | null;
+    completedAt: number | null;
+  };
+  /** Present only in the dedicated crash-recovery autosave. */
+  recovery?: RecoverySnapshotMetadata;
 }
 
 // ---------------------------------------------------------------------------
 // Settings Persistence
 // ---------------------------------------------------------------------------
 
-const SETTINGS_STORAGE_KEY = 'batchclip-settings'
-const PROCESSING_CONFIG_STORAGE_KEY = 'batchclip-processing-config'
+const SETTINGS_STORAGE_KEY = 'batchclip-settings';
+const PROCESSING_CONFIG_STORAGE_KEY = 'batchclip-processing-config';
 
 export function loadPersistedSettings(): AppSettings {
   try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (raw) {
-      const saved = JSON.parse(raw) as Partial<AppSettings>
+      const saved = JSON.parse(raw) as Partial<AppSettings>;
       return {
         ...DEFAULT_SETTINGS,
         ...saved,
@@ -284,45 +382,51 @@ export function loadPersistedSettings(): AppSettings {
         geminiApiKey: '',
         pexelsApiKey: '',
         outputDirectory: null,
-        falApiKey: localStorage.getItem('batchclip-fal-key') || '',
+        falApiKey: '',
+        creatorPreset: saved.creatorPreset ?? DEFAULT_CREATOR_PRESET,
+        captionsEnabled: saved.captionsEnabled ?? true,
+        captionMode: saved.captionMode ?? DEFAULT_CAPTION_MODE,
+        wordEmphasisEnabled: saved.wordEmphasisEnabled ?? true,
+        shotTransitionsEnabled: saved.shotTransitionsEnabled ?? true,
         autoZoom: { ...DEFAULT_AUTO_ZOOM, ...(saved.autoZoom ?? {}) },
         hookTitleOverlay: { ...DEFAULT_HOOK_TITLE_OVERLAY, ...(saved.hookTitleOverlay ?? {}) },
         rehookOverlay: { ...DEFAULT_REHOOK_OVERLAY, ...(saved.rehookOverlay ?? {}) },
         broll: { ...DEFAULT_BROLL, ...(saved.broll ?? {}) },
+        promo: { ...DEFAULT_PROMO, ...(saved.promo ?? {}) },
         fillerRemoval: migrateFillerRemoval(saved.fillerRemoval),
         renderQuality: { ...DEFAULT_RENDER_QUALITY, ...(saved.renderQuality ?? {}) },
         templateLayout: {
           titleText: {
             ...DEFAULT_TEMPLATE_LAYOUT.titleText,
-            ...(saved.templateLayout?.titleText ?? {})
+            ...(saved.templateLayout?.titleText ?? {}),
           },
           subtitles: {
             ...DEFAULT_TEMPLATE_LAYOUT.subtitles,
-            ...(saved.templateLayout?.subtitles ?? {})
-          }
+            ...(saved.templateLayout?.subtitles ?? {}),
+          },
         },
         targetPlatform: saved.targetPlatform ?? DEFAULT_TARGET_PLATFORM,
         longformPaletteId: saved.longformPaletteId ?? DEFAULT_PALETTE_ID,
-        customPalettes: Array.isArray(saved.customPalettes) ? saved.customPalettes : []
-      }
+        customPalettes: Array.isArray(saved.customPalettes) ? saved.customPalettes : [],
+      };
     }
   } catch {
     // JSON parse error — fall back to defaults
   }
-  return DEFAULT_SETTINGS
+  return DEFAULT_SETTINGS;
 }
 
 export function loadPersistedProcessingConfig(): ProcessingConfig {
   try {
-    const raw = localStorage.getItem(PROCESSING_CONFIG_STORAGE_KEY)
+    const raw = localStorage.getItem(PROCESSING_CONFIG_STORAGE_KEY);
     if (raw) {
-      const saved = JSON.parse(raw) as Partial<ProcessingConfig>
-      return { ...DEFAULT_PROCESSING_CONFIG, ...saved }
+      const saved = JSON.parse(raw) as Partial<ProcessingConfig>;
+      return { ...DEFAULT_PROCESSING_CONFIG, ...saved };
     }
   } catch {
     // JSON parse error — fall back to defaults
   }
-  return DEFAULT_PROCESSING_CONFIG
+  return DEFAULT_PROCESSING_CONFIG;
 }
 
 export function persistSettings(settings: AppSettings): void {
@@ -335,12 +439,12 @@ export function persistSettings(settings: AppSettings): void {
       pexelsApiKey: _p,
       outputDirectory: _o,
       ...rest
-    } = settings
-    void _g
-    void _f
-    void _p
-    void _o
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(rest))
+    } = settings;
+    void _g;
+    void _f;
+    void _p;
+    void _o;
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(rest));
   } catch {
     // Storage full or unavailable — silently ignore
   }
@@ -348,7 +452,7 @@ export function persistSettings(settings: AppSettings): void {
 
 export function persistProcessingConfig(config: ProcessingConfig): void {
   try {
-    localStorage.setItem(PROCESSING_CONFIG_STORAGE_KEY, JSON.stringify(config))
+    localStorage.setItem(PROCESSING_CONFIG_STORAGE_KEY, JSON.stringify(config));
   } catch {
     // Storage full or unavailable — silently ignore
   }

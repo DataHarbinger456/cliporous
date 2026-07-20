@@ -14,10 +14,33 @@
  * If those drift, captions and accent colours will diverge between the
  * single-clip preview path and the batch-render path.
  */
-import type { CaptionStyleInput } from '@shared/types'
+
+import { DEFAULT_PALETTE_ID, type Palette } from '@shared/palettes';
+import type { CaptionStyleInput, LongformSkinId } from '@shared/types';
 
 /** PRESTYJ brand accent — must match BRAND_ACCENT in main/edit-styles/shared/brand.ts. */
-export const PRESTYJ_ACCENT = '#9f75ff'
+export const PRESTYJ_ACCENT = '#9f75ff';
+
+/**
+ * Long-form render defaults — applied when the settings store hasn't recorded
+ * an explicit choice. The skin controls visual structure; the palette controls
+ * colors (background / foreground / accent); both are independent axes resolved
+ * on the main side (`getPaletteById` + the long-form block skin registry).
+ *
+ * Keep in sync with the store defaults in
+ * `src/renderer/src/store/helpers.ts` (longformSkin / longformPaletteId /
+ * customPalettes) and the main-side longform options in
+ * `src/main/render/types.ts`.
+ */
+export const LONGFORM_RENDER_DEFAULTS: {
+  longformSkinId: LongformSkinId;
+  longformPaletteId: string;
+  customPalettes: Palette[];
+} = {
+  longformSkinId: 'editorial',
+  longformPaletteId: DEFAULT_PALETTE_ID, // 'brand'
+  customPalettes: [],
+};
 
 /**
  * Default caption style sent on every batch render. Mirrors
@@ -45,4 +68,4 @@ export const PRESTYJ_CAPTION_STYLE: CaptionStyleInput = {
   shadowSoftness: 80,
   shadowOpacity: 0.95,
   shadowColor: '#000000',
-}
+};

@@ -1,12 +1,8 @@
-import type { StateCreator } from 'zustand'
-import type {
-  AppState,
-  ClipRenderSettings,
-  CropRegion,
-  StitchedClipCandidate,
-} from './types'
-import type { VideoSegment } from '@shared/types'
-import { updateItemById } from './helpers'
+import type { VideoSegment } from '@shared/types';
+import type { StateCreator } from 'zustand';
+import { updateItemById } from './helpers';
+import { _pushUndo, reviewDecisionAction } from './history-slice';
+import type { AppState, ClipRenderSettings, CropRegion, StitchedClipCandidate } from './types';
 
 // ---------------------------------------------------------------------------
 // Stitched Clips Slice
@@ -17,43 +13,39 @@ import { updateItemById } from './helpers'
 // ---------------------------------------------------------------------------
 
 export interface StitchedClipsSlice {
-  stitchedClips: Record<string, StitchedClipCandidate[]>
+  stitchedClips: Record<string, StitchedClipCandidate[]>;
 
-  setStitchedClips: (sourceId: string, clips: StitchedClipCandidate[]) => void
+  setStitchedClips: (sourceId: string, clips: StitchedClipCandidate[]) => void;
   updateStitchedClipStatus: (
     sourceId: string,
     clipId: string,
-    status: StitchedClipCandidate['status']
-  ) => void
-  updateStitchedClipThumbnail: (sourceId: string, clipId: string, thumbnail: string) => void
+    status: StitchedClipCandidate['status'],
+  ) => void;
+  updateStitchedClipThumbnail: (sourceId: string, clipId: string, thumbnail: string) => void;
   setStitchedClipCustomThumbnail: (
     sourceId: string,
     clipId: string,
-    thumbnail: string | null
-  ) => void
-  updateStitchedClipHookText: (sourceId: string, clipId: string, hookText: string) => void
-  setStitchedClipSegments: (
-    sourceId: string,
-    clipId: string,
-    segments: VideoSegment[]
-  ) => void
+    thumbnail: string | null,
+  ) => void;
+  updateStitchedClipHookText: (sourceId: string, clipId: string, hookText: string) => void;
+  setStitchedClipSegments: (sourceId: string, clipId: string, segments: VideoSegment[]) => void;
   setStitchedClipFaceCrops: (
     sourceId: string,
     clipId: string,
     cropRegion: CropRegion | undefined,
-    rangeCropRects: Array<{ x: number; y: number; width: number; height: number }> | undefined
-  ) => void
+    rangeCropRects: Array<{ x: number; y: number; width: number; height: number }> | undefined,
+  ) => void;
   setStitchedClipOverride: (
     sourceId: string,
     clipId: string,
     key: keyof ClipRenderSettings,
-    value: ClipRenderSettings[keyof ClipRenderSettings]
-  ) => void
-  approveAllStitched: (sourceId: string) => void
-  rejectAllStitched: (sourceId: string) => void
+    value: ClipRenderSettings[keyof ClipRenderSettings],
+  ) => void;
+  approveAllStitched: (sourceId: string) => void;
+  rejectAllStitched: (sourceId: string) => void;
 
-  getApprovedStitchedClips: (sourceId: string) => StitchedClipCandidate[]
-  getActiveStitchedClips: () => StitchedClipCandidate[]
+  getApprovedStitchedClips: (sourceId: string) => StitchedClipCandidate[];
+  getActiveStitchedClips: () => StitchedClipCandidate[];
 }
 
 export const createStitchedClipsSlice: StateCreator<
@@ -66,103 +58,120 @@ export const createStitchedClipsSlice: StateCreator<
 
   setStitchedClips: (sourceId, clips) =>
     set((state) => {
-      const existing = state.stitchedClips[sourceId] ?? []
-      const existingMap = new Map(existing.map((c) => [c.id, c]))
+      const existing = state.stitchedClips[sourceId] ?? [];
+      const existingMap = new Map(existing.map((c) => [c.id, c]));
       const stamped = clips.map((c) => {
-        const prev = existingMap.get(c.id)
+        const prev = existingMap.get(c.id);
         return {
           ...c,
           originalScore: prev?.originalScore ?? c.score,
-        }
-      })
-      state.stitchedClips[sourceId] = stamped
+        };
+      });
+      state.stitchedClips[sourceId] = stamped;
     }),
 
-  updateStitchedClipStatus: (sourceId, clipId, status) =>
-    set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
-      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { status })
-    }),
+  updateStitchedClipStatus: (sourceId, clipId, status) => {
+    const state = get();
+    const current = state.stitchedClips[sourceId]?.find((clip) => clip.id === clipId);
+    if (!current || current.status === status) return;
+    _pushUndo(state, set, reviewDecisionAction(current.status, status));
+    set((draft) => {
+      const sourceClips = draft.stitchedClips[sourceId];
+      if (!sourceClips) return;
+      draft.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { status });
+    });
+  },
 
   updateStitchedClipThumbnail: (sourceId, clipId, thumbnail) =>
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
-      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { thumbnail })
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
+      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { thumbnail });
     }),
 
   setStitchedClipCustomThumbnail: (sourceId, clipId, thumbnail) =>
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
       state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, {
         customThumbnail: thumbnail === null ? undefined : thumbnail,
-      })
+      });
     }),
 
   updateStitchedClipHookText: (sourceId, clipId, hookText) =>
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
-      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { hookText })
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
+      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { hookText });
     }),
 
   setStitchedClipSegments: (sourceId, clipId, segments) =>
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
-      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { segments })
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
+      state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, { segments });
     }),
 
   setStitchedClipFaceCrops: (sourceId, clipId, cropRegion, rangeCropRects) =>
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
       state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, {
         cropRegion,
         rangeCropRects,
-      })
+      });
     }),
 
   setStitchedClipOverride: (sourceId, clipId, key, value) =>
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
       state.stitchedClips[sourceId] = updateItemById(sourceClips, clipId, (c) => ({
         overrides: { ...c.overrides, [key]: value },
-      }))
+      }));
     }),
 
-  approveAllStitched: (sourceId) =>
+  approveAllStitched: (sourceId) => {
+    _pushUndo(get(), set, {
+      label: 'approve all stitched clips',
+      undoMessage: 'Stitched approvals undone',
+      redoMessage: 'Stitched approvals restored',
+    });
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
-      state.stitchedClips[sourceId] = sourceClips.map((c) => ({
-        ...c,
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
+      state.stitchedClips[sourceId] = sourceClips.map((clip) => ({
+        ...clip,
         status: 'approved' as const,
-      }))
-    }),
+      }));
+    });
+  },
 
-  rejectAllStitched: (sourceId) =>
+  rejectAllStitched: (sourceId) => {
+    _pushUndo(get(), set, {
+      label: 'reject all stitched clips',
+      undoMessage: 'Stitched rejections undone',
+      redoMessage: 'Stitched rejections restored',
+    });
     set((state) => {
-      const sourceClips = state.stitchedClips[sourceId]
-      if (!sourceClips) return
-      state.stitchedClips[sourceId] = sourceClips.map((c) => ({
-        ...c,
+      const sourceClips = state.stitchedClips[sourceId];
+      if (!sourceClips) return;
+      state.stitchedClips[sourceId] = sourceClips.map((clip) => ({
+        ...clip,
         status: 'rejected' as const,
-      }))
-    }),
+      }));
+    });
+  },
 
   getApprovedStitchedClips: (sourceId) => {
-    const sourceClips = get().stitchedClips[sourceId] ?? []
-    return sourceClips.filter((c) => c.status === 'approved')
+    const sourceClips = get().stitchedClips[sourceId] ?? [];
+    return sourceClips.filter((c) => c.status === 'approved');
   },
 
   getActiveStitchedClips: () => {
-    const { stitchedClips, activeSourceId } = get()
-    if (!activeSourceId) return []
-    const sourceClips = stitchedClips[activeSourceId] ?? []
-    return [...sourceClips].sort((a, b) => b.score - a.score)
+    const { stitchedClips, activeSourceId } = get();
+    if (!activeSourceId) return [];
+    const sourceClips = stitchedClips[activeSourceId] ?? [];
+    return [...sourceClips].sort((a, b) => b.score - a.score);
   },
-})
+});

@@ -13,18 +13,43 @@
  * surface behaves the same as the production preload bridge.
  */
 
+import { createStructuredError } from '@shared/errors';
+import type { ProjectIdentity, ProjectLoadResult, ProjectSaveOptions } from '@shared/project';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { useStore } from '@/store';
-import { DEFAULT_PROCESSING_CONFIG, DEFAULT_SETTINGS, type ProjectFileData } from '@/store/helpers';
+import {
+  DEFAULT_PROCESSING_CONFIG,
+  DEFAULT_SETTINGS,
+  PROJECT_SCHEMA_VERSION,
+  type ProjectFileData,
+  type ProjectSettings,
+} from '@/store/helpers';
 import { selectActiveScreen, selectIsLongformOnly } from '@/store/selectors';
 import type {
   AppSettings,
   ClipCandidate,
+  CreativeBrief,
+  PipelineStage,
   ProcessingConfig,
+  ProjectWorkspace,
+  PromoProjectPlan,
+  RenderProgress,
   SourceVideo,
   TranscriptionData,
 } from '@/store/types';
+import {
+  autoSaveProject,
+  clearRecovery,
+  createNewProject,
+  loadProjectFromPath,
+  loadRecovery,
+  migrateProjectJson,
+  parseRecoverySnapshot,
+  restoreProject,
+  resumeLastProject,
+  saveProject,
+  saveProjectAs,
+} from './project-service';
 
 // ---------------------------------------------------------------------------
 // Virtual filesystem mock for window.api
@@ -41,6 +66,15 @@ const vfs: VirtualFs = {
 };
 
 const SAVE_PATH = '/virtual/project.batchclip';
+const PROJECT_IDENTITY: ProjectIdentity = {
+  id: 'project-fixture-id',
+  displayName: 'Creator Launch Cut',
+  filePath: null,
+  createdAt: 1_700_000_000_000,
+  modifiedAt: 1_700_000_000_000,
+  schemaVersion: PROJECT_SCHEMA_VERSION,
+};
+vi.spyOn(Date, 'now').mockReturnValue(PROJECT_IDENTITY.modifiedAt);
 
 function resetVfs(): void {
   vfs.saved.clear();
@@ -48,6 +82,7 @@ function resetVfs(): void {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   resetVfs();
 
   // Wipe the store back to defaults before every test so we don't leak
@@ -61,23 +96,28 @@ beforeEach(() => {
   });
 });
 
-// Install a fresh window.api mock once for the whole suite.
-(globalThis as unknown as { window: { api: unknown } }).window =
-  (globalThis as unknown as { window?: { api?: unknown } }).window ?? ({} as { api: unknown });
-
 (window as unknown as { api: Record<string, unknown> }).api = {
-  saveProject: vi.fn(async (json: string): Promise<string | null> => {
-    vfs.saved.set(SAVE_PATH, json);
+  saveProject: vi.fn(async (json: string, _options: ProjectSaveOptions): Promise<string | null> => {
+    const project = JSON.parse(json) as ProjectFileData;
+    project.identity.filePath = SAVE_PATH;
+    vfs.saved.set(SAVE_PATH, JSON.stringify(project, null, 2));
     return SAVE_PATH;
   }),
-  loadProject: vi.fn(async (): Promise<string | null> => {
-    return vfs.saved.get(SAVE_PATH) ?? null;
+  loadProject: vi.fn(async (): Promise<ProjectLoadResult | null> => {
+    const json = vfs.saved.get(SAVE_PATH);
+    return json ? { json, filePath: SAVE_PATH } : null;
   }),
-  loadProjectFromPath: vi.fn(async (filePath: string): Promise<string | null> => {
-    return vfs.saved.get(filePath) ?? null;
+  loadProjectFromPath: vi.fn(async (filePath: string): Promise<ProjectLoadResult | null> => {
+    const json = vfs.saved.get(filePath);
+    return json ? { json, filePath } : null;
   }),
-  autoSaveProject: vi.fn(async (json: string): Promise<string> => {
+  autoSaveProject: vi.fn(async (json: string, currentPath: string | null): Promise<string> => {
     vfs.recovery = json;
+    if (currentPath) {
+      const project = JSON.parse(json) as ProjectFileData;
+      delete project.recovery;
+      vfs.saved.set(currentPath, JSON.stringify(project));
+    }
     return '/virtual/recovery.batchclip';
   }),
   loadRecovery: vi.fn(async (): Promise<string | null> => {
@@ -87,12 +127,6 @@ beforeEach(() => {
     vfs.recovery = null;
   }),
 };
-
-// Now that window.api is in place, import the service under test. Importing
-// after the mock avoids the auto-save subscriber capturing a missing api.
-const projectService = await import('./project-service');
-const { saveProject, loadProjectFromPath, autoSaveProject, loadRecovery, clearRecovery } =
-  projectService;
 
 // ---------------------------------------------------------------------------
 // Fixture: a fully populated project
@@ -219,6 +253,7 @@ const SETTINGS_FIXTURE: AppSettings = {
   ...DEFAULT_SETTINGS,
   geminiApiKey: 'gem-key-123',
   falApiKey: 'fal-key-456',
+  pexelsApiKey: 'pexels-key-789',
   outputDirectory: '/exports/clips',
   minScore: 7.5,
   enableNotifications: false,
@@ -246,34 +281,144 @@ const SETTINGS_FIXTURE: AppSettings = {
   },
 };
 
+const CREDENTIAL_FIELD_NAMES = ['geminiApiKey', 'pexelsApiKey', 'falApiKey', 'apiKey'];
+
+function expectCredentialFree(json: string): void {
+  for (const field of CREDENTIAL_FIELD_NAMES) expect(json).not.toContain(`"${field}"`);
+  expect(json).not.toContain(SETTINGS_FIXTURE.geminiApiKey);
+  expect(json).not.toContain(SETTINGS_FIXTURE.pexelsApiKey);
+  expect(json).not.toContain(SETTINGS_FIXTURE.falApiKey);
+}
+
+const PLAN_FIXTURE = {
+  [SOURCE_B.id]: {
+    plan: {
+      phrases: [],
+      blocks: [],
+      reasoning: 'Keep the founder claim and proof adjacent.',
+      generatedAt: 1_700_000_000_000,
+    },
+    skin: 'editorial' as const,
+    paletteId: 'brand',
+  },
+};
+
+const WORKSPACE_FIXTURE: ProjectWorkspace = {
+  stage: 'ready',
+  activeSourceId: SOURCE_B.id,
+  selectedClipId: 'clip-b2',
+  clipFilter: 'approved',
+  clipSort: 'source-time',
+  inspectorTab: 'transcript',
+  gridScrollTop: 684,
+  previewPlayheadByClip: { 'clip-b2': 412.75 },
+};
+
+const CREATIVE_BRIEF_FIELDS = {
+  audience: 'Technical founders',
+  goal: 'Drive qualified demo requests',
+  callToAction: 'Book a product walkthrough',
+  tone: 'Direct and evidence-led',
+  mustInclude: 'The 10x workflow result',
+  prohibitedClaims: 'Guaranteed revenue',
+  notes: 'Lead with the founder story.',
+};
+
+const CREATIVE_BRIEF_FIXTURE: CreativeBrief = {
+  ...CREATIVE_BRIEF_FIELDS,
+  committed: { ...CREATIVE_BRIEF_FIELDS },
+  savedAt: '2026-07-17T12:00:00.000Z',
+  updatedAt: '2026-07-17T12:00:00.000Z',
+};
+
+const RENDER_PROGRESS_FIXTURE: RenderProgress[] = [
+  {
+    clipId: 'clip-b2',
+    percent: 100,
+    status: 'done',
+    outputPath: '/exports/clips/founder-workflow.mp4',
+  },
+  { clipId: 'clip-b1', percent: 0, status: 'queued' },
+];
+
+const PROMO_PLAN_FIXTURE: PromoProjectPlan = {
+  beats: [
+    {
+      id: 'promo-beat-1',
+      script: 'Show the launch workflow with real product evidence.',
+      evidenceCategory: 'app-ui',
+      evidenceAssetPath: '/brand-assets/product.png',
+    },
+  ],
+  ctaSource: 'profile',
+  ctaAssetPath: '/brand-assets/join.png',
+  reviewedAt: '2026-07-17T12:05:00.000Z',
+};
+
 const PROCESSING_CONFIG_FIXTURE: ProcessingConfig = {
   targetDuration: '60-90',
   enablePerfectLoop: true,
-  clipEndMode: 'extend',
+  clipEndMode: 'completion-first',
   enableMultiPart: true,
   enableAiEdit: false,
   targetAudience: 'Technical founders shipping AI products end-to-end.',
+  promoMode: false,
 };
 
 /** Push the full fixture into the store. */
 function populateStore(): void {
   useStore.setState({
+    currentProject: { ...PROJECT_IDENTITY },
     sources: [SOURCE_A, SOURCE_B, SOURCE_C],
+    activeSourceId: SOURCE_B.id,
     transcriptions: {
       [SOURCE_A.id]: TRANSCRIPTION_A,
       [SOURCE_B.id]: TRANSCRIPTION_B,
       [SOURCE_C.id]: TRANSCRIPTION_C,
     },
     clips: CLIP_FIXTURES,
+    longformPlans: PLAN_FIXTURE,
     settings: SETTINGS_FIXTURE,
     processingConfig: PROCESSING_CONFIG_FIXTURE,
+    pipeline: { stage: 'ready', message: '', percent: 100 },
+    workspace: WORKSPACE_FIXTURE,
+    creativeBrief: CREATIVE_BRIEF_FIXTURE,
+    creatorProfile: { profileId: 'profile-founder', overrides: { tone: 'Punchy' } },
+    promoPlan: PROMO_PLAN_FIXTURE,
+    renderProgress: RENDER_PROGRESS_FIXTURE,
+    renderStartedAt: 1_700_000_000_000,
+    renderCompletedAt: 1_700_000_060_000,
   });
 }
 
-/** The expected ProjectFileData shape after a save round-trip. */
-function expectedProject(): ProjectFileData {
+function expectedProjectSettings(): ProjectSettings {
   return {
-    version: 1,
+    minScore: SETTINGS_FIXTURE.minScore,
+    creatorPreset: SETTINGS_FIXTURE.creatorPreset,
+    captionsEnabled: SETTINGS_FIXTURE.captionsEnabled,
+    captionMode: SETTINGS_FIXTURE.captionMode,
+    wordEmphasisEnabled: SETTINGS_FIXTURE.wordEmphasisEnabled,
+    shotTransitionsEnabled: SETTINGS_FIXTURE.shotTransitionsEnabled,
+    autoZoom: SETTINGS_FIXTURE.autoZoom,
+    hookTitleOverlay: SETTINGS_FIXTURE.hookTitleOverlay,
+    rehookOverlay: SETTINGS_FIXTURE.rehookOverlay,
+    broll: SETTINGS_FIXTURE.broll,
+    promo: SETTINGS_FIXTURE.promo,
+    fillerRemoval: SETTINGS_FIXTURE.fillerRemoval,
+    renderQuality: SETTINGS_FIXTURE.renderQuality,
+    outputAspectRatio: SETTINGS_FIXTURE.outputAspectRatio,
+    filenameTemplate: SETTINGS_FIXTURE.filenameTemplate,
+    templateLayout: SETTINGS_FIXTURE.templateLayout,
+    targetPlatform: SETTINGS_FIXTURE.targetPlatform,
+    outputMode: SETTINGS_FIXTURE.outputMode,
+  };
+}
+
+/** The expected credential-free ProjectFileData shape after a save round-trip. */
+function expectedProject(filePath: string | null = null): ProjectFileData {
+  return {
+    version: PROJECT_SCHEMA_VERSION,
+    identity: { ...PROJECT_IDENTITY, filePath },
     sources: [SOURCE_A, SOURCE_B, SOURCE_C],
     transcriptions: {
       [SOURCE_A.id]: TRANSCRIPTION_A,
@@ -282,9 +427,18 @@ function expectedProject(): ProjectFileData {
     },
     clips: CLIP_FIXTURES,
     stitchedClips: {},
-    longformPlans: {},
-    settings: SETTINGS_FIXTURE,
+    longformPlans: PLAN_FIXTURE,
+    settings: expectedProjectSettings(),
     processingConfig: PROCESSING_CONFIG_FIXTURE,
+    workspace: WORKSPACE_FIXTURE,
+    creativeBrief: CREATIVE_BRIEF_FIXTURE,
+    creatorProfile: { profileId: 'profile-founder', overrides: { tone: 'Punchy' } },
+    promoPlan: PROMO_PLAN_FIXTURE,
+    renderState: {
+      progress: RENDER_PROGRESS_FIXTURE,
+      startedAt: 1_700_000_000_000,
+      completedAt: 1_700_000_060_000,
+    },
   };
 }
 
@@ -294,14 +448,7 @@ function expectedProject(): ProjectFileData {
  * back into a fresh store and verify equality.
  */
 function applyProjectJson(json: string): void {
-  const parsed = JSON.parse(json) as Partial<ProjectFileData>;
-  useStore.setState({
-    sources: parsed.sources ?? [],
-    transcriptions: parsed.transcriptions ?? {},
-    clips: parsed.clips ?? {},
-    settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
-    processingConfig: { ...DEFAULT_PROCESSING_CONFIG, ...(parsed.processingConfig ?? {}) },
-  });
+  restoreProject(json);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,10 +464,12 @@ describe('project-service · saveProject ↔ loadProjectFromPath round-trip', ()
     expect(path).toBe(SAVE_PATH);
     const json = vfs.saved.get(SAVE_PATH);
     expect(json).toBeTruthy();
+    if (json === undefined) throw new Error('Expected saved project JSON');
 
     // The on-disk JSON should match the canonical ProjectFileData shape.
-    const parsed = JSON.parse(json!) as ProjectFileData;
-    expect(parsed).toEqual(expectedProject());
+    const parsed = JSON.parse(json) as ProjectFileData;
+    expect(parsed).toEqual(expectedProject(SAVE_PATH));
+    expectCredentialFree(json);
 
     // Save should have flagged the store as clean and triggered a recovery wipe.
     expect(useStore.getState().isDirty).toBe(false);
@@ -342,14 +491,18 @@ describe('project-service · saveProject ↔ loadProjectFromPath round-trip', ()
 
     // ── Deep-equality on every persisted field ───────────────────────────
     const state = useStore.getState();
-    expect(state.sources).toEqual([SOURCE_A, SOURCE_B, SOURCE_C]);
+    expect(state.sources).toEqual([
+      { ...SOURCE_A, mediaStatus: 'checking' },
+      { ...SOURCE_B, mediaStatus: 'checking' },
+      { ...SOURCE_C, mediaStatus: 'online' },
+    ]);
     expect(state.transcriptions).toEqual({
       [SOURCE_A.id]: TRANSCRIPTION_A,
       [SOURCE_B.id]: TRANSCRIPTION_B,
       [SOURCE_C.id]: TRANSCRIPTION_C,
     });
     expect(state.clips).toEqual(CLIP_FIXTURES);
-    expect(state.settings).toEqual(SETTINGS_FIXTURE);
+    expect(state.settings).toEqual({ ...DEFAULT_SETTINGS, ...expectedProjectSettings() });
     expect(state.processingConfig).toEqual(PROCESSING_CONFIG_FIXTURE);
 
     // Hook text + score made the round trip on every clip.
@@ -361,12 +514,156 @@ describe('project-service · saveProject ↔ loadProjectFromPath round-trip', ()
       expect(typeof clip.score).toBe('number');
     }
 
-    // applyProject sets activeSourceId to the first source when clips exist.
-    expect(state.activeSourceId).toBe(SOURCE_A.id);
+    expect(state.activeSourceId).toBe(SOURCE_B.id);
     expect(state.pipeline.stage).toBe('ready');
-    // Note: a microtask-scheduled subscriber re-marks isDirty=true when
-    // `clips` changes, so we can't assert isDirty here without racing it.
-    // The save-side isDirty=false assertion above already covers the contract.
+    expect(state.workspace).toEqual(WORKSPACE_FIXTURE);
+    expect(state.creativeBrief).toEqual(CREATIVE_BRIEF_FIXTURE);
+    expect(state.promoPlan).toEqual(PROMO_PLAN_FIXTURE);
+    expect(state.renderProgress).toEqual(RENDER_PROGRESS_FIXTURE);
+    expect(state.currentProject).toEqual(expectedProject(SAVE_PATH).identity);
+    expect(state.isDirty).toBe(false);
+  });
+});
+
+describe('project-service · exact-session resume', () => {
+  it('reopens the last project with stage, source, clip, filters, inspector, scroll, playhead, brief, plan, and queue intact', async () => {
+    populateStore();
+    expect(await saveProject()).toBe(SAVE_PATH);
+
+    useStore.getState().reset();
+    useStore.setState({
+      failedPipelineStage: 'scoring',
+      completedPipelineStages: new Set<PipelineStage>(['transcribing']),
+      cachedSourcePath: '/stale-session/source.mp4',
+      activeEncoder: { encoder: 'stale', isHardware: false },
+      renderErrors: {
+        stale: createStructuredError({ source: 'render', message: 'Old project failure' }),
+      },
+      singleRenderClipId: 'stale-clip',
+      singleRenderProgress: 77,
+      singleRenderStatus: 'rendering',
+      singleRenderOutputPath: '/stale-session/output.mp4',
+      singleRenderError: 'Old project error',
+      selectedClipIndex: 12,
+    });
+    expect(useStore.getState().pipeline.stage).toBe('idle');
+
+    expect(await resumeLastProject()).toBe(true);
+    const state = useStore.getState();
+    expect(state.pipeline.stage).toBe('ready');
+    expect(state.activeSourceId).toBe(SOURCE_B.id);
+    expect(state.workspace).toEqual(WORKSPACE_FIXTURE);
+    expect(state.creativeBrief).toEqual(CREATIVE_BRIEF_FIXTURE);
+    expect(state.longformPlans).toEqual(PLAN_FIXTURE);
+    expect(state.renderProgress).toEqual(RENDER_PROGRESS_FIXTURE);
+    expect(state.failedPipelineStage).toBeNull();
+    expect(state.completedPipelineStages).toEqual(new Set());
+    expect(state.cachedSourcePath).toBeNull();
+    expect(state.activeEncoder).toBeNull();
+    expect(state.renderErrors).toEqual({});
+    expect(state.singleRenderStatus).toBe('idle');
+    expect(state.singleRenderClipId).toBeNull();
+    expect(state.singleRenderOutputPath).toBeNull();
+    expect(state.singleRenderError).toBeNull();
+    expect(state.selectedClipIndex).toBe(0);
+  });
+});
+
+describe('project-service · desktop save semantics', () => {
+  it('reuses the first saved path and only forces a dialog for Save As', async () => {
+    populateStore();
+
+    expect(await saveProject()).toBe(SAVE_PATH);
+    useStore.setState({ clips: { ...useStore.getState().clips } });
+    expect(await saveProject()).toBe(SAVE_PATH);
+    expect(await saveProjectAs()).toBe(SAVE_PATH);
+
+    const calls = vi.mocked(window.api.saveProject).mock.calls;
+    expect(calls[0]?.[1]).toMatchObject({ currentPath: null, forceDialog: false });
+    expect(calls[1]?.[1]).toMatchObject({ currentPath: SAVE_PATH, forceDialog: false });
+    expect(calls[2]?.[1]).toMatchObject({ currentPath: SAVE_PATH, forceDialog: true });
+  });
+
+  it('starts a clean project, clears resume identity, and removes stale recovery', async () => {
+    populateStore();
+    await saveProject();
+    vfs.recovery = 'stale recovery';
+
+    createNewProject();
+
+    expect(useStore.getState()).toMatchObject({
+      sources: [],
+      activeSourceId: null,
+      clips: {},
+      pipeline: { stage: 'idle', message: '', percent: 0 },
+      isDirty: false,
+    });
+    expect(useStore.getState().currentProject.filePath).toBeNull();
+    expect(localStorage.getItem('batchclip-last-project-path')).toBeNull();
+    // saveProject clears the prior recovery, then createNewProject clears any newly stale snapshot.
+    expect(window.api.clearRecovery).toHaveBeenCalledTimes(2);
+    expect(vfs.recovery).toBeNull();
+  });
+
+  it('keeps the project dirty and exposes a retryable status when a save fails', async () => {
+    populateStore();
+    vi.mocked(window.api.saveProject).mockRejectedValueOnce(new Error('Disk is read-only'));
+
+    expect(await saveProject()).toBeNull();
+
+    expect(useStore.getState()).toMatchObject({
+      isDirty: true,
+      saveStatus: 'error',
+      lastSaveError: 'Disk is read-only',
+    });
+  });
+
+  it('autosaves both the current project file and the recovery snapshot', async () => {
+    populateStore();
+    await saveProject();
+    useStore.setState({ clips: { ...useStore.getState().clips } });
+
+    await autoSaveProject();
+
+    expect(vfs.recovery).not.toBeNull();
+    const savedProject = vfs.saved.get(SAVE_PATH);
+    expect(savedProject).toBeTruthy();
+    expect(JSON.parse(savedProject ?? '{}')).not.toHaveProperty('recovery');
+    expect(JSON.parse(vfs.recovery ?? '{}')).toHaveProperty('recovery.id');
+    expect(vi.mocked(window.api.autoSaveProject).mock.calls.at(-1)?.[1]).toBe(SAVE_PATH);
+    expect(useStore.getState()).toMatchObject({ isDirty: false, saveStatus: 'saved' });
+  });
+
+  it('can refresh crash recovery without overwriting the current project file', async () => {
+    populateStore();
+    await saveProject();
+    const projectBeforeRecovery = vfs.saved.get(SAVE_PATH);
+    useStore.setState({ clips: { ...useStore.getState().clips } });
+
+    await autoSaveProject({ recoveryOnly: true });
+
+    expect(vfs.recovery).not.toBeNull();
+    expect(vfs.saved.get(SAVE_PATH)).toBe(projectBeforeRecovery);
+    expect(vi.mocked(window.api.autoSaveProject).mock.calls.at(-1)?.[1]).toBeNull();
+    expect(useStore.getState()).toMatchObject({ isDirty: true, saveStatus: 'dirty' });
+  });
+
+  it('honors the configured autosave debounce interval', async () => {
+    vi.useFakeTimers();
+    try {
+      populateStore();
+      useStore.setState((state) => ({
+        settings: { ...state.settings, autosaveIntervalMs: 10_000 },
+      }));
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(vfs.recovery).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(vfs.recovery).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -378,9 +675,16 @@ describe('project-service · autoSaveProject ↔ loadRecovery round-trip', () =>
     await autoSaveProject();
     expect(vfs.recovery).toBeTruthy();
 
-    const recoveryJson = vfs.recovery!;
+    const recoveryJson = vfs.recovery;
+    if (recoveryJson === null) throw new Error('Expected recovery JSON');
     const parsed = JSON.parse(recoveryJson) as ProjectFileData;
-    expect(parsed).toEqual(expectedProject());
+    expect(parsed).toMatchObject(expectedProject());
+    expect(parsed.recovery).toMatchObject({
+      savedAt: PROJECT_IDENTITY.modifiedAt,
+      stage: 'ready',
+    });
+    expect(parsed.recovery?.id).toEqual(expect.any(String));
+    expectCredentialFree(recoveryJson);
 
     // ── Reset to a fresh store and load the recovery payload ─────────────
     useStore.getState().reset();
@@ -392,21 +696,32 @@ describe('project-service · autoSaveProject ↔ loadRecovery round-trip', () =>
     expect(useStore.getState().clips).toEqual({});
 
     const data = await loadRecovery();
-    expect(data).toBe(recoveryJson);
     expect(data).not.toBeNull();
+    if (data === null) throw new Error('Expected recovery data');
+    expect(data).toMatchObject({
+      id: parsed.recovery?.id,
+      projectName: PROJECT_IDENTITY.displayName,
+      sourceName: SOURCE_A.name,
+      stage: 'ready',
+      counts: { sources: 3, transcripts: 3, clips: 6, editPlans: 1 },
+    });
 
-    applyProjectJson(data!);
+    applyProjectJson(data.json);
 
     // ── Deep-equality on every persisted field ───────────────────────────
     const state = useStore.getState();
-    expect(state.sources).toEqual([SOURCE_A, SOURCE_B, SOURCE_C]);
+    expect(state.sources).toEqual([
+      { ...SOURCE_A, mediaStatus: 'checking' },
+      { ...SOURCE_B, mediaStatus: 'checking' },
+      { ...SOURCE_C, mediaStatus: 'online' },
+    ]);
     expect(state.transcriptions).toEqual({
       [SOURCE_A.id]: TRANSCRIPTION_A,
       [SOURCE_B.id]: TRANSCRIPTION_B,
       [SOURCE_C.id]: TRANSCRIPTION_C,
     });
     expect(state.clips).toEqual(CLIP_FIXTURES);
-    expect(state.settings).toEqual(SETTINGS_FIXTURE);
+    expect(state.settings).toEqual({ ...DEFAULT_SETTINGS, ...expectedProjectSettings() });
     expect(state.processingConfig).toEqual(PROCESSING_CONFIG_FIXTURE);
 
     // Six clips total, every hook text + score preserved.
@@ -423,6 +738,65 @@ describe('project-service · autoSaveProject ↔ loadRecovery round-trip', () =>
     expect(allClips.map((c) => c.score)).toEqual([9.4, 8.2, 7.1, 8.8, 9.9, 7.5]);
   });
 
+  it('gives every new autosave its own recovery identity', async () => {
+    populateStore();
+    await autoSaveProject();
+    const first = JSON.parse(vfs.recovery ?? '{}') as ProjectFileData;
+
+    await autoSaveProject();
+    const second = JSON.parse(vfs.recovery ?? '{}') as ProjectFileData;
+
+    expect(first.recovery?.id).toEqual(expect.any(String));
+    expect(second.recovery?.id).toEqual(expect.any(String));
+    expect(second.recovery?.id).not.toBe(first.recovery?.id);
+  });
+
+  it('derives a stable hash identity for legacy snapshots', () => {
+    const legacyJson = JSON.stringify({
+      version: 1,
+      sources: [SOURCE_A],
+      transcriptions: {},
+      clips: {},
+      settings: {},
+    });
+
+    expect(parseRecoverySnapshot(legacyJson).id).toBe(parseRecoverySnapshot(legacyJson).id);
+    expect(parseRecoverySnapshot(legacyJson).id).toMatch(/^legacy-/);
+  });
+
+  it('normalizes out-of-range recovery dates before they reach the dialog', () => {
+    const recovery = parseRecoverySnapshot(
+      JSON.stringify({
+        version: 3,
+        identity: { ...PROJECT_IDENTITY, modifiedAt: 1e300 },
+        recovery: { id: 'invalid-date', savedAt: 1e300, stage: 'ready' },
+        sources: [SOURCE_A],
+        transcriptions: {},
+        clips: {},
+        settings: {},
+      }),
+    );
+
+    expect(recovery.savedAt).toBe(PROJECT_IDENTITY.modifiedAt);
+    expect(recovery.id).toMatch(/^legacy-/);
+  });
+
+  it('marks recovered work dirty so it is protected by the next autosave', async () => {
+    populateStore();
+    await autoSaveProject();
+    const recovery = await loadRecovery();
+    if (!recovery) throw new Error('Expected recovery data');
+
+    useStore.getState().reset();
+    restoreProject(recovery.json, undefined, { recovered: true });
+
+    expect(useStore.getState()).toMatchObject({
+      isDirty: true,
+      saveStatus: 'dirty',
+      projectRevision: 1,
+    });
+  });
+
   it('autoSaveProject skips when there are no clips (no recovery file written)', async () => {
     // Reset gives us a store with empty clips.
     useStore.getState().reset();
@@ -430,6 +804,55 @@ describe('project-service · autoSaveProject ↔ loadRecovery round-trip', () =>
 
     await autoSaveProject();
     expect(vfs.recovery).toBeNull();
+  });
+});
+
+describe('project-service · credential and settings scope migration', () => {
+  it('migrates legacy files without emitting or applying embedded credentials', async () => {
+    const legacy = {
+      ...expectedProject(),
+      version: 1,
+      settings: SETTINGS_FIXTURE,
+      futureProvider: { apiKey: 'future-provider-secret' },
+    };
+    const legacyJson = JSON.stringify(legacy);
+
+    const migratedJson = migrateProjectJson(legacyJson, true);
+    const migrated = JSON.parse(migratedJson) as ProjectFileData;
+    expect(migrated.version).toBe(PROJECT_SCHEMA_VERSION);
+    expect(migrated.settings).toEqual(expectedProjectSettings());
+    expectCredentialFree(migratedJson);
+    expect(migratedJson).not.toContain('future-provider-secret');
+    expect(migratedJson).not.toContain('futureProvider.apiKey');
+
+    useStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        geminiApiKey: 'current-gemini-credential',
+        pexelsApiKey: 'current-pexels-credential',
+        falApiKey: 'current-fal-credential',
+        outputDirectory: '/current/output',
+        enableNotifications: true,
+        developerMode: false,
+        renderConcurrency: 4,
+        longformSkin: 'blueprint',
+        longformPaletteId: 'creator-palette',
+      },
+    });
+    vfs.saved.set(SAVE_PATH, legacyJson);
+
+    expect(await loadProjectFromPath(SAVE_PATH)).toBe(true);
+    const settings = useStore.getState().settings;
+    expect(settings.geminiApiKey).toBe('current-gemini-credential');
+    expect(settings.pexelsApiKey).toBe('current-pexels-credential');
+    expect(settings.falApiKey).toBe('current-fal-credential');
+    expect(settings.outputDirectory).toBe('/current/output');
+    expect(settings.enableNotifications).toBe(true);
+    expect(settings.developerMode).toBe(false);
+    expect(settings.renderConcurrency).toBe(4);
+    expect(settings.longformSkin).toBe('blueprint');
+    expect(settings.longformPaletteId).toBe('creator-palette');
+    expect(settings.minScore).toBe(SETTINGS_FIXTURE.minScore);
   });
 });
 
@@ -453,6 +876,13 @@ describe('project-service · long-form persistence floor (RF-020)', () => {
       transcriptions: { [SOURCE_A.id]: TRANSCRIPTION_A },
       clips: {},
       longformPlans: { [SOURCE_A.id]: LONGFORM_PLAN_RECORD },
+      activeSourceId: SOURCE_A.id,
+      pipeline: { stage: 'ready', message: '', percent: 100 },
+      workspace: {
+        ...useStore.getState().workspace,
+        stage: 'ready',
+        activeSourceId: SOURCE_A.id,
+      },
       settings: { ...DEFAULT_SETTINGS },
       processingConfig: { ...DEFAULT_PROCESSING_CONFIG },
     });
@@ -465,7 +895,9 @@ describe('project-service · long-form persistence floor (RF-020)', () => {
     expect(path).toBe(SAVE_PATH);
 
     // The serialized project carries the long-form plan keyed by source.
-    const parsed = JSON.parse(vfs.saved.get(SAVE_PATH)!) as ProjectFileData;
+    const savedJson = vfs.saved.get(SAVE_PATH);
+    if (savedJson === undefined) throw new Error('Expected saved project JSON');
+    const parsed = JSON.parse(savedJson) as ProjectFileData;
     expect(parsed.longformPlans).toEqual({ [SOURCE_A.id]: LONGFORM_PLAN_RECORD });
     expect(parsed.clips).toEqual({});
 
@@ -489,7 +921,7 @@ describe('project-service · long-form persistence floor (RF-020)', () => {
     expect(state.pipeline.stage).toBe('ready');
   });
 
-  it('routes a restored long-form-only project to the render surface (RF-001)', async () => {
+  it('routes a restored legacy long-form plan to explicit review before export', async () => {
     populateLongformOnlyStore();
     await saveProject();
 
@@ -503,12 +935,11 @@ describe('project-service · long-form persistence floor (RF-020)', () => {
     expect(ok).toBe(true);
 
     const state = useStore.getState();
-    // The persisted (dead until now) plan is reachable via getLongformPlan.
     expect(state.getLongformPlan(SOURCE_A.id)).toEqual(LONGFORM_PLAN_RECORD);
-    // It's detected as long-form-only and routes to render, NOT the empty
-    // ClipGrid ("No clips yet").
+    // Legacy records have no accepted status, so they re-enter Cut Plan review
+    // rather than bypassing approval or falling through to an empty clip grid.
     expect(selectIsLongformOnly(state)).toBe(true);
-    expect(selectActiveScreen(state)).toBe('render');
+    expect(selectActiveScreen(state)).toBe('cut-plan');
   });
 
   it('autoSaveProject writes recovery for a long-form-only project (no clips)', async () => {
@@ -518,7 +949,8 @@ describe('project-service · long-form persistence floor (RF-020)', () => {
     await autoSaveProject();
 
     expect(vfs.recovery).toBeTruthy();
-    const parsed = JSON.parse(vfs.recovery!) as ProjectFileData;
+    if (vfs.recovery === null) throw new Error('Expected recovery JSON');
+    const parsed = JSON.parse(vfs.recovery) as ProjectFileData;
     expect(parsed.longformPlans).toEqual({ [SOURCE_A.id]: LONGFORM_PLAN_RECORD });
   });
 });

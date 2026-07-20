@@ -1,68 +1,115 @@
-import type { StateCreator } from 'zustand'
-import type {
-  AppState,
-  ClipCandidate,
-} from './types'
-import { MAX_UNDO, MAX_CLIP_UNDO } from '@shared/constants'
+import { MAX_CLIP_UNDO, MAX_UNDO } from '@shared/constants';
+import type { StateCreator } from 'zustand';
+import type { AppState, ClipCandidate, StitchedClipCandidate } from './types';
 
-// ---------------------------------------------------------------------------
-// Global Undo / Redo infrastructure (batch operations)
-// ---------------------------------------------------------------------------
-
-/** Subset of state tracked by global undo/redo. */
-export interface UndoableSnapshot {
-  clips: Record<string, ClipCandidate[]>
-  minScore: number
+export interface HistoryAction {
+  /** Short noun phrase used by buttons and native menu items. */
+  label: string;
+  /** Brief status announced after undo. */
+  undoMessage: string;
+  /** Brief status announced after redo. */
+  redoMessage: string;
 }
 
-export { MAX_UNDO, MAX_CLIP_UNDO }
+const DEFAULT_ACTION: HistoryAction = {
+  label: 'clip change',
+  undoMessage: 'Clip change undone',
+  redoMessage: 'Clip change restored',
+};
 
-export function _captureSnapshot(state: {
-  clips: Record<string, ClipCandidate[]>
-  settings: { minScore: number }
-}): UndoableSnapshot {
+/** Subset of project state tracked by global undo/redo. */
+export interface UndoableSnapshot {
+  clips: Record<string, ClipCandidate[]>;
+  stitchedClips: Record<string, StitchedClipCandidate[]>;
+  minScore: number;
+  action: HistoryAction;
+}
+
+export { MAX_CLIP_UNDO, MAX_UNDO };
+
+export function _captureSnapshot(
+  state: {
+    clips: Record<string, ClipCandidate[]>;
+    stitchedClips: Record<string, StitchedClipCandidate[]>;
+    settings: { minScore: number };
+  },
+  action: HistoryAction = DEFAULT_ACTION,
+): UndoableSnapshot {
   return {
     clips: structuredClone(state.clips),
-    minScore: state.settings.minScore
-  }
+    stitchedClips: structuredClone(state.stitchedClips),
+    minScore: state.settings.minScore,
+    action,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Per-clip Undo / Redo
-// ---------------------------------------------------------------------------
-
-/** A single per-clip undo entry: deep clone of the clip before the change. */
+/** A per-clip snapshot before one inspector edit. */
 export interface ClipUndoEntry {
-  clip: ClipCandidate
+  clip: ClipCandidate | StitchedClipCandidate;
+  action: HistoryAction;
 }
 
-// ---------------------------------------------------------------------------
-// History Slice
-// ---------------------------------------------------------------------------
+export interface HistoryResult {
+  message: string;
+}
 
 export interface HistorySlice {
-  // Global undo/redo (for batch operations)
-  _undoStack: UndoableSnapshot[]
-  _redoStack: UndoableSnapshot[]
-  canUndo: boolean
-  canRedo: boolean
-  undo: () => void
-  redo: () => void
+  _undoStack: UndoableSnapshot[];
+  _redoStack: UndoableSnapshot[];
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => HistoryResult | null;
+  redo: () => HistoryResult | null;
 
-  // Per-clip undo/redo stacks
-  _clipUndoStacks: Record<string, ClipUndoEntry[]>
-  _clipRedoStacks: Record<string, ClipUndoEntry[]>
-  /** ID of the most recently edited clip (set by _pushClipUndo). */
-  _lastEditedClipId: string | null
-  /** Source ID of the most recently edited clip. */
-  _lastEditedSourceId: string | null
+  _clipUndoStacks: Record<string, ClipUndoEntry[]>;
+  _clipRedoStacks: Record<string, ClipUndoEntry[]>;
+  _lastEditedClipId: string | null;
+  _lastEditedSourceId: string | null;
 
-  canUndoClip: (clipId: string) => boolean
-  canRedoClip: (clipId: string) => boolean
-  undoClip: (sourceId: string, clipId: string) => void
-  redoClip: (sourceId: string, clipId: string) => void
-  /** Clear per-clip history for a specific clip (e.g., when source is removed). */
-  clearClipUndoHistory: (clipId: string) => void
+  canUndoClip: (clipId: string) => boolean;
+  canRedoClip: (clipId: string) => boolean;
+  undoClip: (sourceId: string, clipId: string) => HistoryResult | null;
+  redoClip: (sourceId: string, clipId: string) => HistoryResult | null;
+  clearClipUndoHistory: (clipId: string) => void;
+}
+
+interface ClipReplacement {
+  current: ClipCandidate | StitchedClipCandidate;
+  clips: AppState['clips'];
+  stitchedClips: AppState['stitchedClips'];
+}
+
+function buildClipReplacement(
+  state: AppState,
+  sourceId: string,
+  clipId: string,
+  snapshot: ClipCandidate | StitchedClipCandidate,
+): ClipReplacement | null {
+  if ('sourceRanges' in snapshot) {
+    const sourceClips = state.stitchedClips[sourceId];
+    const current = sourceClips?.find((clip) => clip.id === clipId);
+    if (!sourceClips || !current) return null;
+    return {
+      current,
+      clips: state.clips,
+      stitchedClips: {
+        ...state.stitchedClips,
+        [sourceId]: sourceClips.map((clip) => (clip.id === clipId ? snapshot : clip)),
+      },
+    };
+  }
+
+  const sourceClips = state.clips[sourceId];
+  const current = sourceClips?.find((clip) => clip.id === clipId);
+  if (!sourceClips || !current) return null;
+  return {
+    current,
+    clips: {
+      ...state.clips,
+      [sourceId]: sourceClips.map((clip) => (clip.id === clipId ? snapshot : clip)),
+    },
+    stitchedClips: state.stitchedClips,
+  };
 }
 
 export const createHistorySlice: StateCreator<
@@ -71,160 +118,171 @@ export const createHistorySlice: StateCreator<
   [],
   HistorySlice
 > = (set, get) => ({
-  // --- Global undo/redo ---
   _undoStack: [],
   _redoStack: [],
   canUndo: false,
   canRedo: false,
 
   undo: () => {
-    const state = get()
-    const stack = [...state._undoStack]
-    const snapshot = stack.pop()
-    if (!snapshot) return
-    const redoStack = [...state._redoStack, _captureSnapshot(state)]
+    const state = get();
+    const stack = [...state._undoStack];
+    const snapshot = stack.pop();
+    if (!snapshot) return null;
+    const redoStack = [...state._redoStack, _captureSnapshot(state, snapshot.action)];
     set({
       _undoStack: stack,
       _redoStack: redoStack,
       clips: snapshot.clips,
+      stitchedClips: snapshot.stitchedClips,
       settings: { ...state.settings, minScore: snapshot.minScore },
       canUndo: stack.length > 0,
-      canRedo: true
-    })
+      canRedo: true,
+    });
+    return { message: snapshot.action.undoMessage };
   },
 
   redo: () => {
-    const state = get()
-    const stack = [...state._redoStack]
-    const snapshot = stack.pop()
-    if (!snapshot) return
-    const undoStack = [...state._undoStack, _captureSnapshot(state)]
+    const state = get();
+    const stack = [...state._redoStack];
+    const snapshot = stack.pop();
+    if (!snapshot) return null;
+    const undoStack = [...state._undoStack, _captureSnapshot(state, snapshot.action)];
     set({
       _undoStack: undoStack,
       _redoStack: stack,
       clips: snapshot.clips,
+      stitchedClips: snapshot.stitchedClips,
       settings: { ...state.settings, minScore: snapshot.minScore },
       canUndo: true,
-      canRedo: stack.length > 0
-    })
+      canRedo: stack.length > 0,
+    });
+    return { message: snapshot.action.redoMessage };
   },
 
-  // --- Per-clip undo/redo ---
   _clipUndoStacks: {},
   _clipRedoStacks: {},
   _lastEditedClipId: null,
   _lastEditedSourceId: null,
 
-  canUndoClip: (clipId) => {
-    return (get()._clipUndoStacks[clipId]?.length ?? 0) > 0
-  },
-
-  canRedoClip: (clipId) => {
-    return (get()._clipRedoStacks[clipId]?.length ?? 0) > 0
-  },
+  canUndoClip: (clipId) => (get()._clipUndoStacks[clipId]?.length ?? 0) > 0,
+  canRedoClip: (clipId) => (get()._clipRedoStacks[clipId]?.length ?? 0) > 0,
 
   undoClip: (sourceId, clipId) => {
-    const state = get()
-    const stack = [...(state._clipUndoStacks[clipId] ?? [])]
-    const entry = stack.pop()
-    if (!entry) return
+    const state = get();
+    const stack = [...(state._clipUndoStacks[clipId] ?? [])];
+    const entry = stack.pop();
+    if (!entry) return null;
 
-    // Push current clip state onto redo stack
-    const sourceClips = state.clips[sourceId]
-    if (!sourceClips) return
-    const currentClip = sourceClips.find((c) => c.id === clipId)
-    if (!currentClip) return
-
-    const redoStack = [...(state._clipRedoStacks[clipId] ?? []), { clip: structuredClone(currentClip) }]
-
-    // Replace the clip in the source array with the snapshot
-    const updated = sourceClips.map((c) => (c.id === clipId ? entry.clip : c))
+    const replacement = buildClipReplacement(state, sourceId, clipId, entry.clip);
+    if (!replacement) return null;
+    const redoStack = [
+      ...(state._clipRedoStacks[clipId] ?? []),
+      { clip: structuredClone(replacement.current), action: entry.action },
+    ];
 
     set({
       _clipUndoStacks: { ...state._clipUndoStacks, [clipId]: stack },
       _clipRedoStacks: { ...state._clipRedoStacks, [clipId]: redoStack },
-      clips: { ...state.clips, [sourceId]: updated }
-    })
+      clips: replacement.clips,
+      stitchedClips: replacement.stitchedClips,
+    });
+    return { message: entry.action.undoMessage };
   },
 
   redoClip: (sourceId, clipId) => {
-    const state = get()
-    const stack = [...(state._clipRedoStacks[clipId] ?? [])]
-    const entry = stack.pop()
-    if (!entry) return
+    const state = get();
+    const stack = [...(state._clipRedoStacks[clipId] ?? [])];
+    const entry = stack.pop();
+    if (!entry) return null;
 
-    // Push current clip state onto undo stack
-    const sourceClips = state.clips[sourceId]
-    if (!sourceClips) return
-    const currentClip = sourceClips.find((c) => c.id === clipId)
-    if (!currentClip) return
-
-    const undoStack = [...(state._clipUndoStacks[clipId] ?? []), { clip: structuredClone(currentClip) }]
-
-    // Replace the clip with the redo snapshot
-    const updated = sourceClips.map((c) => (c.id === clipId ? entry.clip : c))
+    const replacement = buildClipReplacement(state, sourceId, clipId, entry.clip);
+    if (!replacement) return null;
+    const undoStack = [
+      ...(state._clipUndoStacks[clipId] ?? []),
+      { clip: structuredClone(replacement.current), action: entry.action },
+    ];
 
     set({
       _clipUndoStacks: { ...state._clipUndoStacks, [clipId]: undoStack },
       _clipRedoStacks: { ...state._clipRedoStacks, [clipId]: stack },
-      clips: { ...state.clips, [sourceId]: updated }
-    })
+      clips: replacement.clips,
+      stitchedClips: replacement.stitchedClips,
+    });
+    return { message: entry.action.redoMessage };
   },
 
   clearClipUndoHistory: (clipId) => {
-    const state = get()
-    const undoStacks = { ...state._clipUndoStacks }
-    const redoStacks = { ...state._clipRedoStacks }
-    delete undoStacks[clipId]
-    delete redoStacks[clipId]
-    set({ _clipUndoStacks: undoStacks, _clipRedoStacks: redoStacks })
+    const state = get();
+    const undoStacks = { ...state._clipUndoStacks };
+    const redoStacks = { ...state._clipRedoStacks };
+    delete undoStacks[clipId];
+    delete redoStacks[clipId];
+    set({ _clipUndoStacks: undoStacks, _clipRedoStacks: redoStacks });
   },
-})
+});
 
-// ---------------------------------------------------------------------------
-// Helper: push global undo state (for batch operations)
-// ---------------------------------------------------------------------------
-
-type SetFn = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
+type SetFn = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
 
 export function _pushUndo(
   state: AppState,
-  set: SetFn
+  set: SetFn,
+  action: HistoryAction = DEFAULT_ACTION,
 ): void {
-  const snapshot = _captureSnapshot(state)
-  const undoStack = [...state._undoStack, snapshot]
-  if (undoStack.length > MAX_UNDO) undoStack.shift()
+  const snapshot = _captureSnapshot(state, action);
+  const undoStack = [...state._undoStack, snapshot];
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
   set({
     _undoStack: undoStack,
     _redoStack: [],
     canUndo: true,
     canRedo: false,
-  })
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Helper: push per-clip undo state (for individual clip edits)
-// ---------------------------------------------------------------------------
 
 export function _pushClipUndo(
   sourceId: string,
   clipId: string,
   state: AppState,
-  set: SetFn
+  set: SetFn,
+  action: HistoryAction = DEFAULT_ACTION,
 ): void {
-  const sourceClips = state.clips[sourceId]
-  if (!sourceClips) return
-  const clip = sourceClips.find((c) => c.id === clipId)
-  if (!clip) return
+  const clip =
+    state.clips[sourceId]?.find((candidate) => candidate.id === clipId) ??
+    state.stitchedClips[sourceId]?.find((candidate) => candidate.id === clipId);
+  if (!clip) return;
 
-  const snapshot = structuredClone(clip)
-  const stack = [...(state._clipUndoStacks[clipId] ?? []), { clip: snapshot }]
-  if (stack.length > MAX_CLIP_UNDO) stack.shift()
+  const stack = [...(state._clipUndoStacks[clipId] ?? []), { clip: structuredClone(clip), action }];
+  if (stack.length > MAX_CLIP_UNDO) stack.shift();
 
   set({
     _clipUndoStacks: { ...state._clipUndoStacks, [clipId]: stack },
     _clipRedoStacks: { ...state._clipRedoStacks, [clipId]: [] },
     _lastEditedClipId: clipId,
     _lastEditedSourceId: sourceId,
-  })
+  });
+}
+
+export function reviewDecisionAction(
+  previous: ClipCandidate['status'],
+  next: ClipCandidate['status'],
+): HistoryAction {
+  if (next === 'approved') {
+    return {
+      label: 'approval',
+      undoMessage: previous === 'rejected' ? 'Rejection restored' : 'Approval undone',
+      redoMessage: 'Approval restored',
+    };
+  }
+  if (next === 'rejected') {
+    return {
+      label: 'rejection',
+      undoMessage: previous === 'approved' ? 'Approval restored' : 'Rejection undone',
+      redoMessage: 'Rejection restored',
+    };
+  }
+  return {
+    label: 'review decision',
+    undoMessage: previous === 'approved' ? 'Approval restored' : 'Rejection restored',
+    redoMessage: 'Returned to unreviewed',
+  };
 }

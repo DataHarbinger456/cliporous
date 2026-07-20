@@ -1,88 +1,88 @@
-import { createStageReporter } from '../../lib/progress-reporter'
-import type { PipelineContext } from './types'
+import { createStageReporter } from '../../lib/progress-reporter';
+import type { PipelineContext } from './types';
 
 export interface TranscriptionStageResult {
   transcriptionResult: {
-    text: string
-    words: Array<{ text: string; start: number; end: number }>
-    segments: Array<{ text: string; start: number; end: number }>
-  }
-  formattedForAI: string
+    text: string;
+    words: Array<{ text: string; start: number; end: number }>;
+    segments: Array<{ text: string; start: number; end: number }>;
+  };
+  formattedForAI: string;
 }
 
 /** Audio extraction + ASR transcription, or use cached data on resume. */
 export async function transcriptionStage(
   ctx: PipelineContext,
-  sourcePath: string
+  sourcePath: string,
 ): Promise<TranscriptionStageResult> {
-  const { source, check, setPipeline, shouldSkip, store, getState } = ctx
-  const reporter = createStageReporter(setPipeline, 'transcribing')
+  const { source, check, setPipeline, shouldSkip, store, getState } = ctx;
+  const reporter = createStageReporter(setPipeline, 'transcribing');
 
   if (shouldSkip('transcribing')) {
-    reporter.done('Using cached transcription')
+    reporter.done('Using cached transcription');
   }
 
   // Intentionally reading latest state at execution time — cached transcription
   // data may have been written by a prior pipeline run.
-  const cachedTranscription = getState().transcriptions[source.id]
+  const cachedTranscription = getState().transcriptions[source.id];
   if (shouldSkip('transcribing') && cachedTranscription) {
-    ctx.markStageCompleted('transcribing')
+    ctx.markStageCompleted('transcribing');
     return {
       transcriptionResult: {
         text: cachedTranscription.text,
         words: cachedTranscription.words,
-        segments: cachedTranscription.segments
+        segments: cachedTranscription.segments,
       },
-      formattedForAI: cachedTranscription.formattedForAI
-    }
+      formattedForAI: cachedTranscription.formattedForAI,
+    };
   }
 
-  reporter.start('Extracting audio…')
-  check()
+  reporter.start('Extracting audio…');
+  check();
 
   const stagePercents: Record<string, number> = {
     'extracting-audio': 10,
     'downloading-model': 20,
     'loading-model': 50,
-    transcribing: 70
-  }
+    transcribing: 70,
+  };
 
   const unsubTranscribe = window.api.onTranscribeProgress(({ stage, message, percent }) => {
-    let resolvedPercent = stagePercents[stage] ?? 50
+    let resolvedPercent = stagePercents[stage] ?? 50;
     if (stage === 'downloading-model' && typeof percent === 'number') {
-      resolvedPercent = Math.round(20 + (percent / 100) * 30)
+      resolvedPercent = Math.round(20 + (percent / 100) * 30);
     }
     // Chunked ASR emits "Transcribing chunk i/N …" — the only real signal of
     // forward progress for long videos. Map it into the 70→97 band so the bar
     // actually advances instead of sitting pinned at the fixed 70.
     if (stage === 'transcribing') {
-      const m = message.match(/chunk\s+(\d+)\s*\/\s*(\d+)/i)
+      const m = message.match(/chunk\s+(\d+)\s*\/\s*(\d+)/i);
       if (m) {
-        const cur = Number(m[1])
-        const total = Number(m[2])
-        if (total > 0) resolvedPercent = Math.round(70 + (cur / total) * 27)
+        const cur = Number(m[1]);
+        const total = Number(m[2]);
+        if (total > 0) resolvedPercent = Math.round(70 + (cur / total) * 27);
       }
     }
-    reporter.update(message, resolvedPercent)
-  })
+    reporter.update(message, resolvedPercent);
+  });
 
-  let transcriptionResult: TranscriptionStageResult['transcriptionResult']
+  let transcriptionResult: TranscriptionStageResult['transcriptionResult'];
   try {
-    transcriptionResult = await window.api.transcribeVideo(sourcePath)
+    transcriptionResult = await window.api.transcribeVideo(sourcePath);
   } finally {
-    unsubTranscribe()
+    unsubTranscribe();
   }
-  check()
+  check();
 
-  const formattedForAI = await window.api.formatTranscriptForAI(transcriptionResult)
-  check()
+  const formattedForAI = await window.api.formatTranscriptForAI(transcriptionResult);
+  check();
 
   store.setTranscription(source.id, {
     text: transcriptionResult.text,
     words: transcriptionResult.words,
     segments: transcriptionResult.segments,
-    formattedForAI
-  })
+    formattedForAI,
+  });
 
   // Last-resort duration backfill — if yt-dlp + ffprobe both came up empty,
   // use the end of the final transcribed word as the audio duration. This
@@ -91,18 +91,18 @@ export async function transcriptionStage(
   // ctx.source is immer-frozen, so we write through the store and then
   // re-point ctx.source at the fresh snapshot rather than mutating in place.
   if (!source.duration || source.duration <= 0) {
-    const lastWord = transcriptionResult.words[transcriptionResult.words.length - 1]
-    const lastSeg = transcriptionResult.segments[transcriptionResult.segments.length - 1]
-    const fallback = Math.max(lastWord?.end ?? 0, lastSeg?.end ?? 0)
+    const lastWord = transcriptionResult.words[transcriptionResult.words.length - 1];
+    const lastSeg = transcriptionResult.segments[transcriptionResult.segments.length - 1];
+    const fallback = Math.max(lastWord?.end ?? 0, lastSeg?.end ?? 0);
     if (fallback > 0) {
-      getState().updateSource(source.id, { duration: fallback })
-      const refreshed = getState().sources.find((s) => s.id === source.id)
-      if (refreshed) ctx.source = refreshed
+      getState().updateSource(source.id, { duration: fallback });
+      const refreshed = getState().sources.find((s) => s.id === source.id);
+      if (refreshed) ctx.source = refreshed;
     }
   }
 
-  reporter.done('Transcription complete')
-  ctx.markStageCompleted('transcribing')
+  reporter.done('Transcription complete');
+  ctx.markStageCompleted('transcribing');
 
-  return { transcriptionResult, formattedForAI }
+  return { transcriptionResult, formattedForAI };
 }

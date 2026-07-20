@@ -1,9 +1,9 @@
 /**
  * selectors.test.ts
  *
- * Screen-routing unit tests, focused on RF-001: a restored long-form-only
- * project (persisted Gemini edit plan, no short-form clips) must route to the
- * render surface instead of stranding the user on ClipGrid's empty state.
+ * Screen-routing unit tests: a restored long-form-only project (persisted
+ * Gemini edit plan, no short-form clips) must route to explicit Cut Plan review
+ * instead of bypassing approval or stranding the user on an empty clip grid.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -50,9 +50,9 @@ describe('selectScreen — base routing', () => {
   });
 });
 
-describe('selectScreen — RF-001 long-form-only routing', () => {
-  it('routes a ready long-form-only project to render (not clips)', () => {
-    expect(selectScreen('ready', true, true)).toBe('render');
+describe('selectScreen — long-form Cut Plan routing', () => {
+  it('routes a ready long-form-only project to Cut Plan review', () => {
+    expect(selectScreen('ready', true, true)).toBe('cut-plan');
   });
 
   it('still routes a clips project to clips when not long-form-only', () => {
@@ -109,13 +109,13 @@ describe('selectIsLongformOnly', () => {
 });
 
 describe('selectActiveScreen — composed routing', () => {
-  it('a restored long-form-only project lands on render', () => {
+  it('a restored long-form-only project lands on Cut Plan review', () => {
     const state = makeState({
       activeSourceId: 'src-a',
       longformPlans: { 'src-a': PLAN },
       pipeline: { stage: 'ready', message: '', percent: 100 },
     });
-    expect(selectActiveScreen(state)).toBe('render');
+    expect(selectActiveScreen(state)).toBe('cut-plan');
   });
 
   it('a normal clips project still lands on clips', () => {
