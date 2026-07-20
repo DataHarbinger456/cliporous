@@ -1,7 +1,7 @@
-import { writeFileSync, existsSync, mkdirSync } from 'fs'
-import { join, basename } from 'path'
-import type { RenderClipJob, RenderBatchOptions } from './render/types'
-import type { ClipDescription } from './ai/description-generator'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import type { ClipDescription } from './ai/description-generator';
+import type { RenderBatchOptions, RenderClipJob } from './render/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,87 +9,87 @@ import type { ClipDescription } from './ai/description-generator'
 
 export interface ManifestClipEntry {
   /** Clip identifier */
-  id: string
+  id: string;
   /** Output filename (mp4) */
-  filename: string
+  filename: string;
   /** Viral potential score (0–100) */
-  score: number
+  score: number;
   /** Clip start time in source video (seconds) */
-  startTime: number
+  startTime: number;
   /** Clip end time in source video (seconds) */
-  endTime: number
+  endTime: number;
   /** Clip duration (seconds) */
-  duration: number
+  duration: number;
   /** AI-generated hook text */
-  hookText: string
+  hookText: string;
   /**
    * Source video path used for this clip. Captured per-clip because stitched
    * clips may eventually mix sources, and viewers of the manifest shouldn't
    * have to cross-reference the batch-level `source` block.
    */
-  sourceVideo: string
+  sourceVideo: string;
   /** Resolved accent color (hex, e.g. "#9F75FF") for highlights/emphasis. */
-  accentColor?: string
+  accentColor?: string;
   /** Captions render mode ("standard" | "emphasis" | "emphasis_highlight" | "disabled"). */
-  captionsMode: string
+  captionsMode: string;
   /**
    * Archetype used for this clip. For segmented/stitched clips the value is the
    * primary (first segment) archetype; for non-segmented clips it falls back to
    * the active style preset id.
    */
-  archetype?: string
+  archetype?: string;
   /** AI reasoning for score */
-  reasoning: string
+  reasoning: string;
   /** Render status */
-  status: 'success' | 'failed'
+  status: 'success' | 'failed';
   /** First 200 chars of transcript text */
-  transcriptExcerpt: string
+  transcriptExcerpt: string;
   /** Loop quality score (0–100), if loop optimization was run */
-  loopScore?: number
+  loopScore?: number;
   /** Render time in milliseconds */
-  renderTimeMs?: number
+  renderTimeMs?: number;
   /** AI-generated platform descriptions + hashtags */
-  description?: ClipDescription
+  description?: ClipDescription;
   /** Social media suggestions */
   socialMedia: {
-    captionText: string
-    hashtags: string[]
+    captionText: string;
+    hashtags: string[];
     bestPostingTimes: {
-      platform: string
-      times: string[]
-    }[]
-  }
+      platform: string;
+      times: string[];
+    }[];
+  };
 }
 
 export interface RenderManifest {
   /** ISO 8601 timestamp of when the batch was generated */
-  generatedAt: string
+  generatedAt: string;
   /** App version tag */
-  appVersion: string
+  appVersion: string;
   /** Source video information */
   source: {
-    name: string
-    path: string
-    duration: number
-  }
+    name: string;
+    path: string;
+    duration: number;
+  };
   /** Global render settings summary */
   settings: {
-    encoder: string
-    captionsEnabled: boolean
-    autoZoomEnabled: boolean
-    hookTitleEnabled: boolean
-    rehookEnabled: boolean
-  }
+    encoder: string;
+    captionsEnabled: boolean;
+    autoZoomEnabled: boolean;
+    hookTitleEnabled: boolean;
+    rehookEnabled: boolean;
+  };
   /** Batch statistics */
   stats: {
-    total: number
-    completed: number
-    failed: number
-    totalRenderTimeMs: number
-    avgRenderTimeMs: number
-  }
+    total: number;
+    completed: number;
+    failed: number;
+    totalRenderTimeMs: number;
+    avgRenderTimeMs: number;
+  };
   /** Per-clip entries */
-  clips: ManifestClipEntry[]
+  clips: ManifestClipEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -97,19 +97,19 @@ export interface RenderManifest {
 // ---------------------------------------------------------------------------
 
 export interface ManifestJobMeta {
-  clipId: string
+  clipId: string;
   /** Clip score (0–100) from AI scoring */
-  score: number
+  score: number;
   /** Hook text */
-  hookText: string
+  hookText: string;
   /** AI reasoning */
-  reasoning: string
+  reasoning: string;
   /** Transcript text for this clip */
-  transcriptText: string
+  transcriptText: string;
   /** Loop quality score if available */
-  loopScore?: number
+  loopScore?: number;
   /** AI description if available */
-  description?: ClipDescription
+  description?: ClipDescription;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,67 +120,67 @@ export interface ManifestJobMeta {
 const PLATFORM_POSTING_TIMES: Record<string, string[]> = {
   TikTok: ['6–10 AM', '7–9 PM'],
   'Instagram Reels': ['9–11 AM', '7–9 PM'],
-  'YouTube Shorts': ['12–3 PM', '7–9 PM']
-}
+  'YouTube Shorts': ['12–3 PM', '7–9 PM'],
+};
 
 function buildSocialMediaSection(
   hookText: string,
-  description?: ClipDescription
+  description?: ClipDescription,
 ): ManifestClipEntry['socialMedia'] {
   // Build caption text: hook text + first platform description if available
-  let captionText = hookText || ''
+  let captionText = hookText || '';
   if (description?.platforms?.length) {
-    const tiktok = description.platforms.find((p) => p.platform === 'tiktok')
+    const tiktok = description.platforms.find((p) => p.platform === 'tiktok');
     if (tiktok?.text) {
-      captionText = tiktok.text
+      captionText = tiktok.text;
     } else {
-      captionText = description.platforms[0].text
+      captionText = description.platforms[0].text;
     }
   }
 
   // Aggregate hashtags
-  let hashtags: string[] = []
+  let hashtags: string[] = [];
   if (description?.hashtag) {
-    hashtags.push('#' + description.hashtag)
+    hashtags.push(`#${description.hashtag}`);
   }
   if (description?.platforms) {
     for (const p of description.platforms) {
       for (const tag of p.hashtags) {
-        const formatted = tag.startsWith('#') ? tag : '#' + tag
+        const formatted = tag.startsWith('#') ? tag : `#${tag}`;
         if (!hashtags.includes(formatted)) {
-          hashtags.push(formatted)
+          hashtags.push(formatted);
         }
       }
     }
   }
   // Generic fallback hashtags
   if (hashtags.length === 0) {
-    hashtags = ['#viral', '#shorts', '#reels', '#fyp', '#trending']
+    hashtags = ['#viral', '#shorts', '#reels', '#fyp', '#trending'];
   }
 
   const bestPostingTimes = Object.entries(PLATFORM_POSTING_TIMES).map(([platform, times]) => ({
     platform,
-    times
-  }))
+    times,
+  }));
 
-  return { captionText, hashtags, bestPostingTimes }
+  return { captionText, hashtags, bestPostingTimes };
 }
 
 /** Format seconds as "1m 23s" */
 function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.round(seconds % 60)
-  if (m === 0) return `${s}s`
-  return `${m}m ${s}s`
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
 }
 
 /** Escape a CSV field value */
 function csvField(value: string | number | undefined | null): string {
-  const str = value === null || value === undefined ? '' : String(value)
+  const str = value === null || value === undefined ? '' : String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return '"' + str.replace(/"/g, '""') + '"'
+    return `"${str.replace(/"/g, '""')}"`;
   }
-  return str
+  return str;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,24 +188,24 @@ function csvField(value: string | number | undefined | null): string {
 // ---------------------------------------------------------------------------
 
 export interface GenerateManifestInput {
-  jobs: RenderClipJob[]
-  options: RenderBatchOptions
+  jobs: RenderClipJob[];
+  options: RenderBatchOptions;
   /** Per-clip metadata supplied by the IPC handler (score, hookText, etc.) */
-  clipMeta: ManifestJobMeta[]
+  clipMeta: ManifestJobMeta[];
   /** Per-clip render result: outputPath (success) or null (failed) */
-  clipResults: Map<string, string | null>
+  clipResults: Map<string, string | null>;
   /** Per-clip render durations in ms */
-  clipRenderTimes: Map<string, number>
+  clipRenderTimes: Map<string, number>;
   /** Batch timing */
-  totalRenderTimeMs: number
+  totalRenderTimeMs: number;
   /** Encoder used */
-  encoder: string
+  encoder: string;
   /** Source video name */
-  sourceName: string
+  sourceName: string;
   /** Source video path */
-  sourcePath: string
+  sourcePath: string;
   /** Source video duration in seconds */
-  sourceDuration: number
+  sourceDuration: number;
 }
 
 export function generateRenderManifest(input: GenerateManifestInput): RenderManifest {
@@ -219,59 +219,58 @@ export function generateRenderManifest(input: GenerateManifestInput): RenderMani
     encoder,
     sourceName,
     sourcePath,
-    sourceDuration
-  } = input
+    sourceDuration,
+  } = input;
 
-  const metaMap = new Map(clipMeta.map((m) => [m.clipId, m]))
+  const metaMap = new Map(clipMeta.map((m) => [m.clipId, m]));
 
-  let completed = 0
-  let failed = 0
+  let completed = 0;
+  let failed = 0;
 
   // Resolve global captions mode once — individual clips can override via
   // clipOverrides.enableCaptions but they don't currently override the mode.
-  const globalCaptionsMode = options.captionsEnabled === false
-    ? 'disabled'
-    : (options.captionStyle?.captionMode ?? 'standard')
-  const globalAccentColor = options.captionStyle?.accentColor
+  const globalCaptionsMode =
+    options.captionsEnabled === false
+      ? 'disabled'
+      : (options.captionStyle?.captionMode ?? 'standard');
+  const globalAccentColor = options.captionStyle?.accentColor;
 
   const clipEntries: ManifestClipEntry[] = jobs.map((job, index) => {
-    const outputPath = clipResults.get(job.clipId) ?? null
-    const isSuccess = outputPath !== null
-    const meta = metaMap.get(job.clipId)
-    const renderTimeMs = clipRenderTimes.get(job.clipId)
+    const outputPath = clipResults.get(job.clipId) ?? null;
+    const isSuccess = outputPath !== null;
+    const meta = metaMap.get(job.clipId);
+    const renderTimeMs = clipRenderTimes.get(job.clipId);
 
-    if (isSuccess) completed++
-    else failed++
+    if (isSuccess) completed++;
+    else failed++;
 
-    const hookText = meta?.hookText ?? job.hookTitleText ?? ''
-    const reasoning = meta?.reasoning ?? ''
-    const transcriptText = meta?.transcriptText ?? ''
-    const description = meta?.description ?? job.description
+    const hookText = meta?.hookText ?? job.hookTitleText ?? '';
+    const reasoning = meta?.reasoning ?? '';
+    const transcriptText = meta?.transcriptText ?? '';
+    const description = meta?.description ?? job.description;
 
     // Build filename: use the actual output path basename, or derive it
     const filename = outputPath
       ? basename(outputPath)
-      : `clip_${index + 1}_${Math.round(job.startTime)}s-${Math.round(job.endTime)}s.mp4`
+      : `clip_${index + 1}_${Math.round(job.startTime)}s-${Math.round(job.endTime)}s.mp4`;
 
     // ── Per-clip accent color resolution ──────────────────────────────────
     // 1. clipOverrides.accentColor (explicit per-clip)
     // 2. First stitched/segmented segment accentColor (when present)
     // 3. Global captionStyle.accentColor (batch default)
-    const accentColor =
-      job.clipOverrides?.accentColor ?? globalAccentColor
+    const accentColor = job.clipOverrides?.accentColor ?? globalAccentColor;
 
     // ── Per-clip captions mode resolution ─────────────────────────────────
-    const captionsMode = job.clipOverrides?.enableCaptions === false
-      ? 'disabled'
-      : globalCaptionsMode
+    const captionsMode =
+      job.clipOverrides?.enableCaptions === false ? 'disabled' : globalCaptionsMode;
 
     // ── Archetype: first segmented archetype, else style preset id ─────────
     // `segmentedSegments` carry an archetype per entry (segment-render path).
     // Stitched segments don't carry archetype — we record the style preset id
     // instead, since the stitched render resolves archetypes from the active
     // edit-style template at render time.
-    const segmentedArchetype = job.segmentedSegments?.[0]?.archetype
-    const resolvedArchetype = segmentedArchetype ?? job.stylePresetId
+    const segmentedArchetype = job.segmentedSegments?.[0]?.archetype;
+    const resolvedArchetype = segmentedArchetype ?? job.stylePresetId;
 
     return {
       id: job.clipId,
@@ -291,14 +290,15 @@ export function generateRenderManifest(input: GenerateManifestInput): RenderMani
       loopScore: meta?.loopScore,
       renderTimeMs,
       description,
-      socialMedia: buildSocialMediaSection(hookText, description)
-    }
-  })
+      socialMedia: buildSocialMediaSection(hookText, description),
+    };
+  });
 
-  const renderTimesArr = Array.from(clipRenderTimes.values()).filter((t) => t > 0)
-  const avgRenderTimeMs = renderTimesArr.length > 0
-    ? renderTimesArr.reduce((a, b) => a + b, 0) / renderTimesArr.length
-    : 0
+  const renderTimesArr = Array.from(clipRenderTimes.values()).filter((t) => t > 0);
+  const avgRenderTimeMs =
+    renderTimesArr.length > 0
+      ? renderTimesArr.reduce((a, b) => a + b, 0) / renderTimesArr.length
+      : 0;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -306,24 +306,24 @@ export function generateRenderManifest(input: GenerateManifestInput): RenderMani
     source: {
       name: sourceName,
       path: sourcePath,
-      duration: sourceDuration
+      duration: sourceDuration,
     },
     settings: {
       encoder,
       captionsEnabled: options.captionsEnabled ?? false,
       autoZoomEnabled: options.autoZoom?.enabled ?? false,
       hookTitleEnabled: options.hookTitleOverlay?.enabled ?? false,
-      rehookEnabled: options.rehookOverlay?.enabled ?? false
+      rehookEnabled: options.rehookOverlay?.enabled ?? false,
     },
     stats: {
       total: jobs.length,
       completed,
       failed,
       totalRenderTimeMs,
-      avgRenderTimeMs: Math.round(avgRenderTimeMs)
+      avgRenderTimeMs: Math.round(avgRenderTimeMs),
     },
-    clips: clipEntries
-  }
+    clips: clipEntries,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -350,16 +350,24 @@ const CSV_HEADERS = [
   'Hashtags',
   'Best TikTok Times',
   'Best Reels Times',
-  'Best Shorts Times'
-]
+  'Best Shorts Times',
+];
 
 function generateManifestCSV(manifest: RenderManifest): string {
-  const rows: string[][] = [CSV_HEADERS]
+  const rows: string[][] = [CSV_HEADERS];
 
   for (const clip of manifest.clips) {
-    const tiktokTimes = clip.socialMedia.bestPostingTimes.find((p) => p.platform === 'TikTok')?.times.join(', ') ?? ''
-    const reelsTimes = clip.socialMedia.bestPostingTimes.find((p) => p.platform === 'Instagram Reels')?.times.join(', ') ?? ''
-    const shortsTimes = clip.socialMedia.bestPostingTimes.find((p) => p.platform === 'YouTube Shorts')?.times.join(', ') ?? ''
+    const tiktokTimes =
+      clip.socialMedia.bestPostingTimes.find((p) => p.platform === 'TikTok')?.times.join(', ') ??
+      '';
+    const reelsTimes =
+      clip.socialMedia.bestPostingTimes
+        .find((p) => p.platform === 'Instagram Reels')
+        ?.times.join(', ') ?? '';
+    const shortsTimes =
+      clip.socialMedia.bestPostingTimes
+        .find((p) => p.platform === 'YouTube Shorts')
+        ?.times.join(', ') ?? '';
 
     rows.push([
       clip.filename,
@@ -381,11 +389,11 @@ function generateManifestCSV(manifest: RenderManifest): string {
       clip.socialMedia.hashtags.join(' '),
       tiktokTimes,
       reelsTimes,
-      shortsTimes
-    ])
+      shortsTimes,
+    ]);
   }
 
-  return rows.map((row) => row.map(csvField).join(',')).join('\r\n')
+  return rows.map((row) => row.map(csvField).join(',')).join('\r\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -393,23 +401,23 @@ function generateManifestCSV(manifest: RenderManifest): string {
 // ---------------------------------------------------------------------------
 
 export interface WriteManifestResult {
-  jsonPath: string
-  csvPath: string
+  jsonPath: string;
+  csvPath: string;
 }
 
 export function writeManifestFiles(
   manifest: RenderManifest,
-  outputDirectory: string
+  outputDirectory: string,
 ): WriteManifestResult {
   if (!existsSync(outputDirectory)) {
-    mkdirSync(outputDirectory, { recursive: true })
+    mkdirSync(outputDirectory, { recursive: true });
   }
 
-  const jsonPath = join(outputDirectory, 'manifest.json')
-  const csvPath = join(outputDirectory, 'manifest.csv')
+  const jsonPath = join(outputDirectory, 'manifest.json');
+  const csvPath = join(outputDirectory, 'manifest.csv');
 
-  writeFileSync(jsonPath, JSON.stringify(manifest, null, 2), 'utf-8')
-  writeFileSync(csvPath, generateManifestCSV(manifest), 'utf-8')
+  writeFileSync(jsonPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  writeFileSync(csvPath, generateManifestCSV(manifest), 'utf-8');
 
-  return { jsonPath, csvPath }
+  return { jsonPath, csvPath };
 }

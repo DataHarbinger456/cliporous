@@ -6,31 +6,40 @@
 // application across shots.
 // ---------------------------------------------------------------------------
 
-import type { ColorGradePreset, ColorGradeConfig, ShotStyleConfig } from '@shared/types'
+import type { ColorGradeConfig, ColorGradePreset, ShotStyleConfig } from '@shared/types';
 
 // ---------------------------------------------------------------------------
 // Preset → FFmpeg parameter mapping
 // ---------------------------------------------------------------------------
 
 interface EqParams {
-  brightness?: number
-  contrast?: number
-  saturation?: number
-  gamma_r?: number
-  gamma_g?: number
-  gamma_b?: number
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  gamma_r?: number;
+  gamma_g?: number;
+  gamma_b?: number;
 }
 
-const PRESET_PARAMS: Record<ColorGradePreset, { type: 'eq'; params: EqParams } | { type: 'hue'; s: number } | null> = {
-  'none': null,
-  'warm': { type: 'eq', params: { brightness: 0.04, saturation: 1.3, gamma_r: 1.1, gamma_b: 0.9 } },
-  'cool': { type: 'eq', params: { brightness: 0.02, saturation: 1.1, gamma_r: 0.9, gamma_b: 1.15 } },
-  'cinematic': { type: 'eq', params: { contrast: 1.2, saturation: 0.8, brightness: -0.03 } },
-  'vintage': { type: 'eq', params: { contrast: 0.9, saturation: 0.7, brightness: 0.06, gamma_r: 1.05 } },
+const PRESET_PARAMS: Record<
+  ColorGradePreset,
+  { type: 'eq'; params: EqParams } | { type: 'hue'; s: number } | null
+> = {
+  none: null,
+  warm: { type: 'eq', params: { brightness: 0.04, saturation: 1.3, gamma_r: 1.1, gamma_b: 0.9 } },
+  cool: { type: 'eq', params: { brightness: 0.02, saturation: 1.1, gamma_r: 0.9, gamma_b: 1.15 } },
+  cinematic: { type: 'eq', params: { contrast: 1.2, saturation: 0.8, brightness: -0.03 } },
+  vintage: {
+    type: 'eq',
+    params: { contrast: 0.9, saturation: 0.7, brightness: 0.06, gamma_r: 1.05 },
+  },
   'high-contrast': { type: 'eq', params: { contrast: 1.4, saturation: 1.2 } },
-  'bw': { type: 'hue', s: 0 },
-  'film': { type: 'eq', params: { saturation: 0.85, brightness: 0.02, gamma_r: 1.08, gamma_b: 0.95 } },
-}
+  bw: { type: 'hue', s: 0 },
+  film: {
+    type: 'eq',
+    params: { saturation: 0.85, brightness: 0.02, gamma_r: 1.08, gamma_b: 0.95 },
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Single-shot filter builder
@@ -48,43 +57,44 @@ const PRESET_PARAMS: Record<ColorGradePreset, { type: 'eq'; params: EqParams } |
 export function buildColorGradeFilter(
   config: ColorGradeConfig,
   startTime: number,
-  endTime: number
+  endTime: number,
 ): string {
-  if (!config.preset) return ''
-  const presetDef = PRESET_PARAMS[config.preset]
-  if (!presetDef) return ''
+  if (!config.preset) return '';
+  const presetDef = PRESET_PARAMS[config.preset];
+  if (!presetDef) return '';
 
-  const enable = `enable='between(t\\,${startTime.toFixed(3)}\\,${endTime.toFixed(3)})'`
+  const enable = `enable='between(t\\,${startTime.toFixed(3)}\\,${endTime.toFixed(3)})'`;
 
   if (presetDef.type === 'hue') {
     // B&W: hue=s=0
-    const s = config.saturation !== undefined ? Math.round(config.saturation * presetDef.s) : presetDef.s
-    return `hue=s=${s}:${enable}`
+    const s =
+      config.saturation !== undefined ? Math.round(config.saturation * presetDef.s) : presetDef.s;
+    return `hue=s=${s}:${enable}`;
   }
 
   // eq filter with preset params + user overrides
-  const params = { ...presetDef.params }
+  const params = { ...presetDef.params };
   if (config.brightness !== undefined) {
-    params.brightness = (params.brightness ?? 0) + config.brightness
+    params.brightness = (params.brightness ?? 0) + config.brightness;
   }
   if (config.contrast !== undefined) {
-    params.contrast = (params.contrast ?? 1.0) * config.contrast
+    params.contrast = (params.contrast ?? 1.0) * config.contrast;
   }
   if (config.saturation !== undefined) {
-    params.saturation = (params.saturation ?? 1.0) * config.saturation
+    params.saturation = (params.saturation ?? 1.0) * config.saturation;
   }
 
-  const parts: string[] = []
-  if (params.brightness !== undefined) parts.push(`brightness=${params.brightness.toFixed(3)}`)
-  if (params.contrast !== undefined) parts.push(`contrast=${params.contrast.toFixed(3)}`)
-  if (params.saturation !== undefined) parts.push(`saturation=${params.saturation.toFixed(3)}`)
-  if (params.gamma_r !== undefined) parts.push(`gamma_r=${params.gamma_r.toFixed(3)}`)
-  if (params.gamma_g !== undefined) parts.push(`gamma_g=${params.gamma_g.toFixed(3)}`)
-  if (params.gamma_b !== undefined) parts.push(`gamma_b=${params.gamma_b.toFixed(3)}`)
+  const parts: string[] = [];
+  if (params.brightness !== undefined) parts.push(`brightness=${params.brightness.toFixed(3)}`);
+  if (params.contrast !== undefined) parts.push(`contrast=${params.contrast.toFixed(3)}`);
+  if (params.saturation !== undefined) parts.push(`saturation=${params.saturation.toFixed(3)}`);
+  if (params.gamma_r !== undefined) parts.push(`gamma_r=${params.gamma_r.toFixed(3)}`);
+  if (params.gamma_g !== undefined) parts.push(`gamma_g=${params.gamma_g.toFixed(3)}`);
+  if (params.gamma_b !== undefined) parts.push(`gamma_b=${params.gamma_b.toFixed(3)}`);
 
-  if (parts.length === 0) return ''
+  if (parts.length === 0) return '';
 
-  return `eq=${parts.join(':')}:${enable}`
+  return `eq=${parts.join(':')}:${enable}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,17 +116,17 @@ export function buildColorGradeFilter(
  */
 export function buildPiecewiseColorGradeFilter(
   shots: ShotStyleConfig[],
-  globalGrade?: ColorGradeConfig
+  globalGrade?: ColorGradeConfig,
 ): string {
-  const segments: string[] = []
+  const segments: string[] = [];
 
   for (const shot of shots) {
-    const grade = shot.colorGrade !== undefined ? shot.colorGrade : (globalGrade ?? null)
-    if (!grade) continue
+    const grade = shot.colorGrade !== undefined ? shot.colorGrade : (globalGrade ?? null);
+    if (!grade) continue;
 
-    const filter = buildColorGradeFilter(grade, shot.startTime, shot.endTime)
-    if (filter) segments.push(filter)
+    const filter = buildColorGradeFilter(grade, shot.startTime, shot.endTime);
+    if (filter) segments.push(filter);
   }
 
-  return segments.join(',')
+  return segments.join(',');
 }

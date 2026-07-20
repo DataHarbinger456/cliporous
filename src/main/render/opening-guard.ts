@@ -18,21 +18,21 @@
 // speaker archetype.
 // ---------------------------------------------------------------------------
 
-import type { Archetype } from '@shared/types'
-import { isSpeakerFullscreen } from '../edit-styles'
-import { ARCHETYPE_DEFAULT_TRANSITION_IN } from '../edit-styles/shared/archetypes'
-import type { ResolvedSegment } from './segment-render'
+import type { Archetype } from '@shared/types';
+import { isSpeakerFullscreen } from '../edit-styles';
+import { ARCHETYPE_DEFAULT_TRANSITION_IN } from '../edit-styles/shared/archetypes';
+import type { ResolvedSegment } from './segment-render';
 
 /**
  * Minimum amount of time (seconds) a speaker/talking-head must be visible at
  * the very start of every segmented clip. The first frames up to this lead are
  * guaranteed to show a face; media/card overlays cannot start before it.
  */
-export const MIN_FACE_LEAD_SECONDS = 1.0
+export const MIN_FACE_LEAD_SECONDS = 1.0;
 
 /** The archetype every enforced opening collapses to. It is always a speaker
  *  archetype (`isSpeakerFullscreen('talking-head') === true`). */
-const SPEAKER_OPENING_ARCHETYPE: Archetype = 'talking-head'
+const SPEAKER_OPENING_ARCHETYPE: Archetype = 'talking-head';
 
 /**
  * Is this segment a speaker opening? `talking-head`, `tight-punch`, and
@@ -41,7 +41,7 @@ const SPEAKER_OPENING_ARCHETYPE: Archetype = 'talking-head'
  * split-image, quote-lower) is treated as a non-speaker opening.
  */
 function opensOnSpeaker(archetype: Archetype): boolean {
-  return isSpeakerFullscreen(archetype)
+  return isSpeakerFullscreen(archetype);
 }
 
 /**
@@ -66,18 +66,18 @@ function opensOnSpeaker(archetype: Archetype): boolean {
  */
 export function enforceSpeakerOpening(
   segments: ResolvedSegment[],
-  minLead: number = MIN_FACE_LEAD_SECONDS
+  minLead: number = MIN_FACE_LEAD_SECONDS,
 ): ResolvedSegment[] {
-  if (segments.length === 0) return segments
+  if (segments.length === 0) return segments;
 
-  const first = segments[0]
+  const first = segments[0];
   if (opensOnSpeaker(first.archetype)) {
     // Already opens on the speaker — nothing to do.
-    return segments
+    return segments;
   }
 
-  const rest = segments.slice(1)
-  const firstDuration = first.endTime - first.startTime
+  const rest = segments.slice(1);
+  const firstDuration = first.endTime - first.startTime;
 
   // Build a speaker lead segment from `first`, stripped of any media so the
   // face is unobstructed. transitionIn is the talking-head default (ignored
@@ -88,26 +88,26 @@ export function enforceSpeakerOpening(
     transitionIn: ARCHETYPE_DEFAULT_TRANSITION_IN[SPEAKER_OPENING_ARCHETYPE],
     videoPath: undefined,
     imagePath: undefined,
-    fallbackReason: undefined
-  }
+    fallbackReason: undefined,
+  };
 
   // Short opening: demote the entire first segment to the speaker.
   if (firstDuration <= minLead) {
-    speakerLead.startTime = first.startTime
-    speakerLead.endTime = first.endTime
-    return [speakerLead, ...rest]
+    speakerLead.startTime = first.startTime;
+    speakerLead.endTime = first.endTime;
+    return [speakerLead, ...rest];
   }
 
   // Long opening: split into a speaker lead + the clamped original card so the
   // media/card overlay starts no earlier than `minLead` into the clip.
-  speakerLead.startTime = first.startTime
-  speakerLead.endTime = first.startTime + minLead
+  speakerLead.startTime = first.startTime;
+  speakerLead.endTime = first.startTime + minLead;
 
   const clampedCard: ResolvedSegment = {
     ...first,
     startTime: first.startTime + minLead,
-    endTime: first.endTime
-  }
+    endTime: first.endTime,
+  };
 
-  return [speakerLead, clampedCard, ...rest]
+  return [speakerLead, clampedCard, ...rest];
 }

@@ -1,13 +1,13 @@
-import { join } from 'path'
-import { app } from 'electron'
-import { existsSync } from 'fs'
-import type { MusicTrack, WordTimestamp, ShotStyleConfig } from '@shared/types'
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { MusicTrack, ShotStyleConfig, WordTimestamp } from '@shared/types';
+import { app } from 'electron';
 
 // ---------------------------------------------------------------------------
 // Types (MusicTrack canonical definition lives in @shared/types)
 // ---------------------------------------------------------------------------
 
-export type { MusicTrack }
+export type { MusicTrack };
 
 export type SFXType =
   | 'whoosh-soft'
@@ -22,14 +22,14 @@ export type SFXType =
   | 'camera-shutter'
   | 'rise-tension-short'
   | 'typewriter-key'
-  | 'glitch-hit'
+  | 'glitch-hit';
 
 export interface SoundPlacementData {
-  type: 'sfx' | 'music'
-  filePath: string
-  startTime: number // seconds within the clip (0 = clip start)
-  duration: number  // seconds this sound plays
-  volume: number    // 0–1 (static scalar, used when volumeExpr is absent)
+  type: 'sfx' | 'music';
+  filePath: string;
+  startTime: number; // seconds within the clip (0 = clip start)
+  duration: number; // seconds this sound plays
+  volume: number; // 0–1 (static scalar, used when volumeExpr is absent)
   /**
    * Optional time-varying FFmpeg volume expression (overrides `volume`).
    * Built using comma-free infix operators so it's safe on Windows:
@@ -37,10 +37,10 @@ export interface SoundPlacementData {
    *   - No function calls with commas (gte/lte/if avoided)
    * Passed as: `volume=EXPR:eval=frame` in the audio filter chain.
    */
-  volumeExpr?: string
+  volumeExpr?: string;
 }
 
-export type SFXStyle = 'minimal' | 'standard' | 'energetic'
+export type SFXStyle = 'minimal' | 'standard' | 'energetic';
 
 /**
  * Tunable parameters that drive SFX placement for each style preset.
@@ -49,18 +49,18 @@ export type SFXStyle = 'minimal' | 'standard' | 'energetic'
  */
 export interface SFXStyleConfig {
   // Edit event sync (B-Roll transitions, jump-cuts)
-  editSyncEnabled: boolean
-  editBrollMinGap: number
-  editBrollVolScale: number
-  editJumpCutMinGap: number
-  editJumpCutVolScale: number
+  editSyncEnabled: boolean;
+  editBrollMinGap: number;
+  editBrollVolScale: number;
+  editJumpCutMinGap: number;
+  editJumpCutVolScale: number;
 
   // Pause whooshes
-  whooshEnabled: boolean
-  whooshMinPause: number           // minimum gap length to trigger a whoosh
-  whooshMinGap: number             // min gap from previous SFX
-  whooshSecondsPerWhoosh: number   // rate-limit: 1 whoosh per N seconds of clip
-  whooshVolScale: number
+  whooshEnabled: boolean;
+  whooshMinPause: number; // minimum gap length to trigger a whoosh
+  whooshMinGap: number; // min gap from previous SFX
+  whooshSecondsPerWhoosh: number; // rate-limit: 1 whoosh per N seconds of clip
+  whooshVolScale: number;
 }
 
 /** Preset configs indexed by SFXStyle. */
@@ -106,20 +106,20 @@ export const SFX_STYLE_CONFIGS: Record<SFXStyle, SFXStyleConfig> = {
     whooshSecondsPerWhoosh: 3,
     whooshVolScale: 0.9,
   },
-}
+};
 
 export interface SoundDesignOptions {
-  enabled: boolean
-  backgroundMusicTrack: MusicTrack
-  sfxVolume: number    // 0–1
-  musicVolume: number  // 0–1
-  musicDucking: boolean  // duck music during speech
-  musicDuckLevel: number // volume fraction during speech (0–1, default 0.2)
-  sfxStyle: SFXStyle   // placement density preset (default 'standard')
+  enabled: boolean;
+  backgroundMusicTrack: MusicTrack;
+  sfxVolume: number; // 0–1
+  musicVolume: number; // 0–1
+  musicDucking: boolean; // duck music during speech
+  musicDuckLevel: number; // volume fraction during speech (0–1, default 0.2)
+  sfxStyle: SFXStyle; // placement density preset (default 'standard')
 }
 
 /** @deprecated Use WordTimestamp from @shared/types instead */
-export type WordTimestampInput = WordTimestamp
+export type WordTimestampInput = WordTimestamp;
 
 /**
  * An edit event during the clip that can trigger a synced SFX.
@@ -127,13 +127,21 @@ export type WordTimestampInput = WordTimestamp
  */
 export interface EditEvent {
   /** Type of edit event */
-  type: 'broll-transition' | 'jump-cut' | 'shot-transition'
+  type: 'broll-transition' | 'jump-cut' | 'shot-transition';
   /** Time in seconds (0-based, relative to clip start) */
-  time: number
+  time: number;
   /** B-Roll transition style (only for broll-transition events) */
-  transition?: 'hard-cut' | 'crossfade' | 'swipe-up' | 'swipe-down'
+  transition?: 'hard-cut' | 'crossfade' | 'swipe-up' | 'swipe-down';
   /** Shot transition style (only for shot-transition events) */
-  shotTransition?: 'crossfade' | 'dip-black' | 'swipe-left' | 'swipe-up' | 'swipe-down' | 'zoom-in' | 'zoom-punch' | 'glitch'
+  shotTransition?:
+    | 'crossfade'
+    | 'dip-black'
+    | 'swipe-left'
+    | 'swipe-up'
+    | 'swipe-down'
+    | 'zoom-in'
+    | 'zoom-punch'
+    | 'glitch';
 }
 
 // ---------------------------------------------------------------------------
@@ -142,16 +150,16 @@ export interface EditEvent {
 
 export function resolveSfxPath(sfxName: SFXType | string): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'sfx', `${sfxName}.mp3`)
+    return join(process.resourcesPath, 'sfx', `${sfxName}.mp3`);
   }
-  return join(process.cwd(), 'resources', 'sfx', `${sfxName}.mp3`)
+  return join(process.cwd(), 'resources', 'sfx', `${sfxName}.mp3`);
 }
 
 export function resolveMusicPath(trackName: MusicTrack | string): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'music', `${trackName}.mp3`)
+    return join(process.resourcesPath, 'music', `${trackName}.mp3`);
   }
-  return join(process.cwd(), 'resources', 'music', `${trackName}.mp3`)
+  return join(process.cwd(), 'resources', 'music', `${trackName}.mp3`);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +168,8 @@ export function resolveMusicPath(trackName: MusicTrack | string): string {
 
 /** Resolve an SFX path only if the file exists on disk; returns null otherwise. */
 function tryResolve(sfxName: SFXType | string): string | null {
-  const p = resolveSfxPath(sfxName)
-  return existsSync(p) ? p : null
+  const p = resolveSfxPath(sfxName);
+  return existsSync(p) ? p : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,9 +178,9 @@ function tryResolve(sfxName: SFXType | string): string | null {
 
 /** Resolved SFX for a shot transition — path, duration, and volume scale. */
 interface TransitionSfxHit {
-  path: string
-  duration: number
-  volScale: number
+  path: string;
+  duration: number;
+  volScale: number;
 }
 
 /**
@@ -189,44 +197,44 @@ interface TransitionSfxHit {
  */
 function resolveShotTransitionSfx(
   shotTransition: EditEvent['shotTransition'],
-  sfxPaths: Record<string, string | null>
+  sfxPaths: Record<string, string | null>,
 ): TransitionSfxHit | null {
-  if (!shotTransition) return null
+  if (!shotTransition) return null;
 
   switch (shotTransition) {
     case 'crossfade':
       return sfxPaths.whooshSoft
         ? { path: sfxPaths.whooshSoft, duration: 0.4, volScale: 0.5 }
-        : null
+        : null;
     case 'dip-black':
       return sfxPaths.whooshSoft
         ? { path: sfxPaths.whooshSoft, duration: 0.5, volScale: 0.55 }
-        : null
+        : null;
     case 'swipe-left':
     case 'swipe-up':
     case 'swipe-down':
       return sfxPaths.swipeTransition
         ? { path: sfxPaths.swipeTransition, duration: 0.35, volScale: 0.65 }
-        : null
+        : null;
     case 'zoom-in':
       return sfxPaths.impactLow
         ? { path: sfxPaths.impactLow, duration: 0.3, volScale: 0.45 }
-        : null
+        : null;
     case 'zoom-punch':
       // The signature Velocity hit — loud and punchy
       return sfxPaths.impactHigh
         ? { path: sfxPaths.impactHigh, duration: 0.35, volScale: 0.8 }
-        : null
+        : null;
     case 'glitch':
       // Prefer dedicated glitch SFX, fall back to impact-high for digital crunch
       if (sfxPaths.glitchHit) {
-        return { path: sfxPaths.glitchHit, duration: 0.3, volScale: 0.7 }
+        return { path: sfxPaths.glitchHit, duration: 0.3, volScale: 0.7 };
       }
       return sfxPaths.impactHigh
         ? { path: sfxPaths.impactHigh, duration: 0.25, volScale: 0.6 }
-        : null
+        : null;
     default:
-      return null
+      return null;
   }
 }
 
@@ -246,28 +254,28 @@ function resolveShotTransitionSfx(
 function mergeSpeechSegments(
   words: WordTimestampInput[],
   mergeGap: number = 0.15,
-  pad: number = 0.08
+  pad: number = 0.08,
 ): Array<[number, number]> {
-  if (words.length === 0) return []
+  if (words.length === 0) return [];
 
-  const segments: Array<[number, number]> = []
-  let segStart = words[0].start
-  let segEnd = words[0].end
+  const segments: Array<[number, number]> = [];
+  let segStart = words[0].start;
+  let segEnd = words[0].end;
 
   for (let i = 1; i < words.length; i++) {
-    const gap = words[i].start - segEnd
+    const gap = words[i].start - segEnd;
     if (gap <= mergeGap) {
       // Extend current segment
-      segEnd = words[i].end
+      segEnd = words[i].end;
     } else {
-      segments.push([segStart, segEnd + pad])
-      segStart = words[i].start
-      segEnd = words[i].end
+      segments.push([segStart, segEnd + pad]);
+      segStart = words[i].start;
+      segEnd = words[i].end;
     }
   }
-  segments.push([segStart, segEnd + pad])
+  segments.push([segStart, segEnd + pad]);
 
-  return segments
+  return segments;
 }
 
 /**
@@ -290,22 +298,22 @@ function mergeSpeechSegments(
 export function buildMusicDuckingExpr(
   speechSegments: Array<[number, number]>,
   fullVol: number,
-  duckVol: number
+  duckVol: number,
 ): string {
-  if (speechSegments.length === 0) return fullVol.toFixed(3)
+  if (speechSegments.length === 0) return fullVol.toFixed(3);
 
-  const fv = fullVol.toFixed(3)
-  const dv = duckVol.toFixed(3)
+  const fv = fullVol.toFixed(3);
+  const dv = duckVol.toFixed(3);
 
   // Each term: (t>=si)*(t<=ei) — comma-free binary indicator
   const inSpeechTerms = speechSegments
     .map(([s, e]) => `(t>=${s.toFixed(3)})*(t<=${e.toFixed(3)})`)
-    .join('+')
+    .join('+');
 
   // fullVol + (duckVol - fullVol) * inSpeech
   // During speech: fullVol + (duckVol - fullVol) * 1 = duckVol  ✓
   // During pause:  fullVol + (duckVol - fullVol) * 0 = fullVol  ✓
-  return `${fv}+(${dv}-${fv})*(${inSpeechTerms})`
+  return `${fv}+(${dv}-${fv})*(${inSpeechTerms})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,16 +322,16 @@ export function buildMusicDuckingExpr(
 
 /** A resolved music segment: which track plays over which time range. */
 interface ShotMusicSegment {
-  startTime: number
-  endTime: number
-  track: MusicTrack
+  startTime: number;
+  endTime: number;
+  track: MusicTrack;
 }
 
 /** A group of consecutive shots sharing the same track. */
 interface TrackGroup {
-  track: MusicTrack
-  startTime: number
-  endTime: number
+  track: MusicTrack;
+  startTime: number;
+  endTime: number;
 }
 
 /**
@@ -333,36 +341,36 @@ interface TrackGroup {
 function resolvePerShotMusic(
   clipDuration: number,
   globalTrack: MusicTrack,
-  shotStyleConfigs?: ShotStyleConfig[]
+  shotStyleConfigs?: ShotStyleConfig[],
 ): ShotMusicSegment[] {
   if (!shotStyleConfigs || shotStyleConfigs.length === 0) {
-    return [{ startTime: 0, endTime: clipDuration, track: globalTrack }]
+    return [{ startTime: 0, endTime: clipDuration, track: globalTrack }];
   }
 
   // Sort shots by startTime
-  const sorted = [...shotStyleConfigs].sort((a, b) => a.startTime - b.startTime)
-  const segments: ShotMusicSegment[] = []
+  const sorted = [...shotStyleConfigs].sort((a, b) => a.startTime - b.startTime);
+  const segments: ShotMusicSegment[] = [];
 
-  let cursor = 0
+  let cursor = 0;
   for (const shot of sorted) {
     // Fill gap before this shot with global track
     if (shot.startTime > cursor + 0.01) {
-      segments.push({ startTime: cursor, endTime: shot.startTime, track: globalTrack })
+      segments.push({ startTime: cursor, endTime: shot.startTime, track: globalTrack });
     }
     segments.push({
       startTime: shot.startTime,
       endTime: shot.endTime,
-      track: shot.musicTrack ?? globalTrack
-    })
-    cursor = shot.endTime
+      track: shot.musicTrack ?? globalTrack,
+    });
+    cursor = shot.endTime;
   }
 
   // Fill remaining clip duration with global track
   if (cursor < clipDuration - 0.01) {
-    segments.push({ startTime: cursor, endTime: clipDuration, track: globalTrack })
+    segments.push({ startTime: cursor, endTime: clipDuration, track: globalTrack });
   }
 
-  return segments
+  return segments;
 }
 
 /**
@@ -370,29 +378,29 @@ function resolvePerShotMusic(
  * that use the same track into a single group for efficient rendering.
  */
 function groupShotMusicByTrack(segments: ShotMusicSegment[]): TrackGroup[] {
-  if (segments.length === 0) return []
+  if (segments.length === 0) return [];
 
-  const groups: TrackGroup[] = []
+  const groups: TrackGroup[] = [];
   let current: TrackGroup = {
     track: segments[0].track,
     startTime: segments[0].startTime,
-    endTime: segments[0].endTime
-  }
+    endTime: segments[0].endTime,
+  };
 
   for (let i = 1; i < segments.length; i++) {
     if (segments[i].track === current.track) {
-      current.endTime = segments[i].endTime
+      current.endTime = segments[i].endTime;
     } else {
-      groups.push(current)
+      groups.push(current);
       current = {
         track: segments[i].track,
         startTime: segments[i].startTime,
-        endTime: segments[i].endTime
-      }
+        endTime: segments[i].endTime,
+      };
     }
   }
-  groups.push(current)
-  return groups
+  groups.push(current);
+  return groups;
 }
 
 /**
@@ -419,15 +427,15 @@ function buildPerShotMusicVolExpr(
   duckVol: number,
   crossfadeSec: number,
   speechSegments: Array<[number, number]>,
-  ducking: boolean
+  ducking: boolean,
 ): string {
-  const fv = fullVol.toFixed(3)
+  const fv = fullVol.toFixed(3);
 
   // Crossfade boundaries (clamped to clip edges)
-  const fadeInStart = Math.max(0, startTime - crossfadeSec)
-  const fadeInEnd = startTime
-  const fadeOutStart = endTime
-  const fadeOutEnd = Math.min(clipDuration, endTime + crossfadeSec)
+  const fadeInStart = Math.max(0, startTime - crossfadeSec);
+  const fadeInEnd = startTime;
+  const fadeOutStart = endTime;
+  const fadeOutEnd = Math.min(clipDuration, endTime + crossfadeSec);
 
   // Build envelope expression:
   // envelope = fadeIn * plateau * fadeOut
@@ -437,53 +445,55 @@ function buildPerShotMusicVolExpr(
   // Actually FFmpeg min/max use `;` separator which might have issues.
   // Safer approach: use arithmetic clamping with multiplication.
 
-  const fadeInDur = fadeInEnd - fadeInStart
-  const fadeOutDur = fadeOutEnd - fadeOutStart
+  const fadeInDur = fadeInEnd - fadeInStart;
+  const fadeOutDur = fadeOutEnd - fadeOutStart;
 
   // Comma-free clamping: clamp(x, 0, 1) = x*(x>=0)*(x<=1) + 1*(x>1)
   // Simpler: use smooth step with multiplied conditions
-  const parts: string[] = []
+  const parts: string[] = [];
 
   if (fadeInDur > 0.01) {
     // Fade-in ramp: ramp = (t - fadeInStart) / fadeInDur, clamped to [0,1]
     // = ramp * (ramp >= 0) * (ramp <= 1) + (ramp > 1)
-    const s = fadeInStart.toFixed(3)
-    const d = fadeInDur.toFixed(3)
-    parts.push(`((t-${s})/${d}*(t>=${s})*(t<=${fadeInEnd.toFixed(3)})+(t>${fadeInEnd.toFixed(3)}))`)
+    const s = fadeInStart.toFixed(3);
+    const d = fadeInDur.toFixed(3);
+    parts.push(
+      `((t-${s})/${d}*(t>=${s})*(t<=${fadeInEnd.toFixed(3)})+(t>${fadeInEnd.toFixed(3)}))`,
+    );
   }
 
   if (fadeOutDur > 0.01) {
     // Fade-out ramp: ramp = (fadeOutEnd - t) / fadeOutDur, clamped to [0,1]
-    const e = fadeOutEnd.toFixed(3)
-    const d = fadeOutDur.toFixed(3)
-    parts.push(`((${e}-t)/${d}*(t>=${fadeOutStart.toFixed(3)})*(t<=${e})+(t<${fadeOutStart.toFixed(3)}))`)
+    const e = fadeOutEnd.toFixed(3);
+    const d = fadeOutDur.toFixed(3);
+    parts.push(
+      `((${e}-t)/${d}*(t>=${fadeOutStart.toFixed(3)})*(t<=${e})+(t<${fadeOutStart.toFixed(3)}))`,
+    );
   }
 
   // Silence outside the [fadeInStart, fadeOutEnd] window
-  parts.push(`(t>=${fadeInStart.toFixed(3)})*(t<=${fadeOutEnd.toFixed(3)})`)
+  parts.push(`(t>=${fadeInStart.toFixed(3)})*(t<=${fadeOutEnd.toFixed(3)})`);
 
-  let envelope = parts.join('*')
+  const envelope = parts.join('*');
 
   // Apply base volume
-  let expr = `${fv}*${envelope}`
+  let expr = `${fv}*${envelope}`;
 
   // Apply speech ducking within the active region
   if (ducking && speechSegments.length > 0) {
-    const dv = duckVol.toFixed(3)
+    const dv = duckVol.toFixed(3);
     // Filter speech segments to those overlapping our active region
-    const relevantSpeech = speechSegments.filter(
-      ([s, e]) => e > fadeInStart && s < fadeOutEnd
-    )
+    const relevantSpeech = speechSegments.filter(([s, e]) => e > fadeInStart && s < fadeOutEnd);
     if (relevantSpeech.length > 0) {
       const inSpeechTerms = relevantSpeech
         .map(([s, e]) => `(t>=${s.toFixed(3)})*(t<=${e.toFixed(3)})`)
-        .join('+')
+        .join('+');
       // Ducked volume: fullVol + (duckVol - fullVol) * inSpeech, then multiply by envelope
-      expr = `(${fv}+(${dv}-${fv})*(${inSpeechTerms}))*${envelope}`
+      expr = `(${fv}+(${dv}-${fv})*(${inSpeechTerms}))*${envelope}`;
     }
   }
 
-  return expr
+  return expr;
 }
 
 /**
@@ -516,80 +526,86 @@ export function generateSoundPlacements(
   wordTimestamps: WordTimestampInput[],
   options: SoundDesignOptions,
   editEvents?: EditEvent[],
-  shotStyleConfigs?: ShotStyleConfig[]
+  shotStyleConfigs?: ShotStyleConfig[],
 ): SoundPlacementData[] {
-  if (!options.enabled) return []
+  if (!options.enabled) return [];
 
-  const placements: SoundPlacementData[] = []
-  const sfxVolume = Math.max(0, Math.min(1, options.sfxVolume))
-  const cfg = SFX_STYLE_CONFIGS[options.sfxStyle ?? 'standard']
+  const placements: SoundPlacementData[] = [];
+  const sfxVolume = Math.max(0, Math.min(1, options.sfxVolume));
+  const cfg = SFX_STYLE_CONFIGS[options.sfxStyle ?? 'standard'];
 
   // Resolve all available SFX files up-front
   const sfxPaths = {
-    impactHigh:       tryResolve('impact-high'),
-    swipeTransition:  tryResolve('swipe-transition'),
-    cameraShutter:    tryResolve('camera-shutter'),
-    whooshSoft:       tryResolve('whoosh-soft'),
-    impactLow:        tryResolve('impact-low'),
-    glitchHit:        tryResolve('glitch-hit'),
-  }
+    impactHigh: tryResolve('impact-high'),
+    swipeTransition: tryResolve('swipe-transition'),
+    cameraShutter: tryResolve('camera-shutter'),
+    whooshSoft: tryResolve('whoosh-soft'),
+    impactLow: tryResolve('impact-low'),
+    glitchHit: tryResolve('glitch-hit'),
+  };
 
   // ── 1. Background music (with per-shot crossfade support) ──────────────────
-  const fullVol = Math.max(0, Math.min(1, options.musicVolume))
-  const speechSegments = (options.musicDucking && wordTimestamps.length > 0)
-    ? mergeSpeechSegments(wordTimestamps)
-    : []
-  const duckVol = fullVol * Math.max(0, Math.min(1, options.musicDuckLevel))
+  const fullVol = Math.max(0, Math.min(1, options.musicVolume));
+  const speechSegments =
+    options.musicDucking && wordTimestamps.length > 0 ? mergeSpeechSegments(wordTimestamps) : [];
+  const duckVol = fullVol * Math.max(0, Math.min(1, options.musicDuckLevel));
 
   // Determine per-shot music segments: collect unique music tracks across shots
   const shotMusicSegments = resolvePerShotMusic(
-    clipDuration, options.backgroundMusicTrack, shotStyleConfigs
-  )
+    clipDuration,
+    options.backgroundMusicTrack,
+    shotStyleConfigs,
+  );
 
   // Check if all shots use the same track (common case — no crossfade needed)
-  const uniqueTracks = new Set(shotMusicSegments.map(s => s.track))
+  const uniqueTracks = new Set(shotMusicSegments.map((s) => s.track));
 
   if (uniqueTracks.size <= 1) {
     // Single track — original simple path
-    const track = shotMusicSegments[0]?.track ?? options.backgroundMusicTrack
-    const musicPath = resolveMusicPath(track)
+    const track = shotMusicSegments[0]?.track ?? options.backgroundMusicTrack;
+    const musicPath = resolveMusicPath(track);
     if (existsSync(musicPath)) {
       const musicPlacement: SoundPlacementData = {
         type: 'music',
         filePath: musicPath,
         startTime: 0,
         duration: clipDuration,
-        volume: fullVol
-      }
+        volume: fullVol,
+      };
 
       if (options.musicDucking && speechSegments.length > 0) {
-        musicPlacement.volumeExpr = buildMusicDuckingExpr(speechSegments, fullVol, duckVol)
+        musicPlacement.volumeExpr = buildMusicDuckingExpr(speechSegments, fullVol, duckVol);
       }
 
-      placements.push(musicPlacement)
+      placements.push(musicPlacement);
     } else {
-      console.warn(`[SoundDesign] Music file not found, skipping: ${musicPath}`)
+      console.warn(`[SoundDesign] Music file not found, skipping: ${musicPath}`);
     }
   } else {
     // Multiple tracks across shots — create per-track placements with crossfade envelopes
-    const CROSSFADE_SEC = 0.5 // crossfade duration between different tracks
+    const CROSSFADE_SEC = 0.5; // crossfade duration between different tracks
 
     // Group consecutive segments by track
-    const trackGroups = groupShotMusicByTrack(shotMusicSegments)
+    const trackGroups = groupShotMusicByTrack(shotMusicSegments);
 
     for (const group of trackGroups) {
-      const musicPath = resolveMusicPath(group.track)
+      const musicPath = resolveMusicPath(group.track);
       if (!existsSync(musicPath)) {
-        console.warn(`[SoundDesign] Per-shot music file not found, skipping: ${musicPath}`)
-        continue
+        console.warn(`[SoundDesign] Per-shot music file not found, skipping: ${musicPath}`);
+        continue;
       }
 
       // Build a volume envelope that fades this track in/out at shot boundaries
       const volExpr = buildPerShotMusicVolExpr(
-        group.startTime, group.endTime, clipDuration,
-        fullVol, duckVol, CROSSFADE_SEC,
-        speechSegments, options.musicDucking
-      )
+        group.startTime,
+        group.endTime,
+        clipDuration,
+        fullVol,
+        duckVol,
+        CROSSFADE_SEC,
+        speechSegments,
+        options.musicDucking,
+      );
 
       placements.push({
         type: 'music',
@@ -597,20 +613,20 @@ export function generateSoundPlacements(
         startTime: 0,
         duration: clipDuration,
         volume: fullVol,
-        volumeExpr: volExpr
-      })
+        volumeExpr: volExpr,
+      });
     }
 
     if (trackGroups.length > 1) {
       console.log(
         `[SoundDesign] Per-shot music: ${trackGroups.length} tracks with ${CROSSFADE_SEC}s crossfades ` +
-        `(${trackGroups.map(g => `${g.track}@${g.startTime.toFixed(1)}-${g.endTime.toFixed(1)}s`).join(', ')})`
-      )
+          `(${trackGroups.map((g) => `${g.track}@${g.startTime.toFixed(1)}-${g.endTime.toFixed(1)}s`).join(', ')})`,
+      );
     }
   }
 
   if (wordTimestamps.length === 0 && (!editEvents || editEvents.length === 0)) {
-    return placements
+    return placements;
   }
 
   // Track the last time any SFX was placed to enforce minimum gaps.
@@ -618,7 +634,7 @@ export function generateSoundPlacements(
   // big word grew overwhelming and distracted from the speaker's voice. Sound
   // design now only reacts to edit events (b-roll/jump-cut/shot transitions)
   // and meaningful pauses.
-  let lastSfxTime = -Infinity
+  let lastSfxTime = -Infinity;
 
   // ── Edit event synced SFX ──────────────────────────────────────────────────
   // B-Roll transitions → swipe sound; jump-cut zooms → quiet camera shutter;
@@ -626,7 +642,7 @@ export function generateSoundPlacements(
   // These sync to the visual edit rhythm so audio and video feel connected.
   if (cfg.editSyncEnabled && editEvents && editEvents.length > 0) {
     for (const evt of editEvents) {
-      if (evt.time < 0.1 || evt.time > clipDuration - 0.3) continue
+      if (evt.time < 0.1 || evt.time > clipDuration - 0.3) continue;
 
       if (evt.type === 'broll-transition' && sfxPaths.swipeTransition) {
         if (evt.time - lastSfxTime >= cfg.editBrollMinGap) {
@@ -635,9 +651,9 @@ export function generateSoundPlacements(
             filePath: sfxPaths.swipeTransition,
             startTime: evt.time,
             duration: 0.4,
-            volume: sfxVolume * cfg.editBrollVolScale
-          })
-          lastSfxTime = evt.time
+            volume: sfxVolume * cfg.editBrollVolScale,
+          });
+          lastSfxTime = evt.time;
         }
       } else if (evt.type === 'jump-cut' && sfxPaths.cameraShutter) {
         // Camera shutter is intentionally quiet — it's felt more than heard
@@ -647,24 +663,24 @@ export function generateSoundPlacements(
             filePath: sfxPaths.cameraShutter,
             startTime: evt.time,
             duration: 0.25,
-            volume: sfxVolume * cfg.editJumpCutVolScale
-          })
-          lastSfxTime = evt.time
+            volume: sfxVolume * cfg.editJumpCutVolScale,
+          });
+          lastSfxTime = evt.time;
         }
       } else if (evt.type === 'shot-transition') {
         // Shot transitions get type-matched SFX — each transition style has
         // a signature sound that reinforces the editorial feel. This is what
         // makes Velocity feel punchy and Film feel smooth.
-        const resolved = resolveShotTransitionSfx(evt.shotTransition, sfxPaths)
+        const resolved = resolveShotTransitionSfx(evt.shotTransition, sfxPaths);
         if (resolved && evt.time - lastSfxTime >= cfg.editBrollMinGap) {
           placements.push({
             type: 'sfx',
             filePath: resolved.path,
             startTime: evt.time,
             duration: resolved.duration,
-            volume: sfxVolume * resolved.volScale
-          })
-          lastSfxTime = evt.time
+            volume: sfxVolume * resolved.volScale,
+          });
+          lastSfxTime = evt.time;
         }
       }
     }
@@ -674,12 +690,12 @@ export function generateSoundPlacements(
   // Topic shifts / natural speech pauses get a soft whoosh to mark the
   // transition. Rate-limited by cfg.whooshSecondsPerWhoosh.
   if (cfg.whooshEnabled && sfxPaths.whooshSoft && wordTimestamps.length > 1) {
-    const maxWhooshes = Math.max(1, Math.floor(clipDuration / cfg.whooshSecondsPerWhoosh))
-    let whooshCount = 0
+    const maxWhooshes = Math.max(1, Math.floor(clipDuration / cfg.whooshSecondsPerWhoosh));
+    let whooshCount = 0;
 
     for (let i = 1; i < wordTimestamps.length && whooshCount < maxWhooshes; i++) {
-      const gapStart = wordTimestamps[i - 1].end
-      const gapLength = wordTimestamps[i].start - gapStart
+      const gapStart = wordTimestamps[i - 1].end;
+      const gapLength = wordTimestamps[i].start - gapStart;
 
       if (gapLength >= cfg.whooshMinPause && gapStart > 2 && gapStart + 0.8 < clipDuration) {
         if (gapStart - lastSfxTime >= cfg.whooshMinGap) {
@@ -688,14 +704,14 @@ export function generateSoundPlacements(
             filePath: sfxPaths.whooshSoft,
             startTime: gapStart,
             duration: Math.min(gapLength, 0.8),
-            volume: sfxVolume * cfg.whooshVolScale
-          })
-          lastSfxTime = gapStart
-          whooshCount++
+            volume: sfxVolume * cfg.whooshVolScale,
+          });
+          lastSfxTime = gapStart;
+          whooshCount++;
         }
       }
     }
   }
 
-  return placements
+  return placements;
 }

@@ -12,20 +12,20 @@
  * Produces a `[outv]` label with SAR 1:1 + yuv420p, ready to encode.
  */
 
-import type { LongformArchetype } from '@shared/types'
+import type { LongformArchetype } from '@shared/types';
 import {
   buildArchetypeLayout,
   type SegmentLayoutParams,
-  type SegmentLayoutResult
-} from './segment-layouts'
+  type SegmentLayoutResult,
+} from './segment-layouts';
 
 /**
  * Resolve a long-form archetype into an FFmpeg layout for a single segment.
  */
 export function buildLongformLayout(
   _archetype: LongformArchetype,
-  params: SegmentLayoutParams
+  params: SegmentLayoutParams,
 ): SegmentLayoutResult {
   // Reuse the tested talking-head crop+scale with landscape dimensions.
-  return buildArchetypeLayout('talking-head', params)
+  return buildArchetypeLayout('talking-head', params);
 }

@@ -4,24 +4,23 @@
  * reference the flat path (`../edit-styles`).
  */
 
-export {
-  EDIT_STYLES,
-  STYLE_TEMPLATES,
-  DEFAULT_EDIT_STYLE_ID,
-  getEditStyleById,
-  resolveTransition,
-  resolveTemplate,
-  getTemplatesForEditStyle,
-  ARCHETYPE_KEYS,
-  ARCHETYPE_TO_CATEGORY,
-  ARCHETYPE_META,
-  SPEAKER_FULLSCREEN_ARCHETYPES,
-  isSpeakerFullscreen
-} from './edit-styles/index'
-
 export type {
   Archetype,
   EditStyleTemplate,
   EditStyleTemplateView,
-  ResolvedTemplate
-} from './edit-styles/index'
+  ResolvedTemplate,
+} from './edit-styles/index';
+export {
+  ARCHETYPE_KEYS,
+  ARCHETYPE_META,
+  ARCHETYPE_TO_CATEGORY,
+  DEFAULT_EDIT_STYLE_ID,
+  EDIT_STYLES,
+  getEditStyleById,
+  getTemplatesForEditStyle,
+  isSpeakerFullscreen,
+  resolveTemplate,
+  resolveTransition,
+  SPEAKER_FULLSCREEN_ARCHETYPES,
+  STYLE_TEMPLATES,
+} from './edit-styles/index';

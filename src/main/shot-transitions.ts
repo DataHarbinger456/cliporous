@@ -7,19 +7,19 @@
 // so no segment splitting is required.
 // ---------------------------------------------------------------------------
 
-import type { ShotStyleConfig, ShotTransitionConfig } from '@shared/types'
+import type { ShotStyleConfig, ShotTransitionConfig } from '@shared/types';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TRANSITION_DURATION = 0.3
-const MIN_TRANSITION_DURATION = 0.15
-const MAX_TRANSITION_DURATION = 1.0
+const DEFAULT_TRANSITION_DURATION = 0.3;
+const MIN_TRANSITION_DURATION = 0.15;
+const MAX_TRANSITION_DURATION = 1.0;
 
 function clampDuration(d: number | undefined): number {
-  const dur = d ?? DEFAULT_TRANSITION_DURATION
-  return Math.max(MIN_TRANSITION_DURATION, Math.min(MAX_TRANSITION_DURATION, dur))
+  const dur = d ?? DEFAULT_TRANSITION_DURATION;
+  return Math.max(MIN_TRANSITION_DURATION, Math.min(MAX_TRANSITION_DURATION, dur));
 }
 
 // ---------------------------------------------------------------------------
@@ -37,16 +37,16 @@ function clampDuration(d: number | undefined): number {
 export function buildTransitionFilter(
   transition: ShotTransitionConfig,
   boundaryTime: number,
-  clipDuration: number
+  clipDuration: number,
 ): string {
-  if (transition.type === 'none') return ''
+  if (transition.type === 'none') return '';
 
-  const dur = clampDuration(transition.duration)
+  const dur = clampDuration(transition.duration);
 
   // Clamp to avoid transitions that extend beyond clip boundaries
-  const fadeOutStart = Math.max(0, boundaryTime - dur / 2)
-  const fadeInStart = boundaryTime
-  const fadeInEnd = Math.min(clipDuration, boundaryTime + dur / 2)
+  const fadeOutStart = Math.max(0, boundaryTime - dur / 2);
+  const fadeInStart = boundaryTime;
+  const fadeInEnd = Math.min(clipDuration, boundaryTime + dur / 2);
 
   switch (transition.type) {
     case 'crossfade': {
@@ -55,54 +55,54 @@ export function buildTransitionFilter(
       // streams), but visually similar for fast transitions.
       return [
         `fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${(dur / 2).toFixed(3)}:enable='between(t\\,${fadeOutStart.toFixed(3)}\\,${boundaryTime.toFixed(3)})'`,
-        `fade=t=in:st=${fadeInStart.toFixed(3)}:d=${(dur / 2).toFixed(3)}:enable='between(t\\,${fadeInStart.toFixed(3)}\\,${fadeInEnd.toFixed(3)})'`
-      ].join(',')
+        `fade=t=in:st=${fadeInStart.toFixed(3)}:d=${(dur / 2).toFixed(3)}:enable='between(t\\,${fadeInStart.toFixed(3)}\\,${fadeInEnd.toFixed(3)})'`,
+      ].join(',');
     }
 
     case 'dip-black': {
       // Fade to black before the boundary, then fade from black after
       return [
         `fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${(dur / 2).toFixed(3)}`,
-        `fade=t=in:st=${fadeInStart.toFixed(3)}:d=${(dur / 2).toFixed(3)}`
+        `fade=t=in:st=${fadeInStart.toFixed(3)}:d=${(dur / 2).toFixed(3)}`,
       ]
         .map((f, i) => {
-          const s = i === 0 ? fadeOutStart : fadeInStart
-          const e = i === 0 ? boundaryTime : fadeInEnd
-          return `${f}:enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`
+          const s = i === 0 ? fadeOutStart : fadeInStart;
+          const e = i === 0 ? boundaryTime : fadeInEnd;
+          return `${f}:enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`;
         })
-        .join(',')
+        .join(',');
     }
 
     case 'swipe-left': {
       // Brief crop + position shift illusion at the boundary
       // Uses a rapid crop pan from right to left
-      const s = fadeOutStart
-      const e = fadeInEnd
+      const s = fadeOutStart;
+      const e = fadeInEnd;
       const cropExpr =
         `crop=iw:ih:` +
         `'if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
         `(iw*0.05)*(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)':0:` +
-        `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`
-      return cropExpr
+        `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`;
+      return cropExpr;
     }
 
     case 'swipe-up': {
       // Vertical crop shift at the boundary
-      const s = fadeOutStart
-      const e = fadeInEnd
+      const s = fadeOutStart;
+      const e = fadeInEnd;
       const cropExpr =
         `crop=iw:ih:0:` +
         `'if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
         `(ih*0.05)*(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)':` +
-        `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`
-      return cropExpr
+        `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`;
+      return cropExpr;
     }
 
     case 'zoom-in': {
       // Brief zoom push at the boundary using zoompan-style crop expression
-      const s = fadeOutStart
-      const e = fadeInEnd
-      const zoomFactor = 0.05 // 5% zoom push
+      const s = fadeOutStart;
+      const e = fadeInEnd;
+      const zoomFactor = 0.05; // 5% zoom push
       const zExpr =
         `crop=` +
         `'iw-iw*${zoomFactor}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
@@ -112,63 +112,62 @@ export function buildTransitionFilter(
         `'iw*${zoomFactor / 2}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
         `(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)':` +
         `'ih*${zoomFactor / 2}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
-        `(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)'`
-      return zExpr
+        `(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)'`;
+      return zExpr;
     }
 
     case 'swipe-down': {
       // Vertical crop shift downward at the boundary (inverse of swipe-up)
-      const s = fadeOutStart
-      const e = fadeInEnd
+      const s = fadeOutStart;
+      const e = fadeInEnd;
       const cropExpr =
         `crop=iw:ih:0:` +
         `'if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
         `-(ih*0.05)*(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)':` +
-        `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`
-      return cropExpr
+        `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`;
+      return cropExpr;
     }
 
     case 'zoom-punch': {
       // Aggressive snap-zoom — punchy, energetic feel.
       // Ramps up faster and snaps back harder than zoom-in.
       // Uses a sharper ease curve (quadratic) and 10% zoom for impact.
-      const s = fadeOutStart
-      const e = fadeInEnd
-      const zoomFactor = 0.10 // 10% zoom — double the gentle zoom-in
+      const s = fadeOutStart;
+      const e = fadeInEnd;
+      const zoomFactor = 0.1; // 10% zoom — double the gentle zoom-in
       // Quadratic ease: pow((1-abs(2*(t-boundary)/dur)), 2) — sharp snap-back
-      const easeExpr =
-        `pow((1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,2)`
+      const easeExpr = `pow((1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,2)`;
       const zExpr =
         `crop=` +
         `'iw-iw*${zoomFactor}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,${easeExpr}\\,0)':` +
         `'ih-ih*${zoomFactor}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,${easeExpr}\\,0)':` +
         `'iw*${zoomFactor / 2}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,${easeExpr}\\,0)':` +
-        `'ih*${zoomFactor / 2}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,${easeExpr}\\,0)'`
-      return zExpr
+        `'ih*${zoomFactor / 2}*if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,${easeExpr}\\,0)'`;
+      return zExpr;
     }
 
     case 'glitch': {
       // Digital glitch distortion — RGB channel shift + brief brightness spike.
       // Implemented as: rgbashift (horizontal RGB separation) + noise burst,
       // all time-limited to the transition window.
-      const s = fadeOutStart
-      const e = fadeInEnd
+      const s = fadeOutStart;
+      const e = fadeInEnd;
       // rgbashift shifts red/blue channels horizontally for chromatic aberration
       // The shift amount pulses from 0→max→0 across the transition
       const shiftExpr =
         `if(between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})\\,` +
-        `8*(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)`
+        `8*(1-abs(2*(t-${boundaryTime.toFixed(3)})/${dur.toFixed(3)}))\\,0)`;
       const glitchFilter = [
         `rgbashift=rh='${shiftExpr}':bh='-${shiftExpr}':` +
           `enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`,
         // Brief noise burst at the boundary — digital static feel
-        `noise=alls=30:allf=t:enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`
-      ].join(',')
-      return glitchFilter
+        `noise=alls=30:allf=t:enable='between(t\\,${s.toFixed(3)}\\,${e.toFixed(3)})'`,
+      ].join(',');
+      return glitchFilter;
     }
 
     default:
-      return ''
+      return '';
   }
 }
 
@@ -187,33 +186,30 @@ export function buildTransitionFilter(
  * @param clipDuration Total clip duration in seconds
  * @returns            Chained FFmpeg filter string or empty string
  */
-export function buildShotTransitionFilters(
-  shots: ShotStyleConfig[],
-  clipDuration: number
-): string {
-  if (shots.length < 2) return ''
+export function buildShotTransitionFilters(shots: ShotStyleConfig[], clipDuration: number): string {
+  if (shots.length < 2) return '';
 
   // Sort by shotIndex to ensure correct boundary ordering
-  const sorted = [...shots].sort((a, b) => a.shotIndex - b.shotIndex)
+  const sorted = [...shots].sort((a, b) => a.shotIndex - b.shotIndex);
 
-  const segments: string[] = []
+  const segments: string[] = [];
 
   for (let i = 0; i < sorted.length - 1; i++) {
-    const outgoing = sorted[i]
-    const incoming = sorted[i + 1]
+    const outgoing = sorted[i];
+    const incoming = sorted[i + 1];
 
     // Boundary time is the end of the outgoing shot (= start of incoming)
-    const boundaryTime = outgoing.endTime
+    const boundaryTime = outgoing.endTime;
 
     // Outgoing shot's transitionOut takes precedence over incoming's transitionIn
     const transition: ShotTransitionConfig | null | undefined =
-      outgoing.transitionOut ?? incoming.transitionIn
+      outgoing.transitionOut ?? incoming.transitionIn;
 
-    if (!transition || transition.type === 'none') continue
+    if (!transition || transition.type === 'none') continue;
 
-    const filter = buildTransitionFilter(transition, boundaryTime, clipDuration)
-    if (filter) segments.push(filter)
+    const filter = buildTransitionFilter(transition, boundaryTime, clipDuration);
+    if (filter) segments.push(filter);
   }
 
-  return segments.join(',')
+  return segments.join(',');
 }

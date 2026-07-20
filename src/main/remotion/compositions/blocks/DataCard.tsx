@@ -1,17 +1,17 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion'
-import { BRAND_ACCENT } from '../../../edit-styles/shared/brand'
-import { EASE } from '../../shared/easing'
-import { DarkCard, GlowDot } from '../../shared/primitives'
-import { PrestyjFonts } from '../../shared/fonts'
-import type { DataCardProps } from './types'
+import type React from 'react';
+import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { BRAND_ACCENT } from '../../../edit-styles/shared/brand';
+import { EASE } from '../../shared/easing';
+import { PrestyjFonts } from '../../shared/fonts';
+import { DarkCard, GlowDot } from '../../shared/primitives';
+import type { DataCardProps } from './types';
 
 /* ------------------------------------------------------------------ */
 /*  DataCard — floating Westworld panel with label, metric, status      */
 /* ------------------------------------------------------------------ */
 
-const TREND_ICONS = { up: '▲', down: '▼', stable: '●' } as const
-const TREND_COLORS = { up: '#4ade80', down: '#f87171', stable: '#9ca3af' } as const
+const TREND_ICONS = { up: '▲', down: '▼', stable: '●' } as const;
+const TREND_COLORS = { up: '#4ade80', down: '#f87171', stable: '#9ca3af' } as const;
 
 export const DataCard: React.FC<DataCardProps> = ({
   label,
@@ -20,50 +20,50 @@ export const DataCard: React.FC<DataCardProps> = ({
   status,
   trend = 'stable',
   trendValue,
-  accentColor = BRAND_ACCENT
+  accentColor = BRAND_ACCENT,
 }) => {
-  const frame = useCurrentFrame()
+  const frame = useCurrentFrame();
 
   // Number count-up: parse the numeric part and animate from 0.
-  const numericTarget = parseFloat(value.replace(/[^0-9.]/g, ''))
+  const numericTarget = parseFloat(value.replace(/[^0-9.]/g, ''));
   const countUpProgress = interpolate(frame, [0, 40], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
-  const displayNumeric = isNaN(numericTarget)
+    easing: EASE.outExpo,
+  });
+  const displayNumeric = Number.isNaN(numericTarget)
     ? value
-    : Math.round(numericTarget * countUpProgress).toString()
+    : Math.round(numericTarget * countUpProgress).toString();
 
   // Card entrance fade + y-shift.
   const entranceOpacity = interpolate(frame, [0, 15], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
   const entranceY = interpolate(frame, [0, 15], [20, 0], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
   // Trend reveal (staggered after card).
   const trendOpacity = interpolate(frame, [25, 40], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
 
   return (
     <AbsoluteFill
       style={{
         justifyContent: 'center',
-        alignItems: 'center'
+        alignItems: 'center',
       }}
     >
       <PrestyjFonts />
       <div
         style={{
           opacity: entranceOpacity,
-          transform: `translateY(${entranceY}px)`
+          transform: `translateY(${entranceY}px)`,
         }}
       >
         <DarkCard accentColor={accentColor} width={640} padding={48}>
@@ -76,7 +76,7 @@ export const DataCard: React.FC<DataCardProps> = ({
               color: accentColor,
               textTransform: 'uppercase' as const,
               marginBottom: 16,
-              opacity: 0.9
+              opacity: 0.9,
             }}
           >
             {label}
@@ -91,7 +91,7 @@ export const DataCard: React.FC<DataCardProps> = ({
               color: '#f6ecd9',
               display: 'flex',
               alignItems: 'baseline',
-              gap: 8
+              gap: 8,
             }}
           >
             <span>{displayNumeric}</span>
@@ -101,7 +101,7 @@ export const DataCard: React.FC<DataCardProps> = ({
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 24,
                   color: '#f6ecd988',
-                  letterSpacing: 2
+                  letterSpacing: 2,
                 }}
               >
                 {unit}
@@ -116,7 +116,7 @@ export const DataCard: React.FC<DataCardProps> = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               marginTop: 28,
-              opacity: trendOpacity
+              opacity: trendOpacity,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -127,7 +127,7 @@ export const DataCard: React.FC<DataCardProps> = ({
                   fontSize: 14,
                   color: '#f6ecd988',
                   textTransform: 'uppercase' as const,
-                  letterSpacing: 2
+                  letterSpacing: 2,
                 }}
               >
                 {status}
@@ -142,7 +142,7 @@ export const DataCard: React.FC<DataCardProps> = ({
                   gap: 6,
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 16,
-                  color: TREND_COLORS[trend]
+                  color: TREND_COLORS[trend],
                 }}
               >
                 <span>{TREND_ICONS[trend]}</span>
@@ -153,5 +153,5 @@ export const DataCard: React.FC<DataCardProps> = ({
         </DarkCard>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

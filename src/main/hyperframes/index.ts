@@ -2,28 +2,23 @@
 // HyperFrames overlay system — barrel export
 // ---------------------------------------------------------------------------
 
-export { renderComposition, resolveHyperFramesCli } from './engine'
-export type { RenderCompositionOptions, RenderCompositionResult } from './engine'
-export { renderOverlay, renderOverlays, renderPreset, resolvePreset, listPresets } from './renderer'
+export type { RenderCompositionOptions, RenderCompositionResult } from './engine';
+export { renderComposition, resolveHyperFramesCli } from './engine';
+export {
+  listPresets,
+  renderOverlay,
+  renderOverlays,
+  renderPreset,
+  resolvePreset,
+} from './renderer';
 export type {
+  BaseOverlayProps,
+  HyperFramePreset,
   OverlayBlockName,
   OverlayPosition,
-  OverlayTiming,
-  OverlayRequest,
   OverlayRenderResult,
-  BaseOverlayProps,
-  OverlayPropsMap,
-  HyperFramePreset,
+  OverlayRequest,
+  OverlayTiming,
   PresetCategory,
   PresetMetadata,
-  GlassCardProps,
-  BigStatProps,
-  TerminalWindowProps,
-  ChecklistProps,
-  PillBadgeProps,
-  BeforeAfterProps,
-  IconLabelProps,
-  NumberedStepProps,
-  IconGridProps,
-  ProgressRingProps
-} from './types'
+} from './types';

@@ -1,4 +1,4 @@
-import type { EditStyleTemplate } from '../../shared/types'
+import type { EditStyleTemplate } from '../../shared/types';
 
 export const fullscreenQuote: EditStyleTemplate = {
   archetype: 'fullscreen-quote',
@@ -10,5 +10,5 @@ export const fullscreenQuote: EditStyleTemplate = {
   rehookY: 220,
   // Hero archetype: emit one ASS dialogue event per word so each word
   // appears/disappears on its own ASR timestamp for maximum emphasis.
-  captionMode: 'word-by-word'
-}
+  captionMode: 'word-by-word',
+};

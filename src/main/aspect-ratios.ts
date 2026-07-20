@@ -12,21 +12,21 @@
 // ---------------------------------------------------------------------------
 
 /** The only supported output aspect ratio. */
-export type OutputAspectRatio = '9:16'
+export type OutputAspectRatio = '9:16';
 
 export interface AspectRatioConfig {
   /** Canonical ratio identifier */
-  ratio: OutputAspectRatio
+  ratio: OutputAspectRatio;
   /** Short display label */
-  label: string
+  label: string;
   /** Human-readable description */
-  description: string
+  description: string;
   /** Output canvas width in pixels */
-  width: number
+  width: number;
   /** Output canvas height in pixels */
-  height: number
+  height: number;
   /** Aspect ratio as a decimal (width / height) */
-  aspect: number
+  aspect: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -34,11 +34,11 @@ export interface AspectRatioConfig {
 // ---------------------------------------------------------------------------
 
 /** Locked output width in pixels. */
-export const OUTPUT_WIDTH = 1080
+export const OUTPUT_WIDTH = 1080;
 /** Locked output height in pixels. */
-export const OUTPUT_HEIGHT = 1920
+export const OUTPUT_HEIGHT = 1920;
 /** Locked output frame rate. */
-export const OUTPUT_FPS = 30
+export const OUTPUT_FPS = 30;
 
 // ---------------------------------------------------------------------------
 // Long-form landscape dimensions (16:9) — additive, used ONLY by the
@@ -47,11 +47,11 @@ export const OUTPUT_FPS = 30
 // ---------------------------------------------------------------------------
 
 /** Long-form output width in pixels (16:9 landscape). */
-export const LANDSCAPE_WIDTH = 1920
+export const LANDSCAPE_WIDTH = 1920;
 /** Long-form output height in pixels (16:9 landscape). */
-export const LANDSCAPE_HEIGHT = 1080
+export const LANDSCAPE_HEIGHT = 1080;
 /** Long-form output frame rate. */
-export const LANDSCAPE_FPS = 30
+export const LANDSCAPE_FPS = 30;
 
 // ---------------------------------------------------------------------------
 // Config registry — only 9:16 is supported
@@ -64,9 +64,9 @@ export const ASPECT_RATIO_CONFIGS: Record<OutputAspectRatio, AspectRatioConfig> 
     description: 'Vertical — full-screen mobile (1080×1920 @ 30fps)',
     width: OUTPUT_WIDTH,
     height: OUTPUT_HEIGHT,
-    aspect: 9 / 16
-  }
-}
+    aspect: 9 / 16,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,7 +77,7 @@ export const ASPECT_RATIO_CONFIGS: Record<OutputAspectRatio, AspectRatioConfig> 
  * to 9:16 vertical.
  */
 export function getCanvasDimensions(_ratio?: OutputAspectRatio): { width: number; height: number } {
-  return { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT }
+  return { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT };
 }
 
 /**
@@ -86,13 +86,15 @@ export function getCanvasDimensions(_ratio?: OutputAspectRatio): { width: number
  * vertical 1080×1920 @ 30fps box. The short-form path never calls this with
  * `'longform'`, so its behaviour is unchanged.
  */
-export function getCanvasDimensionsForProfile(
-  profile?: 'vertical' | 'longform'
-): { width: number; height: number; fps: number } {
+export function getCanvasDimensionsForProfile(profile?: 'vertical' | 'longform'): {
+  width: number;
+  height: number;
+  fps: number;
+} {
   if (profile === 'longform') {
-    return { width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, fps: LANDSCAPE_FPS }
+    return { width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, fps: LANDSCAPE_FPS };
   }
-  return { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT, fps: OUTPUT_FPS }
+  return { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT, fps: OUTPUT_FPS };
 }
 
 /**
@@ -103,31 +105,31 @@ export function getCanvasDimensionsForProfile(
 export function computeCenterCropForRatio(
   sourceWidth: number,
   sourceHeight: number,
-  _targetRatio?: OutputAspectRatio
+  _targetRatio?: OutputAspectRatio,
 ): { x: number; y: number; width: number; height: number } {
-  const roundToEven = (n: number): number => n - (n % 2)
-  const aspect = ASPECT_RATIO_CONFIGS['9:16'].aspect
+  const roundToEven = (n: number): number => n - (n % 2);
+  const aspect = ASPECT_RATIO_CONFIGS['9:16'].aspect;
 
-  const sourceAspect = sourceWidth / sourceHeight
+  const sourceAspect = sourceWidth / sourceHeight;
 
-  let cropW: number
-  let cropH: number
-  let cropX: number
-  let cropY: number
+  let cropW: number;
+  let cropH: number;
+  let cropX: number;
+  let cropY: number;
 
   if (sourceAspect > aspect) {
     // Source is wider than target — crop horizontally
-    cropH = roundToEven(sourceHeight)
-    cropW = roundToEven(Math.floor(sourceHeight * aspect))
-    cropX = roundToEven(Math.floor((sourceWidth - cropW) / 2))
-    cropY = 0
+    cropH = roundToEven(sourceHeight);
+    cropW = roundToEven(Math.floor(sourceHeight * aspect));
+    cropX = roundToEven(Math.floor((sourceWidth - cropW) / 2));
+    cropY = 0;
   } else {
     // Source is taller/narrower than target — crop vertically
-    cropW = roundToEven(sourceWidth)
-    cropH = roundToEven(Math.floor(sourceWidth / aspect))
-    cropX = 0
-    cropY = roundToEven(Math.max(0, Math.floor((sourceHeight - cropH) / 2)))
+    cropW = roundToEven(sourceWidth);
+    cropH = roundToEven(Math.floor(sourceWidth / aspect));
+    cropX = 0;
+    cropY = roundToEven(Math.max(0, Math.floor((sourceHeight - cropH) / 2)));
   }
 
-  return { x: cropX, y: cropY, width: cropW, height: cropH }
+  return { x: cropX, y: cropY, width: cropW, height: cropH };
 }

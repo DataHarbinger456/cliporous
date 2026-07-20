@@ -15,17 +15,24 @@
 // `prepare()` chain doesn't run on the segmented branch).
 // ---------------------------------------------------------------------------
 
-import { writeFileSync, unlinkSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import type { RenderFeature, PrepareResult } from './feature'
-import type { RenderClipJob, RenderBatchOptions } from '../types'
-import { toFFmpegPath } from '../helpers'
-import { detectFillers, type FillerSegment } from '../../filler-detection'
-import { buildKeepSegments, remapWordTimestamps } from '../../filler-cuts'
-import { generateCaptions } from '../../captions'
-import { ASPECT_RATIO_CONFIGS } from '../../aspect-ratios'
-import { ffmpeg as createFfmpeg, getEncoder, getSoftwareEncoder, isGpuSessionError, isGpuEncoderDisabled, disableGpuEncoderForSession } from '../../ffmpeg'
+import { unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ASPECT_RATIO_CONFIGS } from '../../aspect-ratios';
+import { generateCaptions } from '../../captions';
+import {
+  ffmpeg as createFfmpeg,
+  disableGpuEncoderForSession,
+  getEncoder,
+  getSoftwareEncoder,
+  isGpuEncoderDisabled,
+  isGpuSessionError,
+} from '../../ffmpeg';
+import { buildKeepSegments, remapWordTimestamps } from '../../filler-cuts';
+import { detectFillers, type FillerSegment } from '../../filler-detection';
+import { toFFmpegPath } from '../helpers';
+import type { RenderBatchOptions, RenderClipJob } from '../types';
+import type { PrepareResult, RenderFeature } from './feature';
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -41,50 +48,61 @@ import { ffmpeg as createFfmpeg, getEncoder, getSoftwareEncoder, isGpuSessionErr
 // seam — the "volume fading" complaint. 3 ms exp is below the ear's
 // detection threshold for a single transient yet still kills boundary clicks
 // from non-zero-crossing waveform truncation.
-const SEAM_FADE_DURATION_SEC = 0.003
-const SEAM_FADE_CURVE = 'exp'
+const SEAM_FADE_DURATION_SEC = 0.003;
+const SEAM_FADE_CURVE = 'exp';
 
 function trimSegment(
   sourcePath: string,
   startTime: number,
   duration: number,
-  outputPath: string
+  outputPath: string,
 ): Promise<void> {
-  const { encoder, presetFlag } = isGpuEncoderDisabled() ? getSoftwareEncoder() : getEncoder()
-  const fadeOutStart = Math.max(0, duration - SEAM_FADE_DURATION_SEC)
+  const { encoder, presetFlag } = isGpuEncoderDisabled() ? getSoftwareEncoder() : getEncoder();
+  const fadeOutStart = Math.max(0, duration - SEAM_FADE_DURATION_SEC);
   const seamFades = [
     `afade=t=in:st=0:d=${SEAM_FADE_DURATION_SEC}:curve=${SEAM_FADE_CURVE}`,
-    `afade=t=out:st=${fadeOutStart}:d=${SEAM_FADE_DURATION_SEC}:curve=${SEAM_FADE_CURVE}`
-  ]
+    `afade=t=out:st=${fadeOutStart}:d=${SEAM_FADE_DURATION_SEC}:curve=${SEAM_FADE_CURVE}`,
+  ];
 
   return new Promise<void>((resolve, reject) => {
-    let stderrOutput = ''
+    let stderrOutput = '';
     createFfmpeg(sourcePath)
       .setStartTime(startTime)
       .setDuration(duration)
       .audioFilters(seamFades)
       .outputOptions(['-y', '-c:v', encoder, ...presetFlag, '-c:a', 'aac', '-b:a', '192k'])
-      .on('stderr', (line: string) => { stderrOutput += line + '\n' })
+      .on('stderr', (line: string) => {
+        stderrOutput += `${line}\n`;
+      })
       .on('end', () => resolve())
       .on('error', (err: Error) => {
         // GPU session exhaustion → retry with software encoder
-        if (isGpuSessionError(err.message + '\n' + stderrOutput)) {
-          disableGpuEncoderForSession()
-          const sw = getSoftwareEncoder()
+        if (isGpuSessionError(`${err.message}\n${stderrOutput}`)) {
+          disableGpuEncoderForSession();
+          const sw = getSoftwareEncoder();
           createFfmpeg(sourcePath)
             .setStartTime(startTime)
             .setDuration(duration)
             .audioFilters(seamFades)
-            .outputOptions(['-y', '-c:v', sw.encoder, ...sw.presetFlag, '-c:a', 'aac', '-b:a', '192k'])
+            .outputOptions([
+              '-y',
+              '-c:v',
+              sw.encoder,
+              ...sw.presetFlag,
+              '-c:a',
+              'aac',
+              '-b:a',
+              '192k',
+            ])
             .on('end', () => resolve())
             .on('error', reject)
-            .save(toFFmpegPath(outputPath))
+            .save(toFFmpegPath(outputPath));
         } else {
-          reject(err)
+          reject(err);
         }
       })
-      .save(toFFmpegPath(outputPath))
-  })
+      .save(toFFmpegPath(outputPath));
+  });
 }
 
 /**
@@ -93,11 +111,11 @@ function trimSegment(
  * trimSegment() above, so stream copy is safe.
  */
 function concatSegments(segmentPaths: string[], outputPath: string): Promise<void> {
-  const listFile = join(tmpdir(), `batchcontent-filler-concat-${Date.now()}.txt`)
+  const listFile = join(tmpdir(), `batchcontent-filler-concat-${Date.now()}.txt`);
   const listContent = segmentPaths
     .map((p) => `file '${toFFmpegPath(p).replace(/'/g, "'\\''")}'`)
-    .join('\n')
-  writeFileSync(listFile, listContent, 'utf-8')
+    .join('\n');
+  writeFileSync(listFile, listContent, 'utf-8');
 
   return new Promise<void>((resolve, reject) => {
     createFfmpeg()
@@ -105,15 +123,23 @@ function concatSegments(segmentPaths: string[], outputPath: string): Promise<voi
       .inputOptions(['-f', 'concat', '-safe', '0'])
       .outputOptions(['-c', 'copy', '-movflags', '+faststart', '-y'])
       .on('end', () => {
-        try { unlinkSync(listFile) } catch { /* ignore */ }
-        resolve()
+        try {
+          unlinkSync(listFile);
+        } catch {
+          /* ignore */
+        }
+        resolve();
       })
       .on('error', (err: Error) => {
-        try { unlinkSync(listFile) } catch { /* ignore */ }
-        reject(err)
+        try {
+          unlinkSync(listFile);
+        } catch {
+          /* ignore */
+        }
+        reject(err);
       })
-      .save(toFFmpegPath(outputPath))
-  })
+      .save(toFFmpegPath(outputPath));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -122,24 +148,24 @@ function concatSegments(segmentPaths: string[], outputPath: string): Promise<voi
 
 export interface FillerRemovalResult {
   /** Whether the job was actually modified (filler segments were cut). */
-  modified: boolean
+  modified: boolean;
   /**
    * Filler segments that were removed, in source-video absolute time. Empty
    * when `modified` is false. Callers that need to remap their own data onto
    * the cleaned timeline (e.g. segmented render needing to remap
    * `segmentedSegments[].startTime/endTime`) use these.
    */
-  fillerSegments: FillerSegment[]
+  fillerSegments: FillerSegment[];
   /**
    * Original clip start in source-video time (before the job was rewritten
    * to look like a 0-based clip on the cleaned intermediate). Required by
    * downstream remapping that operates in source-video coordinates.
    */
-  originalStart: number
+  originalStart: number;
   /** Original clip end in source-video time. */
-  originalEnd: number
+  originalEnd: number;
   /** Temp files created by the pass — the caller is responsible for cleanup. */
-  tempFiles: string[]
+  tempFiles: string[];
 }
 
 /**
@@ -163,59 +189,57 @@ export interface FillerRemovalResult {
 export async function runFillerRemoval(
   job: RenderClipJob,
   batchOptions: RenderBatchOptions,
-  onProgress?: (message: string, percent: number) => void
+  onProgress?: (message: string, percent: number) => void,
 ): Promise<FillerRemovalResult> {
   const empty: FillerRemovalResult = {
     modified: false,
     fillerSegments: [],
     originalStart: job.startTime,
     originalEnd: job.endTime,
-    tempFiles: []
-  }
+    tempFiles: [],
+  };
 
-  if (!batchOptions.fillerRemoval?.enabled) return empty
+  if (!batchOptions.fillerRemoval?.enabled) return empty;
 
-  const words = job.wordTimestamps ?? []
+  const words = job.wordTimestamps ?? [];
   if (words.length === 0) {
-    console.log(`[FillerRemoval] Clip ${job.clipId}: no word timestamps — skipping`)
-    return empty
+    console.log(`[FillerRemoval] Clip ${job.clipId}: no word timestamps — skipping`);
+    return empty;
   }
 
-  const clipWords = words.filter(
-    (w) => w.start >= job.startTime && w.end <= job.endTime
-  )
-  if (clipWords.length === 0) return empty
+  const clipWords = words.filter((w) => w.start >= job.startTime && w.end <= job.endTime);
+  if (clipWords.length === 0) return empty;
 
   // Use precomputed (user-curated) segments when available, otherwise detect
-  let fillerSegments: FillerSegment[]
+  let fillerSegments: FillerSegment[];
   if (job.precomputedFillerSegments && job.precomputedFillerSegments.length > 0) {
-    fillerSegments = job.precomputedFillerSegments as FillerSegment[]
+    fillerSegments = job.precomputedFillerSegments as FillerSegment[];
     console.log(
-      `[FillerRemoval] Clip ${job.clipId}: using ${fillerSegments.length} precomputed segments`
-    )
+      `[FillerRemoval] Clip ${job.clipId}: using ${fillerSegments.length} precomputed segments`,
+    );
   } else {
-    const fr = batchOptions.fillerRemoval
+    const fr = batchOptions.fillerRemoval;
     const detectionSettings = {
       removeFillerWords: fr.removeFillerWords,
       trimSilences: fr.trimSilences,
       removeRepeats: fr.removeRepeats,
       silenceThreshold: fr.silenceThreshold,
       silenceTargetGap: fr.silenceTargetGap ?? 0.15,
-      fillerWords: fr.fillerWords
-    }
+      fillerWords: fr.fillerWords,
+    };
 
-    const detection = detectFillers(clipWords, detectionSettings)
+    const detection = detectFillers(clipWords, detectionSettings);
     if (detection.segments.length === 0) {
-      console.log(`[FillerRemoval] Clip ${job.clipId}: no fillers detected`)
-      return empty
+      console.log(`[FillerRemoval] Clip ${job.clipId}: no fillers detected`);
+      return empty;
     }
 
-    fillerSegments = detection.segments
+    fillerSegments = detection.segments;
     console.log(
       `[FillerRemoval] Clip ${job.clipId}: found ${detection.segments.length} segments ` +
-      `(${detection.counts.filler} fillers, ${detection.counts.silence} silences, ` +
-      `${detection.counts.repeat} repeats) — saving ${detection.timeSaved.toFixed(1)}s`
-    )
+        `(${detection.counts.filler} fillers, ${detection.counts.silence} silences, ` +
+        `${detection.counts.repeat} repeats) — saving ${detection.timeSaved.toFixed(1)}s`,
+    );
   }
 
   // Breath padding & merge tuning: preserve coarticulation and suppress
@@ -234,111 +258,109 @@ export async function runFillerRemoval(
     paddingHead: 0.05,
     paddingTail: 0.09,
     mergeGapThreshold: 0.2,
-    minKeepDuration: 0.1
-  })
+    minKeepDuration: 0.1,
+  });
   if (keepSegments.length === 0) {
-    console.warn(`[FillerRemoval] Clip ${job.clipId}: no keep segments — skipping`)
-    return empty
+    console.warn(`[FillerRemoval] Clip ${job.clipId}: no keep segments — skipping`);
+    return empty;
   }
 
   if (keepSegments.length === 1 && keepSegments[0].start < 0.001) {
-    const fullDur = job.endTime - job.startTime
+    const fullDur = job.endTime - job.startTime;
     if (Math.abs(keepSegments[0].end - fullDur) < 0.001) {
-      console.log(`[FillerRemoval] Clip ${job.clipId}: single keep segment — no cuts needed`)
-      return empty
+      console.log(`[FillerRemoval] Clip ${job.clipId}: single keep segment — no cuts needed`);
+      return empty;
     }
   }
 
   // ── Pre-render pass: trim + concat ───────────────────────────────────────
-  const tempFiles: string[] = []
-  const trimmedPaths: string[] = []
-  const ts = Date.now()
+  const tempFiles: string[] = [];
+  const trimmedPaths: string[] = [];
+  const ts = Date.now();
 
   try {
     for (let i = 0; i < keepSegments.length; i++) {
-      const seg = keepSegments[i]
-      const segDuration = seg.end - seg.start
-      if (segDuration < 0.05) continue
+      const seg = keepSegments[i];
+      const segDuration = seg.end - seg.start;
+      if (segDuration < 0.05) continue;
 
       onProgress?.(
         `Trimming segment ${i + 1}/${keepSegments.length}…`,
-        Math.round(((i + 1) / keepSegments.length) * 80)
-      )
+        Math.round(((i + 1) / keepSegments.length) * 80),
+      );
 
-      const trimPath = join(tmpdir(), `batchcontent-filler-trim-${ts}-${i}.mp4`)
-      const absoluteStart = job.startTime + seg.start
+      const trimPath = join(tmpdir(), `batchcontent-filler-trim-${ts}-${i}.mp4`);
+      const absoluteStart = job.startTime + seg.start;
       console.log(
         `[FillerRemoval] Clip ${job.clipId}: trimming segment ${i + 1}/${keepSegments.length} ` +
-        `[${absoluteStart.toFixed(2)}s → ${(absoluteStart + segDuration).toFixed(2)}s] (${segDuration.toFixed(2)}s)`
-      )
-      await trimSegment(job.sourceVideoPath, absoluteStart, segDuration, trimPath)
-      trimmedPaths.push(trimPath)
-      tempFiles.push(trimPath)
+          `[${absoluteStart.toFixed(2)}s → ${(absoluteStart + segDuration).toFixed(2)}s] (${segDuration.toFixed(2)}s)`,
+      );
+      await trimSegment(job.sourceVideoPath, absoluteStart, segDuration, trimPath);
+      trimmedPaths.push(trimPath);
+      tempFiles.push(trimPath);
     }
 
     if (trimmedPaths.length === 0) {
-      console.warn(`[FillerRemoval] Clip ${job.clipId}: all segments too short — skipping`)
-      return empty
+      console.warn(`[FillerRemoval] Clip ${job.clipId}: all segments too short — skipping`);
+      return empty;
     }
 
-    const cleanPath = join(tmpdir(), `batchcontent-filler-clean-${ts}.mp4`)
+    const cleanPath = join(tmpdir(), `batchcontent-filler-clean-${ts}.mp4`);
     if (trimmedPaths.length > 1) {
-      console.log(`[FillerRemoval] Clip ${job.clipId}: concatenating ${trimmedPaths.length} segments`)
-      onProgress?.(`Concatenating ${trimmedPaths.length} segments…`, 85)
-      await concatSegments(trimmedPaths, cleanPath)
-      tempFiles.push(cleanPath)
+      console.log(
+        `[FillerRemoval] Clip ${job.clipId}: concatenating ${trimmedPaths.length} segments`,
+      );
+      onProgress?.(`Concatenating ${trimmedPaths.length} segments…`, 85);
+      await concatSegments(trimmedPaths, cleanPath);
+      tempFiles.push(cleanPath);
     }
 
-    const intermediateFile = trimmedPaths.length === 1 ? trimmedPaths[0] : cleanPath
+    const intermediateFile = trimmedPaths.length === 1 ? trimmedPaths[0] : cleanPath;
 
-    const totalKeptDuration = keepSegments.reduce(
-      (sum, seg) => sum + (seg.end - seg.start),
-      0
-    )
+    const totalKeptDuration = keepSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
 
     // Snapshot the original time range BEFORE mutating the job — callers
     // (segmented render) need it to remap their own absolute-time data.
-    const originalStart = job.startTime
-    const originalEnd = job.endTime
+    const originalStart = job.startTime;
+    const originalEnd = job.endTime;
 
-    job.sourceVideoPath = intermediateFile
-    job.startTime = 0
-    job.endTime = totalKeptDuration
+    job.sourceVideoPath = intermediateFile;
+    job.startTime = 0;
+    job.endTime = totalKeptDuration;
 
     // Remap wordTimestamps onto the cleaned 0-based timeline so downstream
     // features (captions, segmented render's clip-level caption pass) see
     // times consistent with the new source.
-    const remapped = remapWordTimestamps(
-      clipWords,
-      originalStart,
-      originalEnd,
-      fillerSegments
-    )
+    const remapped = remapWordTimestamps(clipWords, originalStart, originalEnd, fillerSegments);
     job.wordTimestamps = remapped.map((w) => ({
       text: w.text,
       start: w.start,
-      end: w.end
-    }))
+      end: w.end,
+    }));
 
     console.log(
       `[FillerRemoval] Clip ${job.clipId}: intermediate file ready ` +
-      `(${totalKeptDuration.toFixed(2)}s, was ${(originalEnd - originalStart).toFixed(2)}s)`
-    )
+        `(${totalKeptDuration.toFixed(2)}s, was ${(originalEnd - originalStart).toFixed(2)}s)`,
+    );
 
     return {
       modified: true,
       fillerSegments,
       originalStart,
       originalEnd,
-      tempFiles
-    }
+      tempFiles,
+    };
   } catch (err) {
     for (const f of tempFiles) {
-      try { unlinkSync(f) } catch { /* ignore */ }
+      try {
+        unlinkSync(f);
+      } catch {
+        /* ignore */
+      }
     }
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[FillerRemoval] Clip ${job.clipId}: pre-render pass failed: ${msg}`)
-    return empty
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[FillerRemoval] Clip ${job.clipId}: pre-render pass failed: ${msg}`);
+    return empty;
   }
 }
 
@@ -350,10 +372,17 @@ export function createFillerRemovalFeature(): RenderFeature {
   return {
     name: 'filler-removal',
 
-    async prepare(job: RenderClipJob, batchOptions: RenderBatchOptions, onProgress?: (message: string, percent: number) => void): Promise<PrepareResult> {
-      const result = await runFillerRemoval(job, batchOptions, onProgress)
+    async prepare(
+      job: RenderClipJob,
+      batchOptions: RenderBatchOptions,
+      onProgress?: (message: string, percent: number) => void,
+    ): Promise<PrepareResult> {
+      if (job.clipOverrides?.enableFillerRemoval === false) {
+        return { tempFiles: [], modified: false };
+      }
+      const result = await runFillerRemoval(job, batchOptions, onProgress);
       if (!result.modified) {
-        return { tempFiles: result.tempFiles, modified: false }
+        return { tempFiles: result.tempFiles, modified: false };
       }
 
       // ── Caption ASS re-generation (non-segmented path only) ────────────────
@@ -364,10 +393,10 @@ export function createFillerRemovalFeature(): RenderFeature {
       // post-concat with full archetype awareness — so this block is fine.
       if (batchOptions.captionsEnabled && batchOptions.captionStyle && job.wordTimestamps) {
         try {
-          const arCfg = ASPECT_RATIO_CONFIGS[batchOptions.outputAspectRatio ?? '9:16']
+          const arCfg = ASPECT_RATIO_CONFIGS[batchOptions.outputAspectRatio ?? '9:16'];
           const marginVOverride = batchOptions.templateLayout?.subtitles
             ? Math.round((1 - batchOptions.templateLayout.subtitles.y / 100) * arCfg.height)
-            : undefined
+            : undefined;
 
           const newAssPath = await generateCaptions(
             job.wordTimestamps,
@@ -375,21 +404,21 @@ export function createFillerRemovalFeature(): RenderFeature {
             undefined,
             arCfg.width,
             arCfg.height,
-            marginVOverride
-          )
-          console.log(`[FillerRemoval] Clip ${job.clipId}: captions re-synced → ${newAssPath}`)
-          job.assFilePath = newAssPath
-          result.tempFiles.push(newAssPath)
+            marginVOverride,
+          );
+          console.log(`[FillerRemoval] Clip ${job.clipId}: captions re-synced → ${newAssPath}`);
+          job.assFilePath = newAssPath;
+          result.tempFiles.push(newAssPath);
         } catch (captionErr) {
-          console.warn(`[FillerRemoval] Clip ${job.clipId}: caption re-sync failed:`, captionErr)
+          console.warn(`[FillerRemoval] Clip ${job.clipId}: caption re-sync failed:`, captionErr);
         }
       }
 
-      return { tempFiles: result.tempFiles, modified: true }
-    }
+      return { tempFiles: result.tempFiles, modified: true };
+    },
 
     // No videoFilter() — filler removal is a pre-render pass, not a filter chain modification.
     // No overlayPass() — no visual overlay.
     // No postProcess() — all work is done in prepare().
-  }
+  };
 }

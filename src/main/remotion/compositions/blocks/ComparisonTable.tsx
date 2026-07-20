@@ -6,18 +6,22 @@
  * two columns are shadcn `Card`s. Columns slide in from opposite sides; rows
  * stagger. All motion is frame-clock driven.
  */
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, spring } from 'remotion'
-import { Check, X } from 'lucide-react'
-import { BRAND_BG, BRAND_FG } from '../../../edit-styles/shared/brand'
-import { PrestyjFonts } from '../../shared/fonts'
-import { Kicker, Heading, SKINS } from '../../shared/skins'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import type { ComparisonTableProps } from './types'
 
-const POSITIVE = '#4ade80'
-const NEGATIVE = '#f87171'
+import type { Palette } from '@shared/palettes';
+import { Check, X } from 'lucide-react';
+import type React from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { BRAND_ACCENT, BRAND_BG, BRAND_FG } from '../../../edit-styles/shared/brand';
+import { useBlockMotion } from '../../shared/block-motion';
+import { breakWordStyle, CHAR_WIDTH_RATIO, clampStyle, FitText } from '../../shared/fit-text';
+import { PrestyjFonts } from '../../shared/fonts';
+import { Heading, Kicker, SKIN_CONTENT_WIDTH, SKINS } from '../../shared/skins';
+import type { ComparisonTableProps } from './types';
+
+const POSITIVE = '#4ade80';
+const NEGATIVE = '#f87171';
 
 export const ComparisonTable: React.FC<ComparisonTableProps> = ({
   skinId,
@@ -27,35 +31,48 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
   rightTitle,
   leftItems,
   rightItems,
-  accentColor
+  accentColor,
+  palette,
 }) => {
-  const frame = useCurrentFrame()
-  const { fps } = useVideoConfig()
-  const skin = SKINS[skinId]
-  const accent = accentColor ?? skin.accent
-  const cardIn = spring({ frame, fps, config: { damping: 20, stiffness: 90, mass: 0.9 } })
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const skin = SKINS[skinId];
+  const pal: Palette = palette ?? {
+    id: 'brand',
+    name: 'Brand Default',
+    background: BRAND_BG,
+    foreground: BRAND_FG,
+    accent: BRAND_ACCENT,
+    builtin: true,
+  };
+  const accent = accentColor ?? palette?.accent ?? skin.accent;
+  const motion = useBlockMotion();
+  const cw = SKIN_CONTENT_WIDTH[skinId];
+  // Two flex-1 Cards (gap 32); each CardContent p-10 (40px) holds a 48px icon
+  // tile + 20px gap before the row text.
+  const rowText = Math.round((cw - 32) / 2) - 80 - 48 - 20;
 
   const column = (
     title: string,
     items: string[],
     positive: boolean,
-    fromX: number
+    fromX: number,
   ): React.ReactNode => {
     const colIn = spring({
       frame: frame - 14,
       fps,
-      config: { damping: 20, stiffness: 100, mass: 0.9 }
-    })
-    const tint = positive ? POSITIVE : NEGATIVE
-    const Mark = positive ? Check : X
+      config: { damping: 20, stiffness: 100, mass: 0.9 },
+    });
+    const tint = positive ? POSITIVE : NEGATIVE;
+    const Mark = positive ? Check : X;
     return (
       <Card
         className="flex-1 border bg-card text-card-foreground"
         style={{
           borderColor: `${tint}33`,
-          boxShadow: `0 22px 60px rgba(0,0,0,0.45), inset 0 1px 0 ${BRAND_FG}12`,
+          boxShadow: `0 22px 60px rgba(0,0,0,0.45), inset 0 1px 0 ${pal.foreground}12`,
           opacity: colIn,
-          transform: `translateX(${interpolate(colIn, [0, 1], [fromX, 0])}px)`
+          transform: `translateX(${interpolate(colIn, [0, 1], [fromX, 0])}px)`,
         }}
       >
         <CardContent className="p-10">
@@ -68,7 +85,10 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
               fontSize: 28,
               letterSpacing: 4,
               padding: '12px 24px',
-              borderRadius: 12
+              borderRadius: 12,
+              maxWidth: '100%',
+              ...breakWordStyle,
+              ...clampStyle(2),
             }}
           >
             {title}
@@ -78,8 +98,8 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
               const e = spring({
                 frame: frame - 24 - i * 6,
                 fps,
-                config: { damping: 18, stiffness: 120, mass: 0.8 }
-              })
+                config: { damping: 18, stiffness: 120, mass: 0.8 },
+              });
               return (
                 <div
                   key={i}
@@ -88,7 +108,7 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
                     alignItems: 'center',
                     gap: 20,
                     opacity: e,
-                    transform: `translateY(${interpolate(e, [0, 1], [18, 0])}px)`
+                    transform: `translateY(${interpolate(e, [0, 1], [18, 0])}px)`,
                   }}
                 >
                   <div
@@ -101,44 +121,54 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
                       alignItems: 'center',
                       justifyContent: 'center',
                       background: `${tint}1f`,
-                      border: `1px solid ${tint}44`
+                      border: `1px solid ${tint}44`,
                     }}
                   >
                     <Mark size={28} color={tint} strokeWidth={3} />
                   </div>
-                  <span
+                  <FitText
+                    maxWidth={rowText}
+                    maxFontSize={32}
+                    minFontSize={22}
+                    maxLines={2}
+                    charWidthRatio={CHAR_WIDTH_RATIO.geist}
                     style={{
+                      flex: 1,
                       fontFamily: 'Geist',
                       fontWeight: 600,
-                      fontSize: 32,
                       lineHeight: 1.2,
-                      color: `${BRAND_FG}e6`
+                      color: `${pal.foreground}e6`,
                     }}
                   >
                     {item}
-                  </span>
+                  </FitText>
                 </div>
-              )
+              );
             })}
           </div>
         </CardContent>
       </Card>
-    )
-  }
+    );
+  };
 
   return (
-    <AbsoluteFill style={{ backgroundColor: BRAND_BG, justifyContent: 'center', alignItems: 'center' }}>
+    <AbsoluteFill
+      style={{ backgroundColor: pal.background, justifyContent: 'center', alignItems: 'center' }}
+    >
       <PrestyjFonts />
-      <skin.Background accent={accent} />
+      <skin.Background accent={accent} bg={pal.background} fg={pal.foreground} />
       <div
         style={{
-          opacity: cardIn,
-          transform: `translateY(${interpolate(cardIn, [0, 1], [50, 0])}px)`
+          ...motion,
         }}
       >
-        <skin.Surface accent={accent}>
-          <Kicker accent={accent}>{kicker}</Kicker>
-          <Heading>{heading}</Heading>
+        <skin.Surface accent={accent} bg={pal.background} fg={pal.foreground}>
+          <Kicker accent={accent} maxWidth={cw}>
+            {kicker}
+          </Kicker>
+          <Heading fg={pal.foreground} maxWidth={cw}>
+            {heading}
+          </Heading>
           <div style={{ display: 'flex', gap: 32, marginTop: 56, alignItems: 'stretch' }}>
             {column(leftTitle, leftItems, true, -40)}
             {column(rightTitle, rightItems, false, 40)}
@@ -146,5 +176,5 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
         </skin.Surface>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

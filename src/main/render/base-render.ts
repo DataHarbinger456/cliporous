@@ -8,29 +8,34 @@
 // no longer wired into the renderer.
 // ---------------------------------------------------------------------------
 
-import type { FfmpegCommand } from '../ffmpeg'
+import type { OutputAspectRatio } from '../aspect-ratios';
 import {
+  computeCenterCropForRatio,
+  OUTPUT_FPS,
+  OUTPUT_HEIGHT,
+  OUTPUT_WIDTH,
+} from '../aspect-ratios';
+import type { FfmpegCommand } from '../ffmpeg';
+import {
+  disableGpuEncoderForSession,
   ffmpeg,
   getEncoder,
   getSoftwareEncoder,
-  isGpuSessionError,
-  isGpuEncoderDisabled,
-  disableGpuEncoderForSession,
-  stripCudaScaleFilter,
   hasScaleCuda,
-  type QualityParams
-} from '../ffmpeg'
-import { computeCenterCropForRatio, OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_FPS } from '../aspect-ratios'
-import type { OutputAspectRatio } from '../aspect-ratios'
-import type { RenderClipJob } from './types'
-import { toFFmpegPath } from './helpers'
-import { activeCommands, runOverlayPasses } from './overlay-runner'
-import type { OverlayPassResult } from './features/feature'
-import { buildFaceTrackCropFilter } from './face-track-filter'
-import { buildSceneCropFilter } from './scene-crop-filter'
+  isGpuEncoderDisabled,
+  isGpuSessionError,
+  type QualityParams,
+  stripCudaScaleFilter,
+} from '../ffmpeg';
+import { buildFaceTrackCropFilter } from './face-track-filter';
+import type { OverlayPassResult } from './features/feature';
+import { toFFmpegPath } from './helpers';
+import { activeCommands, runOverlayPasses } from './overlay-runner';
+import { buildSceneCropFilter } from './scene-crop-filter';
+import type { RenderClipJob } from './types';
 
 // Re-export activeCommands so the pipeline orchestrator can access it
-export { activeCommands }
+export { activeCommands };
 
 // ---------------------------------------------------------------------------
 // Video filter builder
@@ -55,25 +60,31 @@ export function buildVideoFilter(
   sourceHeight: number,
   targetResolution?: { width: number; height: number },
   outputAspectRatio?: OutputAspectRatio,
-  sourceFps?: number
+  sourceFps?: number,
 ): string {
   // Output is hard-locked to 1080×1920 (9:16). Inputs are ignored.
-  void targetResolution
-  void outputAspectRatio
-  const outW = OUTPUT_WIDTH
-  const outH = OUTPUT_HEIGHT
+  void targetResolution;
+  void outputAspectRatio;
+  const outW = OUTPUT_WIDTH;
+  const outH = OUTPUT_HEIGHT;
 
   // Center-crop fallback always targets the locked 9:16 ratio.
-  const aspectRatioForCrop: OutputAspectRatio = '9:16'
+  const aspectRatioForCrop: OutputAspectRatio = '9:16';
 
   // Face-tracking animated crop: takes precedence over static cropRegion when ≥2 entries.
   if (job.faceTimeline && job.faceTimeline.length >= 2) {
-    const animated = buildFaceTrackCropFilter(job.faceTimeline, sourceWidth, sourceHeight, outW, outH)
-    if (animated !== null) return animated
+    const animated = buildFaceTrackCropFilter(
+      job.faceTimeline,
+      sourceWidth,
+      sourceHeight,
+      outW,
+      outH,
+    );
+    if (animated !== null) return animated;
   }
 
-  const clipDuration = Math.max(0, job.endTime - job.startTime)
-  let cropFilter: string | null = null
+  const clipDuration = Math.max(0, job.endTime - job.startTime);
+  let cropFilter: string | null = null;
 
   // Scene-timeline (multi-scene) crop — takes precedence over static cropRegion.
   if (job.cropTimeline && job.cropTimeline.length > 1) {
@@ -85,22 +96,26 @@ export function buildVideoFilter(
       clipDuration,
       sourceWidth,
       sourceHeight,
-      sourceFps ?? 30
-    )
+      sourceFps ?? 30,
+    );
   }
 
   if (!cropFilter && job.cropRegion) {
-    const { x, y, width, height } = job.cropRegion
-    const cw = Math.min(width, sourceWidth)
-    const ch = Math.min(height, sourceHeight)
-    const cx = Math.max(0, Math.min(x, sourceWidth - cw))
-    const cy = Math.max(0, Math.min(y, sourceHeight - ch))
-    cropFilter = `crop=${cw}:${ch}:${cx}:${cy}`
+    const { x, y, width, height } = job.cropRegion;
+    const cw = Math.min(width, sourceWidth);
+    const ch = Math.min(height, sourceHeight);
+    const cx = Math.max(0, Math.min(x, sourceWidth - cw));
+    const cy = Math.max(0, Math.min(y, sourceHeight - ch));
+    cropFilter = `crop=${cw}:${ch}:${cx}:${cy}`;
   }
 
   if (!cropFilter) {
-    const { x, y, width, height } = computeCenterCropForRatio(sourceWidth, sourceHeight, aspectRatioForCrop)
-    cropFilter = `crop=${width}:${height}:${x}:${y}`
+    const { x, y, width, height } = computeCenterCropForRatio(
+      sourceWidth,
+      sourceHeight,
+      aspectRatioForCrop,
+    );
+    cropFilter = `crop=${width}:${height}:${x}:${y}`;
   }
 
   // GPU scale is only used for the base crop+scale. Feature video filters
@@ -111,25 +126,25 @@ export function buildVideoFilter(
   // Since we use `-hwaccel auto` (not `-hwaccel_output_format cuda`), decoded
   // frames arrive in CPU memory. The pipeline is therefore:
   //   crop (CPU) → hwupload_cuda → scale_cuda (GPU) → hwdownload → format=nv12
-  const useGpuScale = hasScaleCuda()
+  const useGpuScale = hasScaleCuda();
 
   // Always force the locked output framerate after scaling so downstream
   // concat / overlay passes see consistent timing.
-  const fpsLock = `fps=${OUTPUT_FPS}`
+  const fpsLock = `fps=${OUTPUT_FPS}`;
 
   // Pin final pixel format to yuv420p so the output stays in the universally
   // playable subsampling (TikTok / Reels / Shorts soft-decode or reject 4:4:4
   // and 4:2:2). Lanczos + accurate_rnd + full_chroma_int give a sharper, color
   // accurate downscale; the GPU branch already uses lanczos via interp_algo.
-  const pixFmt = 'format=yuv420p'
+  const pixFmt = 'format=yuv420p';
 
   if (useGpuScale) {
     // Hybrid pipeline: CPU crop → upload to GPU → GPU scale → download back
-    const scaleFilter = `hwupload_cuda,scale_cuda=${outW}:${outH}:interp_algo=lanczos,hwdownload,format=nv12`
-    return `${cropFilter},${scaleFilter},${fpsLock},${pixFmt}`
+    const scaleFilter = `hwupload_cuda,scale_cuda=${outW}:${outH}:interp_algo=lanczos,hwdownload,format=nv12`;
+    return `${cropFilter},${scaleFilter},${fpsLock},${pixFmt}`;
   } else {
-    const scaleFilter = `scale=${outW}:${outH}:flags=lanczos+accurate_rnd+full_chroma_int`
-    return `${cropFilter},${scaleFilter},${fpsLock},${pixFmt}`
+    const scaleFilter = `scale=${outW}:${outH}:flags=lanczos+accurate_rnd+full_chroma_int`;
+    return `${cropFilter},${scaleFilter},${fpsLock},${pixFmt}`;
   }
 }
 
@@ -153,146 +168,144 @@ export function renderClip(
   outputFormat?: 'mp4' | 'webm',
   _hookFontPath?: string | null,
   _captionFontsDir?: string | null,
-  overlaySteps?: OverlayPassResult[]
+  overlaySteps?: OverlayPassResult[],
 ): Promise<string> {
-  console.log(`[Render] clipId=${job.clipId}`)
-  console.log(`[Render] outputPath=${outputPath}`)
-  console.log(`[Render] sourceVideoPath=${job.sourceVideoPath}`)
-  console.log(`[Render] toFFmpegPath(outputPath)=${toFFmpegPath(outputPath)}`)
+  console.log(`[Render] clipId=${job.clipId}`);
+  console.log(`[Render] outputPath=${outputPath}`);
+  console.log(`[Render] sourceVideoPath=${job.sourceVideoPath}`);
+  console.log(`[Render] toFFmpegPath(outputPath)=${toFFmpegPath(outputPath)}`);
 
-  const useWebm = outputFormat === 'webm'
+  const useWebm = outputFormat === 'webm';
 
   // Main encode writes directly to the final output path — no bumper concat.
-  const mainOutputPath = outputPath
+  const mainOutputPath = outputPath;
 
   // For WebM, use libvpx-vp9 with matching CRF (vp9 uses -crf + -b:v 0 for constrained quality)
   // GPU encoders don't support WebM; always use software for WebM
   function getVideoCodecFlags(): { encoder: string; flags: string[] } {
     if (useWebm) {
-      const crf = qualityParams?.crf ?? 23
+      const crf = qualityParams?.crf ?? 23;
       return {
         encoder: 'libvpx-vp9',
-        flags: ['-crf', String(crf), '-b:v', '0', '-cpu-used', '4']
-      }
+        flags: ['-crf', String(crf), '-b:v', '0', '-cpu-used', '4'],
+      };
     }
     // If GPU encoder was disabled by a prior crash this session, go straight to software
     if (isGpuEncoderDisabled()) {
-      return getSoftwareCodecFlags()
+      return getSoftwareCodecFlags();
     }
-    const { encoder, presetFlag } = getEncoder(qualityParams)
-    return { encoder, flags: presetFlag }
+    const { encoder, presetFlag } = getEncoder(qualityParams);
+    return { encoder, flags: presetFlag };
   }
 
   function getSoftwareCodecFlags(): { encoder: string; flags: string[] } {
     if (useWebm) {
-      const crf = qualityParams?.crf ?? 23
+      const crf = qualityParams?.crf ?? 23;
       return {
         encoder: 'libvpx-vp9',
-        flags: ['-crf', String(crf), '-b:v', '0', '-cpu-used', '4']
-      }
+        flags: ['-crf', String(crf), '-b:v', '0', '-cpu-used', '4'],
+      };
     }
-    const sw = getSoftwareEncoder(qualityParams)
-    return { encoder: sw.encoder, flags: sw.presetFlag }
+    const sw = getSoftwareEncoder(qualityParams);
+    return { encoder: sw.encoder, flags: sw.presetFlag };
   }
 
-  const audioOptions = useWebm ? ['-c:a', 'libopus', '-b:a', '128k'] : ['-c:a', 'aac', '-b:a', '192k']
-  const containerFlags = useWebm ? ['-y'] : ['-y', '-movflags', '+faststart']
+  const audioOptions = useWebm
+    ? ['-c:a', 'libopus', '-b:a', '128k']
+    : ['-c:a', 'aac', '-b:a', '192k'];
+  const containerFlags = useWebm ? ['-y'] : ['-y', '-movflags', '+faststart'];
 
-  const hasOverlays = overlaySteps && overlaySteps.length > 0
+  const hasOverlays = overlaySteps && overlaySteps.length > 0;
 
   const renderMain = (): Promise<string> => {
     return new Promise<string>((resolve, reject) => {
-      const { encoder, flags: presetFlag } = getVideoCodecFlags()
-      let activeCommand: FfmpegCommand | null = null
+      const { encoder, flags: presetFlag } = getVideoCodecFlags();
+      let _activeCommand: FfmpegCommand | null = null;
 
       // Simple path: no sound mixing, no logo — straight encode
-      let simpleFallbackAttempted = false
+      let simpleFallbackAttempted = false;
       function runWithEncoder(enc: string, flags: string[], useHwAccel = true): FfmpegCommand {
-        const cmd = ffmpeg(toFFmpegPath(job.sourceVideoPath))
-        let stderrOutput = ''
+        const cmd = ffmpeg(toFFmpegPath(job.sourceVideoPath));
+        let stderrOutput = '';
 
         // Enable hardware-accelerated decoding (NVDEC, DXVA2, VAAPI, etc.)
         // Skipped on software fallback — broken GPU drivers can cause -hwaccel auto to crash
         if (useHwAccel) {
-          cmd.inputOptions(['-hwaccel', 'auto'])
+          cmd.inputOptions(['-hwaccel', 'auto']);
         }
 
         cmd
           .seekInput(job.startTime)
           .duration(job.endTime - job.startTime)
           .videoFilters(videoFilter)
-          .outputOptions([
-            '-c:v', enc,
-            ...flags,
-            ...audioOptions,
-            ...containerFlags
-          ])
-          .on('start', (cmdLine: string) => { onCommand?.(cmdLine) })
-          .on('stderr', (line: string) => { stderrOutput += line + '\n' })
+          .outputOptions(['-c:v', enc, ...flags, ...audioOptions, ...containerFlags])
+          .on('start', (cmdLine: string) => {
+            onCommand?.(cmdLine);
+          })
+          .on('stderr', (line: string) => {
+            stderrOutput += `${line}\n`;
+          })
           .on('progress', (progress) => {
-            onProgress(Math.min(hasOverlays ? 65 : 99, progress.percent ?? 0))
+            onProgress(Math.min(hasOverlays ? 65 : 99, progress.percent ?? 0));
           })
           .on('end', () => {
-            onProgress(hasOverlays ? 65 : 100)
-            activeCommands.delete(cmd)
-            activeCommand = null
-            resolve(mainOutputPath)
+            onProgress(hasOverlays ? 65 : 100);
+            activeCommands.delete(cmd);
+            _activeCommand = null;
+            resolve(mainOutputPath);
           })
           .on('error', (err: Error) => {
-            activeCommands.delete(cmd)
-            activeCommand = null
-            console.error(`[Render] FFmpeg stderr for clip ${job.clipId}:\n${stderrOutput}`)
-            if (!simpleFallbackAttempted && isGpuSessionError(err.message + '\n' + stderrOutput)) {
-              simpleFallbackAttempted = true
-              disableGpuEncoderForSession()
-              console.warn('[Render] GPU error in simple path, falling back to software encoder + CPU scale')
-              videoFilter = stripCudaScaleFilter(videoFilter)
-              const { encoder: swEnc, flags: swFlags } = getSoftwareCodecFlags()
-              const swCmd = runWithEncoder(swEnc, swFlags, false)
-              activeCommand = swCmd
-              activeCommands.add(swCmd)
+            activeCommands.delete(cmd);
+            _activeCommand = null;
+            console.error(`[Render] FFmpeg stderr for clip ${job.clipId}:\n${stderrOutput}`);
+            if (!simpleFallbackAttempted && isGpuSessionError(`${err.message}\n${stderrOutput}`)) {
+              simpleFallbackAttempted = true;
+              disableGpuEncoderForSession();
+              console.warn(
+                '[Render] GPU error in simple path, falling back to software encoder + CPU scale',
+              );
+              videoFilter = stripCudaScaleFilter(videoFilter);
+              const { encoder: swEnc, flags: swFlags } = getSoftwareCodecFlags();
+              const swCmd = runWithEncoder(swEnc, swFlags, false);
+              _activeCommand = swCmd;
+              activeCommands.add(swCmd);
             } else {
-              const stderrTail = stderrOutput.split('\n').slice(-10).join('\n')
-              const enhanced = new Error(`${err.message}\n[stderr tail] ${stderrTail}`)
-              reject(enhanced)
+              const stderrTail = stderrOutput.split('\n').slice(-10).join('\n');
+              const enhanced = new Error(`${err.message}\n[stderr tail] ${stderrTail}`);
+              reject(enhanced);
             }
           })
-          .save(toFFmpegPath(mainOutputPath))
+          .save(toFFmpegPath(mainOutputPath));
 
-        return cmd
+        return cmd;
       }
 
-      const cmd = runWithEncoder(encoder, presetFlag)
-      activeCommand = cmd
-      activeCommands.add(cmd)
-    })
-  }
+      const cmd = runWithEncoder(encoder, presetFlag);
+      _activeCommand = cmd;
+      activeCommands.add(cmd);
+    });
+  };
 
   // ── Phase 1: Base render (crop + scale + zoom) ────────────────────────────
-  const baseResult = renderMain()
+  const baseResult = renderMain();
 
   return baseResult.then(async (resultPath) => {
     // ── Phase 2: Multi-pass overlay post-processing ─────────────────────────
     if (!overlaySteps || overlaySteps.length === 0) {
-      onProgress(100)
-      return resultPath
+      onProgress(100);
+      return resultPath;
     }
 
-    const overlayProgressBase = 70
-    const overlayProgressRange = 30
+    const overlayProgressBase = 70;
+    const overlayProgressRange = 30;
 
-    const finalPath = await runOverlayPasses(
-      resultPath,
-      overlaySteps,
-      resultPath,
-      {
-        onProgress: (percent) => {
-          onProgress(Math.round(overlayProgressBase + (overlayProgressRange * percent / 100)))
-        }
-      }
-    )
+    const finalPath = await runOverlayPasses(resultPath, overlaySteps, resultPath, {
+      onProgress: (percent) => {
+        onProgress(Math.round(overlayProgressBase + (overlayProgressRange * percent) / 100));
+      },
+    });
 
-    onProgress(100)
-    return finalPath
-  })
+    onProgress(100);
+    return finalPath;
+  });
 }

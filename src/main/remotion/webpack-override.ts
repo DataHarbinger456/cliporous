@@ -16,9 +16,10 @@
  * would resolve to the wrong directory at runtime. Each caller passes the root
  * it already knows reliably.
  */
-import { enableTailwind } from '@remotion/tailwind'
-import type { WebpackOverrideFn } from '@remotion/bundler'
-import path from 'path'
+
+import path from 'node:path';
+import type { WebpackOverrideFn } from '@remotion/bundler';
+import { enableTailwind } from '@remotion/tailwind';
 
 /**
  * Build a Remotion webpack override that enables Tailwind and resolves the
@@ -26,7 +27,9 @@ import path from 'path'
  */
 export function createWebpackOverride(projectRoot: string): WebpackOverrideFn {
   return (currentConfig) => {
-    const withTailwind = enableTailwind(currentConfig)
+    const withTailwind = enableTailwind(currentConfig, {
+      configLocation: path.join(projectRoot, 'tailwind.config.js'),
+    });
 
     return {
       ...withTailwind,
@@ -37,9 +40,9 @@ export function createWebpackOverride(projectRoot: string): WebpackOverrideFn {
           // shadcn imports `@/components/ui/*` + `@/lib/utils`; mirror the
           // renderer alias (`electron.vite.config.ts`) so they resolve here.
           '@': path.join(projectRoot, 'src', 'renderer', 'src'),
-          '@shared': path.join(projectRoot, 'src', 'shared')
-        }
-      }
-    }
-  }
+          '@shared': path.join(projectRoot, 'src', 'shared'),
+        },
+      },
+    };
+  };
 }

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html data-width="720" data-height="1280">
+<head>
+  <meta charset="utf-8"><title>HyperFrames — Repurpose Stack</title>
+  <link rel="stylesheet" href="shared/styles.css">
+  <style>
+    .card { position:absolute; left:50%; width:620px; transform:translate(-50%,-50%); padding:28px; border-radius:24px; background:linear-gradient(145deg,rgba(29,53,87,.97),rgba(11,25,45,.96)); border:1px solid color-mix(in srgb,var(--accent) 55%,white 10%); box-shadow:0 24px 70px #0009; color:#fff; font-family:Inter,sans-serif; }
+    .eyebrow { font-size:15px; font-weight:700; letter-spacing:.14em; color:#b9c8dc; text-transform:uppercase; }
+    .title { display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; font-size:31px; font-weight:800; }
+    .stack { display:grid; gap:10px; }
+    .item { display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-radius:13px; background:#ffffff12; border:1px solid #ffffff12; }
+    .label { font-size:19px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:420px; }
+    .count { color:#d8e7ff; font:700 19px 'Geist Mono',monospace; }
+    .output { margin-top:18px; display:flex; align-items:center; gap:10px; font-size:16px; color:#b9c8dc; }
+    .arrow { color:var(--accent); font-size:25px; }
+  </style>
+</head>
+<body>
+  <div class="card" id="root"><div class="eyebrow" id="source"></div><div class="title"><span>Repurpose once.</span><span style="color:var(--accent)">↘</span></div><div class="stack" id="stack"></div><div class="output"><span class="arrow">→</span><span id="output"></span></div></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script>
+    const v=window.__hyperframes?.getVariables?.()??{}, root=document.getElementById('root');
+    const accent=v.accentColor??'#1d3557', y=Math.max(10,Math.min(90,Number(v.yPos??50))); root.style.top=y+'%'; root.style.setProperty('--accent',accent);
+    const items=Array.isArray(v.items)?v.items.slice(0,5):[]; document.getElementById('source').textContent=v.sourceLabel??'ONE IDEA'; document.getElementById('output').textContent=v.outputLabel??'EVERYWHERE';
+    const stack=document.getElementById('stack'); items.forEach(item=>{const row=document.createElement('div');row.className='item';const label=document.createElement('span');label.className='label';label.textContent=String(item?.label??'Format');const count=document.createElement('span');count.className='count';count.textContent=String(item?.count??'—');row.style.borderColor=item?.color??'#ffffff12';row.append(label,count);stack.append(row)});
+    const dur=Math.max(.6,Number(v.timingDuration??2.5)), tl=gsap.timeline({defaults:{ease:'power3.out'}}); tl.fromTo(root,{opacity:0,y:35,scale:.94},{opacity:1,y:0,scale:1,duration:.42},0); tl.from('.item',{opacity:0,x:-18,stagger:.08,duration:.25},.2); tl.to(root,{opacity:0,y:-18,duration:.3,ease:'power2.in'},Math.max(dur-.4,.6));
+  </script>
+</body>
+</html>

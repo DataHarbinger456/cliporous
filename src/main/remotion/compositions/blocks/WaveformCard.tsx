@@ -1,10 +1,10 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion'
-import { BRAND_ACCENT } from '../../../edit-styles/shared/brand'
-import { EASE } from '../../shared/easing'
-import { DarkCard } from '../../shared/primitives'
-import { PrestyjFonts } from '../../shared/fonts'
-import type { WaveformCardProps } from './types'
+import type React from 'react';
+import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { BRAND_ACCENT } from '../../../edit-styles/shared/brand';
+import { EASE } from '../../shared/easing';
+import { PrestyjFonts } from '../../shared/fonts';
+import { DarkCard } from '../../shared/primitives';
+import type { WaveformCardProps } from './types';
 
 /* ------------------------------------------------------------------ */
 /*  WaveformCard — animated audio/voice waveform bars                   */
@@ -15,30 +15,30 @@ export const WaveformCard: React.FC<WaveformCardProps> = ({
   bars,
   active = false,
   label,
-  accentColor = BRAND_ACCENT
+  accentColor = BRAND_ACCENT,
 }) => {
-  const frame = useCurrentFrame()
+  const frame = useCurrentFrame();
 
   // Card entrance.
   const entranceOpacity = interpolate(frame, [0, 15], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
   const entranceY = interpolate(frame, [0, 15], [20, 0], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
   // Label fade-in (staggered).
   const labelOpacity = interpolate(frame, [20, 35], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
 
-  const maxBarHeight = 120
-  const barWidth = 6
-  const barGap = 4
+  const maxBarHeight = 120;
+  const barWidth = 6;
+  const barGap = 4;
 
   return (
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -53,7 +53,7 @@ export const WaveformCard: React.FC<WaveformCardProps> = ({
               letterSpacing: 3,
               color: accentColor,
               textTransform: 'uppercase' as const,
-              marginBottom: 24
+              marginBottom: 24,
             }}
           >
             {title}
@@ -66,28 +66,22 @@ export const WaveformCard: React.FC<WaveformCardProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: barGap,
-              height: maxBarHeight + 16
+              height: maxBarHeight + 16,
             }}
           >
             {bars.map((h, i) => {
               // When active, bars oscillate gently based on frame.
-              const baseHeight = Math.max(0.05, Math.min(1, h))
+              const baseHeight = Math.max(0.05, Math.min(1, h));
               const oscillation = active
-                ? interpolate(
-                    Math.sin(frame * 0.2 + i * 0.8),
-                    [-1, 1],
-                    [-0.15, 0.15]
-                  )
-                : 0
-              const normalizedHeight = Math.max(0.05, Math.min(1, baseHeight + oscillation))
+                ? interpolate(Math.sin(frame * 0.2 + i * 0.8), [-1, 1], [-0.15, 0.15])
+                : 0;
+              const normalizedHeight = Math.max(0.05, Math.min(1, baseHeight + oscillation));
 
               // Staggered reveal per bar.
-              const barReveal = interpolate(
-                frame,
-                [8 + i * 1.5, 18 + i * 1.5],
-                [0, 1],
-                { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
-              )
+              const barReveal = interpolate(frame, [8 + i * 1.5, 18 + i * 1.5], [0, 1], {
+                extrapolateLeft: 'clamp',
+                extrapolateRight: 'clamp',
+              });
 
               return (
                 <div
@@ -98,10 +92,10 @@ export const WaveformCard: React.FC<WaveformCardProps> = ({
                     backgroundColor: accentColor,
                     borderRadius: barWidth / 2,
                     opacity: 0.7 + normalizedHeight * 0.3,
-                    transition: 'none'
+                    transition: 'none',
                   }}
                 />
-              )
+              );
             })}
           </div>
 
@@ -116,7 +110,7 @@ export const WaveformCard: React.FC<WaveformCardProps> = ({
                 textTransform: 'uppercase' as const,
                 textAlign: 'center' as const,
                 marginTop: 24,
-                opacity: labelOpacity
+                opacity: labelOpacity,
               }}
             >
               {label}
@@ -125,5 +119,5 @@ export const WaveformCard: React.FC<WaveformCardProps> = ({
         </DarkCard>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

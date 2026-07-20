@@ -10,70 +10,65 @@
 // short-form output stays byte-identical.
 // ---------------------------------------------------------------------------
 
-import { BrowserWindow } from 'electron'
-import { Ch } from '@shared/ipc-channels'
-import { basename, extname, join } from 'path'
-import { tmpdir } from 'os'
-import { existsSync, mkdirSync, writeFileSync, unlinkSync, copyFileSync } from 'fs'
-
-import { ffmpeg, getEncoder, getVideoMetadata, isHardwareEncoder } from '../ffmpeg'
-import {
-  LANDSCAPE_WIDTH,
-  LANDSCAPE_HEIGHT,
-  LANDSCAPE_FPS
-} from '../aspect-ratios'
-import { getEditStyleById } from '../edit-styles/index'
-import { LONGFORM_TEMPLATES } from '../edit-styles/index'
-import { buildLongformLayout } from '../layouts/longform-layouts'
-import { buildDriftZoom, buildSnapZoom } from '../zoom-filters'
-import { buildEditStyleColorGradeFilter } from './color-grade-filter'
-import { resolveQualityParams } from './quality'
-import { classifyRenderError } from './render-error-map'
-import { toFFmpegPath } from './helpers'
-import { encodeSpeakerSegment } from './longform-encode'
-import { renderBlockSegment, extendBlockPlacementEndTime } from './features/blocks.feature'
-import type { WordTimestamp } from './point-coverage'
-import { DEFAULT_LONGFORM_BLOCK_SKIN } from '../remotion/registry'
-import { getPaletteById } from '@shared/palettes'
-import {
-  applyPhraseOverlays,
-  cleanupPhraseOverlayTempFiles
-} from './features/phrase-emphasis.feature'
+import { copyFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, extname, join } from 'node:path';
+import { Ch } from '@shared/ipc-channels';
+import { getPaletteById } from '@shared/palettes';
+import type {
+  BlockPlacement,
+  LongformEditPlan,
+  LongformRenderReconciliation,
+  PhraseEmphasis,
+} from '@shared/types';
+import type { BrowserWindow } from 'electron';
+import { LANDSCAPE_FPS, LANDSCAPE_HEIGHT, LANDSCAPE_WIDTH } from '../aspect-ratios';
+import { getEditStyleById, LONGFORM_TEMPLATES } from '../edit-styles/index';
+import { ffmpeg, getEncoder, getVideoMetadata, isHardwareEncoder } from '../ffmpeg';
+import { buildLongformLayout } from '../layouts/longform-layouts';
+import { DEFAULT_LONGFORM_BLOCK_SKIN } from '../remotion/registry';
+import { buildDriftZoom, buildSnapZoom } from '../zoom-filters';
+import { buildEditStyleColorGradeFilter } from './color-grade-filter';
+import { extendBlockPlacementEndTime, renderBlockSegment } from './features/blocks.feature';
 import {
   applyDelosCards,
+  type DelosCardStats,
   filterCardsToSpeakerRanges,
-  type DelosCardStats
-} from './features/delos-card.feature'
+} from './features/delos-card.feature';
+import {
+  applyPhraseOverlays,
+  cleanupPhraseOverlayTempFiles,
+  type PhraseOverlayStats,
+} from './features/phrase-emphasis.feature';
+import { toFFmpegPath } from './helpers';
+import { encodeSpeakerSegment } from './longform-encode';
+import type { WordTimestamp } from './point-coverage';
+import { resolveQualityParams } from './quality';
+import { classifyRenderError } from './render-error-map';
+import type { RenderBatchOptions } from './types';
 
-import type { RenderBatchOptions } from './types'
-import type {
-  LongformEditPlan,
-  PhraseEmphasis,
-  BlockPlacement
-} from '@shared/types'
-
-const HORMOZI_STYLE_ID = 'hormozi'
+const HORMOZI_STYLE_ID = 'hormozi';
 
 // ---------------------------------------------------------------------------
 // Timeline model
 // ---------------------------------------------------------------------------
 
 interface SpeakerBlock {
-  kind: 'speaker'
-  startTime: number
-  endTime: number
+  kind: 'speaker';
+  startTime: number;
+  endTime: number;
 }
 
 interface BlockBlock {
-  kind: 'block'
-  startTime: number
-  endTime: number
-  placement: BlockPlacement
+  kind: 'block';
+  startTime: number;
+  endTime: number;
+  placement: BlockPlacement;
 }
 
-type TimelineBlock = SpeakerBlock | BlockBlock
+type TimelineBlock = SpeakerBlock | BlockBlock;
 
-const MIN_BLOCK_SECONDS = 0.4
+const MIN_BLOCK_SECONDS = 0.4;
 
 /**
  * Minimum SPEAKER time (seconds) required between the END of one content block
@@ -85,14 +80,14 @@ const MIN_BLOCK_SECONDS = 0.4
  * This is the BODY pace (after the intro). Roughly one block per ~8–10s of
  * speech once a block's own ~3–4s span is added.
  */
-export const MIN_GAP_BETWEEN_BLOCKS = 6
+export const MIN_GAP_BETWEEN_BLOCKS = 6;
 
 /**
  * Length of the opening "hook" window where blocks land more frequently. The
  * first impression decides whether a viewer stays, so the intro runs at a
  * quicker visual cadence than the body, then settles into MIN_GAP_BETWEEN_BLOCKS.
  */
-export const INTRO_SECONDS = 60
+export const INTRO_SECONDS = 60;
 
 /**
  * Tighter speaker gap applied while a block STARTS inside the intro window —
@@ -101,7 +96,7 @@ export const INTRO_SECONDS = 60
  * so the first 30s can host ~6 beats instead of ~2. After INTRO_SECONDS the
  * gap relaxes to MIN_GAP_BETWEEN_BLOCKS.
  */
-export const INTRO_GAP_BETWEEN_BLOCKS = 1.5
+export const INTRO_GAP_BETWEEN_BLOCKS = 1.5;
 
 /**
  * Build a non-overlapping, chronological timeline. Content blocks are inserts
@@ -116,64 +111,64 @@ export function buildTimeline(
   minGapBetweenBlocks: number = MIN_GAP_BETWEEN_BLOCKS,
   introGapBetweenBlocks: number = INTRO_GAP_BETWEEN_BLOCKS,
   introSeconds: number = INTRO_SECONDS,
-  words?: WordTimestamp[]
+  words?: WordTimestamp[],
 ): TimelineBlock[] {
-  type Insert = BlockBlock
-  const inserts: Insert[] = []
+  type Insert = BlockBlock;
+  const inserts: Insert[] = [];
 
   for (const placement of plan.blocks ?? []) {
     // Keep multi-row list blocks on screen until the last row is spoken. The
     // overlap/spacing pass below still protects against collisions, so this
     // only ever shortens the gap to the next block, never overlaps it.
-    const endTime = extendBlockPlacementEndTime(placement, words, videoDuration)
+    const endTime = extendBlockPlacementEndTime(placement, words, videoDuration);
     inserts.push({
       kind: 'block',
       startTime: placement.startTime,
       endTime,
-      placement: { ...placement, endTime }
-    })
+      placement: { ...placement, endTime },
+    });
   }
 
-  inserts.sort((a, b) => a.startTime - b.startTime)
+  inserts.sort((a, b) => a.startTime - b.startTime);
 
   // Drop overlaps + too-close inserts, clamp to [0, videoDuration].
-  const accepted: Insert[] = []
-  let lastEnd = 0
-  let haveAccepted = false
+  const accepted: Insert[] = [];
+  let lastEnd = 0;
+  let haveAccepted = false;
   for (const ins of inserts) {
-    const start = Math.max(0, ins.startTime)
-    const end = Math.min(videoDuration, ins.endTime)
-    if (end - start < MIN_BLOCK_SECONDS) continue
-    if (start < lastEnd) continue // overlaps a prior insert — skip
+    const start = Math.max(0, ins.startTime);
+    const end = Math.min(videoDuration, ins.endTime);
+    if (end - start < MIN_BLOCK_SECONDS) continue;
+    if (start < lastEnd) continue; // overlaps a prior insert — skip
     // Enforce breathing room: require a minimum of speaker time between the
     // previous accepted block's end and this one's start. The intro window runs
     // a tighter gap so the open is more visually engaging, then relaxes.
-    const requiredGap = start < introSeconds ? introGapBetweenBlocks : minGapBetweenBlocks
-    if (haveAccepted && start - lastEnd < requiredGap) continue
-    accepted.push({ ...ins, startTime: start, endTime: end })
-    lastEnd = end
-    haveAccepted = true
+    const requiredGap = start < introSeconds ? introGapBetweenBlocks : minGapBetweenBlocks;
+    if (haveAccepted && start - lastEnd < requiredGap) continue;
+    accepted.push({ ...ins, startTime: start, endTime: end });
+    lastEnd = end;
+    haveAccepted = true;
   }
 
-  const timeline: TimelineBlock[] = []
-  let cursor = 0
+  const timeline: TimelineBlock[] = [];
+  let cursor = 0;
   for (const ins of accepted) {
     if (ins.startTime - cursor >= MIN_BLOCK_SECONDS) {
-      timeline.push({ kind: 'speaker', startTime: cursor, endTime: ins.startTime })
+      timeline.push({ kind: 'speaker', startTime: cursor, endTime: ins.startTime });
     }
-    timeline.push(ins)
-    cursor = ins.endTime
+    timeline.push(ins);
+    cursor = ins.endTime;
   }
   if (videoDuration - cursor >= MIN_BLOCK_SECONDS) {
-    timeline.push({ kind: 'speaker', startTime: cursor, endTime: videoDuration })
+    timeline.push({ kind: 'speaker', startTime: cursor, endTime: videoDuration });
   }
 
   // Fallback: no inserts at all → one speaker block spanning the whole video.
   if (timeline.length === 0) {
-    timeline.push({ kind: 'speaker', startTime: 0, endTime: videoDuration })
+    timeline.push({ kind: 'speaker', startTime: 0, endTime: videoDuration });
   }
 
-  return timeline
+  return timeline;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,11 +176,9 @@ export function buildTimeline(
 // ---------------------------------------------------------------------------
 
 function concatSegments(segmentFiles: string[], outputPath: string): Promise<void> {
-  const listFile = join(tmpdir(), `batchcontent-lf-list-${Date.now()}.txt`)
-  const listContent = segmentFiles
-    .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
-    .join('\n')
-  writeFileSync(listFile, listContent, 'utf-8')
+  const listFile = join(tmpdir(), `batchcontent-lf-list-${Date.now()}.txt`);
+  const listContent = segmentFiles.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+  writeFileSync(listFile, listContent, 'utf-8');
 
   return new Promise<void>((resolve, reject) => {
     ffmpeg()
@@ -194,22 +187,22 @@ function concatSegments(segmentFiles: string[], outputPath: string): Promise<voi
       .outputOptions(['-c', 'copy', '-movflags', '+faststart', '-y'])
       .on('end', () => {
         try {
-          unlinkSync(listFile)
+          unlinkSync(listFile);
         } catch {
           /* ignore */
         }
-        resolve()
+        resolve();
       })
       .on('error', (err: Error) => {
         try {
-          unlinkSync(listFile)
+          unlinkSync(listFile);
         } catch {
           /* ignore */
         }
-        reject(err)
+        reject(err);
       })
-      .save(toFFmpegPath(outputPath))
-  })
+      .save(toFFmpegPath(outputPath));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -220,19 +213,19 @@ function buildSpeakerZoom(
   block: SpeakerBlock,
   intensity: number,
   style: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out',
-  phrases: PhraseEmphasis[]
+  phrases: PhraseEmphasis[],
 ): string {
-  if (style === 'none' || intensity <= 1.001) return ''
-  const duration = block.endTime - block.startTime
+  if (style === 'none' || intensity <= 1.001) return '';
+  const duration = block.endTime - block.startTime;
 
   if (style === 'snap') {
     const local = phrases
       .filter((p) => p.endTime > block.startTime && p.startTime < block.endTime)
       .map((p) => {
-        const cs = Math.max(p.startTime, block.startTime)
-        const ce = Math.min(p.endTime, block.endTime)
-        return { time: cs - block.startTime, duration: ce - cs }
-      })
+        const cs = Math.max(p.startTime, block.startTime);
+        const ce = Math.min(p.endTime, block.endTime);
+        return { time: cs - block.startTime, duration: ce - cs };
+      });
     if (local.length > 0) {
       return buildSnapZoom({
         width: LANDSCAPE_WIDTH,
@@ -241,8 +234,8 @@ function buildSpeakerZoom(
         duration,
         zoomIntensity: intensity,
         startTime: 0,
-        emphasisTimestamps: local
-      })
+        emphasisTimestamps: local,
+      });
     }
   }
 
@@ -252,8 +245,8 @@ function buildSpeakerZoom(
     fps: LANDSCAPE_FPS,
     duration,
     zoomIntensity: intensity,
-    startTime: 0
-  })
+    startTime: 0,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -266,66 +259,63 @@ function buildSpeakerZoom(
  */
 export async function renderLongformVideo(
   options: RenderBatchOptions,
-  window: BrowserWindow
+  window: BrowserWindow,
 ): Promise<void> {
-  const { jobs, outputDirectory } = options
-  const job = jobs[0]
+  const { jobs, outputDirectory } = options;
+  const job = jobs[0];
 
   if (!existsSync(outputDirectory)) {
-    mkdirSync(outputDirectory, { recursive: true })
+    mkdirSync(outputDirectory, { recursive: true });
   }
 
   const sendError = (message: string): void => {
-    const classified = classifyRenderError(message)
+    const classified = classifyRenderError(message);
     window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
       clipId: job?.clipId ?? 'longform',
-      error: classified.message,
-      suggestion: classified.suggestion,
-      details: classified.details
-    })
-    window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 0, failed: 1, total: 1 })
-  }
+      error: classified,
+    });
+    window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 0, failed: 1, total: 1 });
+  };
 
   if (!job) {
-    sendError('Long-form render requires a source job.')
-    return
+    sendError('Long-form render requires a source job.');
+    return;
   }
-  const plan = options.longformEditPlan
+  const plan = options.longformEditPlan;
   if (!plan) {
-    sendError('Long-form render requires a longformEditPlan.')
-    return
+    sendError('Long-form render requires a longformEditPlan.');
+    return;
   }
 
-  const qualityParams = resolveQualityParams(options.renderQuality)
-  const encoder = getEncoder(qualityParams)
-  const encoderIsHardware = isHardwareEncoder(encoder.encoder)
+  const qualityParams = resolveQualityParams(options.renderQuality);
+  const encoder = getEncoder(qualityParams);
+  const encoderIsHardware = isHardwareEncoder(encoder.encoder);
 
   window.webContents.send(Ch.Send.RENDER_CLIP_START, {
     clipId: job.clipId,
     index: 0,
     total: 1,
     encoder: encoder.encoder,
-    encoderIsHardware
-  })
+    encoderIsHardware,
+  });
 
-  const tempFiles: string[] = []
+  const tempFiles: string[] = [];
 
   try {
-    const meta = await getVideoMetadata(job.sourceVideoPath)
-    const videoDuration =
-      job.endTime > job.startTime ? job.endTime : meta.duration
+    const meta = await getVideoMetadata(job.sourceVideoPath);
+    const videoDuration = job.endTime > job.startTime ? job.endTime : meta.duration;
 
-    const editStyle = getEditStyleById(HORMOZI_STYLE_ID)
-    const speakerTemplate = LONGFORM_TEMPLATES[HORMOZI_STYLE_ID]?.speaker
-    const zoomStyle = speakerTemplate?.zoomStyle ?? 'snap'
-    const zoomIntensity = speakerTemplate?.zoomIntensity ?? 1.12
+    const editStyle = getEditStyleById(HORMOZI_STYLE_ID);
+    const speakerTemplate = LONGFORM_TEMPLATES[HORMOZI_STYLE_ID]?.speaker;
+    const zoomStyle = speakerTemplate?.zoomStyle ?? 'snap';
+    const zoomIntensity = speakerTemplate?.zoomIntensity ?? 1.12;
     const colorGradeFilter = editStyle?.colorGrade
       ? buildEditStyleColorGradeFilter(editStyle.colorGrade)
-      : null
+      : null;
 
     // Resolve the chosen skin + palette once for every content block.
-    const skinId = options.longformSkinId ?? options.longformSkin ?? DEFAULT_LONGFORM_BLOCK_SKIN
-    const palette = getPaletteById(options.longformPaletteId, options.customPalettes)
+    const skinId = options.longformSkinId ?? options.longformSkin ?? DEFAULT_LONGFORM_BLOCK_SKIN;
+    const palette = getPaletteById(options.longformPaletteId, options.customPalettes);
 
     const timeline = buildTimeline(
       plan,
@@ -333,21 +323,21 @@ export async function renderLongformVideo(
       MIN_GAP_BETWEEN_BLOCKS,
       INTRO_GAP_BETWEEN_BLOCKS,
       INTRO_SECONDS,
-      job.wordTimestamps
-    )
+      job.wordTimestamps,
+    );
 
     // Surface how many planned blocks actually survived buildTimeline's
     // overlap/spacing pass (RF-012): the plan can carry many more blocks than
     // the timeline keeps, and that drop was previously invisible to the user.
-    const placedBlocks = timeline.filter((b) => b.kind === 'block').length
-    const plannedBlocks = plan.blocks?.length ?? 0
+    const placedBlocks = timeline.filter((b) => b.kind === 'block').length;
+    const plannedBlocks = plan.blocks?.length ?? 0;
     window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
       clipId: job.clipId,
       message:
         `Planning ${timeline.length} long-form segment(s) — ` +
         `${placedBlocks}/${plannedBlocks} block(s) placed`,
-      percent: 5
-    })
+      percent: 5,
+    });
 
     // Encode a speaker segment for an arbitrary [startTime, endTime] range,
     // applying the same landscape layout + zoom/grade used for real speaker
@@ -358,9 +348,9 @@ export async function renderLongformVideo(
       startTime: number,
       endTime: number,
       index: number,
-      onProgress?: ((percent: number) => void) | undefined
+      onProgress?: ((percent: number) => void) | undefined,
     ): Promise<string> => {
-      const duration = endTime - startTime
+      const duration = endTime - startTime;
       const layout = buildLongformLayout('speaker', {
         width: LANDSCAPE_WIDTH,
         height: LANDSCAPE_HEIGHT,
@@ -368,16 +358,16 @@ export async function renderLongformVideo(
         fps: LANDSCAPE_FPS,
         sourceWidth: meta.width,
         sourceHeight: meta.height,
-        cropRect: job.cropRegion
-      })
+        ...(job.cropRegion ? { cropRect: job.cropRegion } : {}),
+      });
       const zoomFilter = buildSpeakerZoom(
         { kind: 'speaker', startTime, endTime },
         zoomIntensity,
         zoomStyle,
-        plan.phrases
-      )
-      const extraFilters = [zoomFilter, colorGradeFilter ?? ''].filter(Boolean)
-      const out = join(tmpdir(), `batchcontent-lf-speaker-${Date.now()}-${index}.mp4`)
+        plan.phrases,
+      );
+      const extraFilters = [zoomFilter, colorGradeFilter ?? ''].filter(Boolean);
+      const out = join(tmpdir(), `batchcontent-lf-speaker-${Date.now()}-${index}.mp4`);
       await encodeSpeakerSegment({
         sourceVideoPath: job.sourceVideoPath,
         outputPath: out,
@@ -386,46 +376,50 @@ export async function renderLongformVideo(
         fps: LANDSCAPE_FPS,
         layout,
         extraFilters,
-        onProgress
-      })
-      return out
-    }
+        onProgress,
+      });
+      return out;
+    };
 
     // ── Encode every timeline block to a normalized segment ────────────────
-    const segmentFiles: string[] = []
-    let droppedBlocks = 0
+    const segmentFiles: string[] = [];
+    let droppedBlocks = 0;
     for (let i = 0; i < timeline.length; i++) {
-      const block = timeline[i]
+      const block = timeline[i];
+      if (!block) continue;
       // Each segment owns the progress band [base, nextBase]; per-segment
       // progress (0–100) maps into it so the bar advances smoothly mid-encode
       // instead of jumping once per segment (RF-006).
-      const base = 5 + Math.round((i / timeline.length) * 65) // 5 → 70%
-      const nextBase = 5 + Math.round(((i + 1) / timeline.length) * 65)
+      const base = 5 + Math.round((i / timeline.length) * 65); // 5 → 70%
+      const nextBase = 5 + Math.round(((i + 1) / timeline.length) * 65);
       const emitSegmentProgress = (pct: number): void => {
-        const clamped = Math.max(0, Math.min(100, pct))
-        const mapped = Math.round(base + (clamped / 100) * (nextBase - base))
+        const clamped = Math.max(0, Math.min(100, pct));
+        const mapped = Math.round(base + (clamped / 100) * (nextBase - base));
         window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, {
           clipId: job.clipId,
-          percent: mapped
-        })
-      }
+          percent: mapped,
+        });
+      };
 
       if (block.kind === 'speaker') {
-        window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: base })
+        window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, {
+          clipId: job.clipId,
+          percent: base,
+        });
         const out = await encodeSpeakerForRange(
           block.startTime,
           block.endTime,
           i,
-          emitSegmentProgress
-        )
-        segmentFiles.push(out)
-        tempFiles.push(out)
+          emitSegmentProgress,
+        );
+        segmentFiles.push(out);
+        tempFiles.push(out);
       } else {
         window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
           clipId: job.clipId,
           message: `Rendering ${block.placement.kind} block…`,
-          percent: base
-        })
+          percent: base,
+        });
         try {
           const out = await renderBlockSegment({
             placement: block.placement,
@@ -435,55 +429,55 @@ export async function renderLongformVideo(
             width: LANDSCAPE_WIDTH,
             height: LANDSCAPE_HEIGHT,
             fps: LANDSCAPE_FPS,
-            onProgress: emitSegmentProgress
-          })
-          segmentFiles.push(out)
-          tempFiles.push(out)
+            onProgress: emitSegmentProgress,
+          });
+          segmentFiles.push(out);
+          tempFiles.push(out);
         } catch (err) {
           // Graceful degrade (RF-003): a single content-block render failure
           // must not kill the whole long-form render. Fall back to the plain
           // speaker shot for this block's exact range so the timeline stays
           // gap-free, and keep going.
-          const message = err instanceof Error ? err.message : String(err)
+          const message = err instanceof Error ? err.message : String(err);
           console.warn(
             `[longform] Block render failed (${block.placement.kind}); ` +
-              `substituting speaker shot for ${block.startTime}s–${block.endTime}s: ${message}`
-          )
-          droppedBlocks++
+              `substituting speaker shot for ${block.startTime}s–${block.endTime}s: ${message}`,
+          );
+          droppedBlocks++;
           const out = await encodeSpeakerForRange(
             block.startTime,
             block.endTime,
             i,
-            emitSegmentProgress
-          )
-          segmentFiles.push(out)
-          tempFiles.push(out)
+            emitSegmentProgress,
+          );
+          segmentFiles.push(out);
+          tempFiles.push(out);
         }
       }
     }
 
     if (segmentFiles.length === 0) {
-      throw new Error('Long-form timeline produced no segments.')
+      throw new Error('Long-form timeline produced no segments.');
     }
 
     if (droppedBlocks > 0) {
       console.warn(
         `[longform] ${droppedBlocks} content block(s) failed to render and were ` +
-          `replaced by the underlying speaker shot; the final video is gap-free.`
-      )
+          `replaced by the underlying speaker shot; the final video is gap-free.`,
+      );
     }
 
     // ── Concat ─────────────────────────────────────────────────────────────
-    window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 72 })
-    const concatPath = join(tmpdir(), `batchcontent-lf-concat-${Date.now()}.mp4`)
-    tempFiles.push(concatPath)
-    await concatSegments(segmentFiles, concatPath)
+    window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 72 });
+    const concatPath = join(tmpdir(), `batchcontent-lf-concat-${Date.now()}.mp4`);
+    tempFiles.push(concatPath);
+    await concatSegments(segmentFiles, concatPath);
 
     // ── Phrase overlay pass ──────────────────────────────────────────────────
     const sourceName = options.sourceMeta?.name
       ? basename(options.sourceMeta.name, extname(options.sourceMeta.name))
-      : basename(job.sourceVideoPath, extname(job.sourceVideoPath))
-    const outputPath = join(outputDirectory, `${sourceName}_longform.mp4`)
+      : basename(job.sourceVideoPath, extname(job.sourceVideoPath));
+    const outputPath = join(outputDirectory, `${sourceName}_longform.mp4`);
 
     // Phrases map directly onto the concatenated timeline (every block preserves
     // source-time audio 1:1, so concat time == absolute source time — no remap).
@@ -492,35 +486,36 @@ export async function renderLongformVideo(
     // phrase overlays are meant to float over the speaker.
     const speakerRanges = timeline
       .filter((b): b is SpeakerBlock => b.kind === 'speaker')
-      .map((b) => ({ start: b.startTime, end: b.endTime }))
+      .map((b) => ({ start: b.startTime, end: b.endTime }));
     const inSpeakerBlock = (t: number): boolean =>
-      speakerRanges.some((r) => t >= r.start && t < r.end)
+      speakerRanges.some((r) => t >= r.start && t < r.end);
     const phrases = plan.phrases.filter(
-      (p) => p.endTime > p.startTime && p.startTime < videoDuration && inSpeakerBlock(p.startTime)
-    )
+      (p) => p.endTime > p.startTime && p.startTime < videoDuration && inSpeakerBlock(p.startTime),
+    );
 
     // ── Delos pop-up cards ───────────────────────────────────────────────────
     // Candidates from the plan, gated to SPEAKER time so a pop-up never lands
     // on top of a full-frame content block (this is the single source of truth
     // for that rule). These composite lower-center over the speaker.
-    const cards = filterCardsToSpeakerRanges(plan.cards ?? [], speakerRanges)
-    const haveCards = cards.length > 0
+    const cards = filterCardsToSpeakerRanges(plan.cards ?? [], speakerRanges);
+    const haveCards = cards.length > 0;
 
     window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
       clipId: job.clipId,
       message: `Compositing ${phrases.length} phrase overlay(s)…`,
-      percent: 78
-    })
+      percent: 78,
+    });
 
     // Phrase pass writes straight to the final path when there are no cards to
     // add; otherwise it produces an intermediate the card pass composites onto.
     const phraseTarget = haveCards
       ? join(tmpdir(), `batchcontent-lf-phrased-${Date.now()}.mp4`)
-      : outputPath
-    if (haveCards) tempFiles.push(phraseTarget)
+      : outputPath;
+    if (haveCards) tempFiles.push(phraseTarget);
 
-    let overlayTempFiles: string[] = []
-    let cardBase = concatPath
+    let overlayTempFiles: string[] = [];
+    let phraseStats: PhraseOverlayStats = { rendered: 0, dropped: 0 };
+    let cardBase = concatPath;
     if (phrases.length > 0) {
       const result = await applyPhraseOverlays({
         inputPath: concatPath,
@@ -532,35 +527,36 @@ export async function renderLongformVideo(
         qualityParams,
         // Phrase emphasis text follows the user-selected palette, same axis as
         // the content blocks (resolved at line ~320).
-        phraseColor: palette.accent
-      })
-      overlayTempFiles = result.tempFiles
+        phraseColor: palette.accent,
+      });
+      overlayTempFiles = result.tempFiles;
+      phraseStats = result.stats;
       if (result.outputPath === phraseTarget) {
         // Overlays composited onto phraseTarget → cards build on top of it.
-        cardBase = phraseTarget
+        cardBase = phraseTarget;
       } else {
         // Every phrase overlay failed (e.g. Remotion wholly unavailable) →
         // phraseTarget was never written. Fall back to the speaker concat as
         // the card base; if there are no cards either, finalize it directly so
         // the render still completes (RF-003).
-        cardBase = concatPath
+        cardBase = concatPath;
         if (!haveCards) {
-          await reencodeToFinal(concatPath, outputPath, qualityParams)
+          await reencodeToFinal(concatPath, outputPath, qualityParams);
         }
       }
     } else if (!haveCards) {
       // No phrases and no cards — re-encode the concat to the user's quality.
-      await reencodeToFinal(concatPath, outputPath, qualityParams)
+      await reencodeToFinal(concatPath, outputPath, qualityParams);
     }
 
-    let cardTempFiles: string[] = []
-    let cardStats: DelosCardStats | null = null
+    let cardTempFiles: string[] = [];
+    let cardStats: DelosCardStats | null = null;
     if (haveCards) {
       window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
         clipId: job.clipId,
         message: `Compositing ${cards.length} pop-up card(s)…`,
-        percent: 88
-      })
+        percent: 88,
+      });
       const result = await applyDelosCards({
         inputPath: cardBase,
         outputPath,
@@ -573,43 +569,56 @@ export async function renderLongformVideo(
         qualityParams,
         // Cards follow the same palette accent as phrases and blocks.
         accentColor: palette.accent,
-        apiKey: options.geminiApiKey
-      })
-      cardTempFiles = result.tempFiles
-      cardStats = result.stats
+        apiKey: options.geminiApiKey,
+      });
+      cardTempFiles = result.tempFiles;
+      cardStats = result.stats;
       if (result.outputPath !== outputPath) {
         // Every card render failed → nothing was written to the final path.
         // Finalize the card pass's base instead so the render still completes.
         if (cardBase === concatPath) {
-          await reencodeToFinal(concatPath, outputPath, qualityParams)
+          await reencodeToFinal(concatPath, outputPath, qualityParams);
         } else {
-          copyFileSync(cardBase, outputPath)
+          copyFileSync(cardBase, outputPath);
         }
       }
     }
 
-    // Surface what actually rendered vs. what was unavailable, once, on the
-    // existing done channel (RF-008). Without this the user gets a clean "Done"
-    // even when content blocks were dropped or cards fell back to offline text.
-    const summary = buildLongformRenderSummary(droppedBlocks, cardStats)
+    // Surface what actually rendered vs. what was unavailable on the existing
+    // done channel. The structured payload is persisted by the review screen so
+    // a reopened project can still explain every fallback.
+    const summary = buildLongformRenderSummary(droppedBlocks, cardStats);
+    const reconciliation = buildLongformRenderReconciliation({
+      outputPath,
+      plannedPhrases: plan.phrases.length,
+      eligiblePhrases: phrases.length,
+      phraseStats,
+      plannedBlocks,
+      placedBlocks,
+      droppedBlocks,
+      plannedCards: plan.cards?.length ?? 0,
+      eligibleCards: cards.length,
+      cardStats,
+    });
 
-    window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 100 })
+    window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 100 });
     window.webContents.send(Ch.Send.RENDER_CLIP_DONE, {
       clipId: job.clipId,
       outputPath,
-      ...(summary ? { summary } : {})
-    })
-    window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 1, failed: 0, total: 1 })
+      reconciliation,
+      ...(summary ? { summary } : {}),
+    });
+    window.webContents.send(Ch.Send.RENDER_BATCH_DONE, { completed: 1, failed: 0, total: 1 });
 
-    cleanupPhraseOverlayTempFiles(overlayTempFiles)
-    cleanupPhraseOverlayTempFiles(cardTempFiles)
+    cleanupPhraseOverlayTempFiles(overlayTempFiles);
+    cleanupPhraseOverlayTempFiles(cardTempFiles);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    sendError(`Long-form render failed: ${message}`)
+    const message = err instanceof Error ? err.message : String(err);
+    sendError(`Long-form render failed: ${message}`);
   } finally {
     for (const f of tempFiles) {
       try {
-        unlinkSync(f)
+        unlinkSync(f);
       } catch {
         /* ignore */
       }
@@ -631,21 +640,122 @@ export async function renderLongformVideo(
  */
 export function buildLongformRenderSummary(
   droppedBlocks: number,
-  cardStats: DelosCardStats | null
+  cardStats: DelosCardStats | null,
 ): string | undefined {
-  const parts: string[] = []
+  const parts: string[] = [];
 
   if (cardStats && (cardStats.rendered > 0 || cardStats.dropped > 0)) {
-    parts.push(`${cardStats.rendered} card${cardStats.rendered === 1 ? '' : 's'}`)
-    if (cardStats.dropped > 0) parts.push(`${cardStats.dropped} unavailable`)
-    if (cardStats.fallbackText > 0) parts.push(`${cardStats.fallbackText} offline text`)
+    parts.push(`${cardStats.rendered} card${cardStats.rendered === 1 ? '' : 's'}`);
+    if (cardStats.dropped > 0) parts.push(`${cardStats.dropped} unavailable`);
+    if (cardStats.fallbackText > 0) parts.push(`${cardStats.fallbackText} offline text`);
   }
 
   if (droppedBlocks > 0) {
-    parts.push(`${droppedBlocks} block${droppedBlocks === 1 ? '' : 's'} dropped`)
+    parts.push(`${droppedBlocks} block${droppedBlocks === 1 ? '' : 's'} dropped`);
   }
 
-  return parts.length > 0 ? parts.join(' · ') : undefined
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+interface LongformReconciliationInput {
+  outputPath: string;
+  plannedPhrases: number;
+  eligiblePhrases: number;
+  phraseStats: PhraseOverlayStats;
+  plannedBlocks: number;
+  placedBlocks: number;
+  droppedBlocks: number;
+  plannedCards: number;
+  eligibleCards: number;
+  cardStats: DelosCardStats | null;
+}
+
+export function buildLongformRenderReconciliation(
+  input: LongformReconciliationInput,
+): LongformRenderReconciliation {
+  const renderedBlocks = Math.max(0, input.placedBlocks - input.droppedBlocks);
+  const renderedCards = input.cardStats?.rendered ?? 0;
+  const fallbacks: LongformRenderReconciliation['fallbacks'] = [];
+
+  const spacingDrops = Math.max(0, input.plannedBlocks - input.placedBlocks);
+  if (spacingDrops > 0) {
+    fallbacks.push({
+      type: 'block',
+      count: spacingDrops,
+      reason: 'Removed during timeline spacing to prevent overlapping full-frame visuals.',
+    });
+  }
+  if (input.droppedBlocks > 0) {
+    fallbacks.push({
+      type: 'block',
+      count: input.droppedBlocks,
+      reason: 'Replaced with the speaker shot because the content block could not render.',
+    });
+  }
+
+  const gatedPhrases = Math.max(0, input.plannedPhrases - input.eligiblePhrases);
+  if (gatedPhrases > 0) {
+    fallbacks.push({
+      type: 'phrase',
+      count: gatedPhrases,
+      reason:
+        'Omitted because the phrase overlapped a full-frame visual or fell outside the source.',
+    });
+  }
+  if (input.phraseStats.dropped > 0) {
+    fallbacks.push({
+      type: 'phrase',
+      count: input.phraseStats.dropped,
+      reason: 'Omitted because the phrase overlay could not render.',
+    });
+  }
+
+  const gatedCards = Math.max(0, input.plannedCards - input.eligibleCards);
+  if (gatedCards > 0) {
+    fallbacks.push({
+      type: 'card',
+      count: gatedCards,
+      reason: 'Omitted because the evidence card overlapped a full-frame visual.',
+    });
+  }
+  if ((input.cardStats?.dropped ?? 0) > 0) {
+    fallbacks.push({
+      type: 'card',
+      count: input.cardStats?.dropped ?? 0,
+      reason: 'Omitted because the evidence card asset could not render.',
+    });
+  }
+  if ((input.cardStats?.fallbackText ?? 0) > 0) {
+    fallbacks.push({
+      type: 'card',
+      count: input.cardStats?.fallbackText ?? 0,
+      reason: 'Rendered with transcript-derived text because generated card copy was unavailable.',
+    });
+  }
+
+  return {
+    renderedAt: Date.now(),
+    outputPath: input.outputPath,
+    phrases: {
+      planned: input.plannedPhrases,
+      eligible: input.eligiblePhrases,
+      rendered: input.phraseStats.rendered,
+      dropped: Math.max(0, input.plannedPhrases - input.phraseStats.rendered),
+    },
+    blocks: {
+      planned: input.plannedBlocks,
+      eligible: input.placedBlocks,
+      rendered: renderedBlocks,
+      dropped: Math.max(0, input.plannedBlocks - renderedBlocks),
+    },
+    cards: {
+      planned: input.plannedCards,
+      eligible: input.eligibleCards,
+      rendered: renderedCards,
+      dropped: Math.max(0, input.plannedCards - renderedCards),
+    },
+    fallbacks,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -655,21 +765,25 @@ export function buildLongformRenderSummary(
 function reencodeToFinal(
   inputPath: string,
   outputPath: string,
-  qualityParams: ReturnType<typeof resolveQualityParams>
+  qualityParams: ReturnType<typeof resolveQualityParams>,
 ): Promise<void> {
-  const { encoder, presetFlag } = getEncoder(qualityParams)
+  const { encoder, presetFlag } = getEncoder(qualityParams);
   return new Promise<void>((resolve, reject) => {
     ffmpeg(toFFmpegPath(inputPath))
       .outputOptions([
-        '-c:v', encoder,
+        '-c:v',
+        encoder,
         ...presetFlag,
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'copy',
-        '-movflags', '+faststart',
-        '-y'
+        '-pix_fmt',
+        'yuv420p',
+        '-c:a',
+        'copy',
+        '-movflags',
+        '+faststart',
+        '-y',
       ])
       .on('end', () => resolve())
       .on('error', (err: Error) => reject(err))
-      .save(toFFmpegPath(outputPath))
-  })
+      .save(toFFmpegPath(outputPath));
+  });
 }

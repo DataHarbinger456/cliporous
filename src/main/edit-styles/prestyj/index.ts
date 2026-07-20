@@ -1,16 +1,15 @@
-import { createEditStyle } from '../shared/base'
-import type { Archetype } from '../shared/archetypes'
-import type { EditStyleTemplate } from '../shared/types'
-import { T_PRESTYJ } from '../shared/transitions'
-import { BRAND_ACCENT } from '../shared/brand'
-
-import { talkingHead } from './templates/talking-head'
-import { tightPunch } from './templates/tight-punch'
-import { wideBreather } from './templates/wide-breather'
-import { quoteLower } from './templates/quote-lower'
-import { splitImage } from './templates/split-image'
-import { fullscreenImage } from './templates/fullscreen-image'
-import { fullscreenQuote } from './templates/fullscreen-quote'
+import type { Archetype } from '../shared/archetypes';
+import { createEditStyle } from '../shared/base';
+import { BRAND_ACCENT } from '../shared/brand';
+import { T_PRESTYJ } from '../shared/transitions';
+import type { EditStyleTemplate } from '../shared/types';
+import { fullscreenImage } from './templates/fullscreen-image';
+import { fullscreenQuote } from './templates/fullscreen-quote';
+import { quoteLower } from './templates/quote-lower';
+import { splitImage } from './templates/split-image';
+import { talkingHead } from './templates/talking-head';
+import { tightPunch } from './templates/tight-punch';
+import { wideBreather } from './templates/wide-breather';
 
 export const prestyjEditStyle: EditStyle = createEditStyle({
   id: 'prestyj',
@@ -19,7 +18,7 @@ export const prestyjEditStyle: EditStyle = createEditStyle({
   accentColor: BRAND_ACCENT,
   letterbox: 'none',
   defaultZoomStyle: 'drift',
-  defaultZoomIntensity: 1.10,
+  defaultZoomIntensity: 1.1,
   defaultTransition: 'crossfade',
   flashColor: '#FFFFFF',
   transitionDuration: 0.3,
@@ -44,17 +43,17 @@ export const prestyjEditStyle: EditStyle = createEditStyle({
     shadowSoftness: 80,
     shadowOpacity: 0.95,
     shadowColor: '#000000',
-    animation: 'captions-ai'
+    animation: 'captions-ai',
   },
   textAnimation: 'scale-up',
   description:
     'Clean modern energy — Inter Bold captions with soft black halo, purple emphasis, Bebas Neue display swap',
   colorGrade: {
     warmth: 0.0,
-    contrast: 1.10,
+    contrast: 1.1,
     saturation: 1.05,
     blackLift: 0.02,
-    highlightSoftness: 0.7
+    highlightSoftness: 0.7,
   },
   transitionMap: T_PRESTYJ,
   vfxOverlays: [],
@@ -66,9 +65,9 @@ export const prestyjEditStyle: EditStyle = createEditStyle({
     bold: true,
     animation: 'scale-pop',
     animationDurationMs: 350,
-    verticalPosition: 0.15
-  }
-})
+    verticalPosition: 0.15,
+  },
+});
 
 export const prestyjTemplates: Record<Archetype, EditStyleTemplate> = {
   'talking-head': talkingHead,
@@ -77,5 +76,5 @@ export const prestyjTemplates: Record<Archetype, EditStyleTemplate> = {
   'quote-lower': quoteLower,
   'split-image': splitImage,
   'fullscreen-image': fullscreenImage,
-  'fullscreen-quote': fullscreenQuote
-}
+  'fullscreen-quote': fullscreenQuote,
+};

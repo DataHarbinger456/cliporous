@@ -2,9 +2,9 @@
 // Filename template resolution — extracted from render-pipeline.ts
 // ---------------------------------------------------------------------------
 
-import { join, basename, extname } from 'path'
-import { sanitizeFilename } from './helpers'
-import type { RenderClipJob } from './types'
+import { basename, extname, join } from 'node:path';
+import { sanitizeFilename } from './helpers';
+import type { RenderClipJob } from './types';
 
 /**
  * Slugify a string for use inside a filename:
@@ -17,20 +17,20 @@ export function slugify(text: string, maxLen = 30): string {
     .replace(/[^a-z0-9-]/g, '')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, maxLen)
+    .slice(0, maxLen);
 }
 
 /** Format seconds as MM-SS (e.g. 125 → '02-05'). */
 export function formatMMSS(seconds: number): string {
-  const s = Math.round(seconds)
-  const mm = String(Math.floor(s / 60)).padStart(2, '0')
-  const ss = String(s % 60).padStart(2, '0')
-  return `${mm}-${ss}`
+  const s = Math.round(seconds);
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}-${ss}`;
 }
 
 /** Zero-pad a number to at least 2 digits. */
 export function zeroPad(n: number): string {
-  return String(n).padStart(2, '0')
+  return String(n).padStart(2, '0');
 }
 
 /**
@@ -53,24 +53,24 @@ export function zeroPad(n: number): string {
 export function resolveFilenameTemplate(
   template: string,
   variables: {
-    source: string
-    index: number
-    score: number
-    hook: string
-    duration: number
-    startTime: number
-    endTime: number
-    quality: string
-  }
+    source: string;
+    index: number;
+    score: number;
+    hook: string;
+    duration: number;
+    startTime: number;
+    endTime: number;
+    quality: string;
+  },
 ): string {
-  const today = new Date()
+  const today = new Date();
   const dateStr = [
     today.getFullYear(),
     String(today.getMonth() + 1).padStart(2, '0'),
-    String(today.getDate()).padStart(2, '0')
-  ].join('-')
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-');
 
-  const scoreInt = Math.max(0, Math.min(100, Math.round(variables.score)))
+  const scoreInt = Math.max(0, Math.min(100, Math.round(variables.score)));
 
   const resolved = template
     .replace(/\{source\}/g, sanitizeFilename(variables.source))
@@ -83,10 +83,10 @@ export function resolveFilenameTemplate(
     .replace(/\{start\}/g, formatMMSS(variables.startTime))
     .replace(/\{end\}/g, formatMMSS(variables.endTime))
     .replace(/\{date\}/g, dateStr)
-    .replace(/\{quality\}/g, variables.quality)
+    .replace(/\{quality\}/g, variables.quality);
 
   // Strip illegal chars, collapse whitespace, limit length
-  return sanitizeFilename(resolved).replace(/\s+/g, '_').slice(0, 200) || 'clip'
+  return sanitizeFilename(resolved).replace(/\s+/g, '_').slice(0, 200) || 'clip';
 }
 
 /**
@@ -102,14 +102,14 @@ export function resolveFilenameTemplate(
 export function buildBatchClipFilename(
   sourceName: string,
   score: number,
-  hookText: string
+  hookText: string,
 ): string {
-  const sourceSlug = slugify(sourceName, 60) || sanitizeFilename(sourceName) || 'source'
-  const scoreInt = Math.max(0, Math.min(100, Math.round(score)))
-  const hookSlug = slugify(hookText, 30)
-  const name = `${sourceSlug}_${zeroPad(scoreInt)}_${hookSlug}`
+  const sourceSlug = slugify(sourceName, 60) || sanitizeFilename(sourceName) || 'source';
+  const scoreInt = Math.max(0, Math.min(100, Math.round(score)));
+  const hookSlug = slugify(hookText, 30);
+  const name = `${sourceSlug}_${zeroPad(scoreInt)}_${hookSlug}`;
   // Trim trailing underscore when hook is empty so we don't emit "name_07_.mp4"
-  return name.replace(/_+$/g, '') || 'clip'
+  return name.replace(/_+$/g, '') || 'clip';
 }
 
 /**
@@ -128,23 +128,23 @@ export function buildOutputPath(
   index: number,
   outputFormat: 'mp4' | 'webm' = 'mp4',
   filenameTemplate?: string,
-  extraVars?: { score?: number; quality?: string }
+  extraVars?: { score?: number; quality?: string },
 ): string {
-  const ext = `.${outputFormat}`
+  const ext = `.${outputFormat}`;
   if (job.outputFileName) {
-    const name = sanitizeFilename(job.outputFileName)
+    const name = sanitizeFilename(job.outputFileName);
     // Strip any existing extension then add the correct one
-    const base = name.replace(/\.(mp4|webm)$/i, '')
-    return join(outputDirectory, `${base}${ext}`)
+    const base = name.replace(/\.(mp4|webm)$/i, '');
+    return join(outputDirectory, `${base}${ext}`);
   }
-  const srcBase = basename(job.sourceVideoPath, extname(job.sourceVideoPath))
-  const score = extraVars?.score ?? job.manifestMeta?.score ?? 0
-  const hook = job.hookTitleText ?? ''
+  const srcBase = basename(job.sourceVideoPath, extname(job.sourceVideoPath));
+  const score = extraVars?.score ?? job.manifestMeta?.score ?? 0;
+  const hook = job.hookTitleText ?? '';
 
   // No custom template → use the canonical batch convention.
   if (!filenameTemplate) {
-    const name = buildBatchClipFilename(srcBase, score, hook)
-    return join(outputDirectory, `${name}${ext}`)
+    const name = buildBatchClipFilename(srcBase, score, hook);
+    return join(outputDirectory, `${name}${ext}`);
   }
 
   const name = resolveFilenameTemplate(filenameTemplate, {
@@ -155,7 +155,7 @@ export function buildOutputPath(
     duration: job.endTime - job.startTime,
     startTime: job.startTime,
     endTime: job.endTime,
-    quality: extraVars?.quality ?? 'normal'
-  })
-  return join(outputDirectory, `${name}${ext}`)
+    quality: extraVars?.quality ?? 'normal',
+  });
+  return join(outputDirectory, `${name}${ext}`);
 }

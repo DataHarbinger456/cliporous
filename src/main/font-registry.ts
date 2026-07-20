@@ -2,8 +2,8 @@
 // Font Registry — bundled font manifest + resolver for FFmpeg/libass and renderer
 // ---------------------------------------------------------------------------
 
-import { existsSync } from 'fs'
-import { join } from 'path'
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,17 +11,17 @@ import { join } from 'path'
 
 export interface BundledFont {
   /** Internal font family name (matches what ASS/libass resolves). */
-  family: string
+  family: string;
   /** Display-friendly label for UI. */
-  label: string
+  label: string;
   /** Filename within the fonts directory. */
-  file: string
+  file: string;
   /** Weight range or primary weight. */
-  weight: string
+  weight: string;
   /** Typographic category for filtering. */
-  category: 'sans-serif' | 'display' | 'handwritten' | 'serif' | 'monospace' | 'decorative'
+  category: 'sans-serif' | 'display' | 'handwritten' | 'serif' | 'monospace' | 'decorative';
   /** License identifier. */
-  license: 'OFL-1.1' | 'Apache-2.0'
+  license: 'OFL-1.1' | 'Apache-2.0';
 }
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Inter.ttf',
     weight: '100-900',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Inter',
@@ -48,7 +48,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Inter-Bold.ttf',
     weight: '700',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Montserrat',
@@ -56,7 +56,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Montserrat.ttf',
     weight: '100-900',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Montserrat',
@@ -64,7 +64,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Montserrat-Bold.ttf',
     weight: '700',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Poppins',
@@ -72,7 +72,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Poppins-Regular.ttf',
     weight: '400',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Poppins',
@@ -80,7 +80,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Poppins-Bold.ttf',
     weight: '700',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Outfit',
@@ -88,7 +88,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Outfit.ttf',
     weight: '100-900',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
 
   // ── Bold Display ────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'BebasNeue-Regular.ttf',
     weight: '400',
     category: 'display',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Anton',
@@ -106,7 +106,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Anton-Regular.ttf',
     weight: '400',
     category: 'display',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Oswald',
@@ -114,7 +114,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Oswald.ttf',
     weight: '200-700',
     category: 'display',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
 
   // ── Handwritten / Script ────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Caveat.ttf',
     weight: '400-700',
     category: 'handwritten',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Dancing Script',
@@ -132,7 +132,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'DancingScript.ttf',
     weight: '400-700',
     category: 'handwritten',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
 
   // ── Serif ───────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'PlayfairDisplay.ttf',
     weight: '400-900',
     category: 'serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Lora',
@@ -150,7 +150,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Lora.ttf',
     weight: '400-700',
     category: 'serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     // The italic face is the only one bundled — fullscreen-quote captions
@@ -160,7 +160,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'InstrumentSerif-Italic.ttf',
     weight: '400',
     category: 'serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
 
   // ── Monospace ───────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'JetBrainsMono.ttf',
     weight: '100-800',
     category: 'monospace',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Source Code Pro',
@@ -178,7 +178,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'SourceCodePro.ttf',
     weight: '200-900',
     category: 'monospace',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
 
   // ── PRESTYJ ─────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Geist-Bold.ttf',
     weight: '700',
     category: 'sans-serif',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Style Script',
@@ -196,7 +196,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'StyleScript-Regular.ttf',
     weight: '400',
     category: 'handwritten',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
 
   // ── Decorative ──────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'PermanentMarker-Regular.ttf',
     weight: '400',
     category: 'decorative',
-    license: 'Apache-2.0'
+    license: 'Apache-2.0',
   },
   {
     family: 'Bangers',
@@ -214,7 +214,7 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'Bangers-Regular.ttf',
     weight: '400',
     category: 'decorative',
-    license: 'OFL-1.1'
+    license: 'OFL-1.1',
   },
   {
     family: 'Press Start 2P',
@@ -222,41 +222,41 @@ export const BUNDLED_FONTS: BundledFont[] = [
     file: 'PressStart2P-Regular.ttf',
     weight: '400',
     category: 'decorative',
-    license: 'OFL-1.1'
-  }
-]
+    license: 'OFL-1.1',
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Font directory resolution (cached)
 // ---------------------------------------------------------------------------
 
-let cachedFontsDir: string | undefined
+let cachedFontsDir: string | undefined;
 
 /**
  * Resolve the bundled fonts directory path. Handles both packaged app and
  * dev environments. Result is cached after first successful resolution.
  */
 export function resolveFontsDir(): string | undefined {
-  if (cachedFontsDir !== undefined) return cachedFontsDir
+  if (cachedFontsDir !== undefined) return cachedFontsDir;
 
   try {
-    const { app } = require('electron')
+    const { app } = require('electron');
     const fontsPath = app.isPackaged
       ? join(process.resourcesPath, 'fonts')
-      : join(__dirname, '../../resources/fonts')
+      : join(__dirname, '../../resources/fonts');
     if (existsSync(fontsPath)) {
-      cachedFontsDir = fontsPath
-      return cachedFontsDir
+      cachedFontsDir = fontsPath;
+      return cachedFontsDir;
     }
   } catch {
-    const fontsPath = join(__dirname, '../../resources/fonts')
+    const fontsPath = join(__dirname, '../../resources/fonts');
     if (existsSync(fontsPath)) {
-      cachedFontsDir = fontsPath
-      return cachedFontsDir
+      cachedFontsDir = fontsPath;
+      return cachedFontsDir;
     }
   }
 
-  return undefined
+  return undefined;
 }
 
 /**
@@ -264,10 +264,10 @@ export function resolveFontsDir(): string | undefined {
  * Returns undefined if the fonts directory or file doesn't exist.
  */
 export function resolveFontPath(filename: string): string | undefined {
-  const dir = resolveFontsDir()
-  if (!dir) return undefined
-  const fullPath = join(dir, filename)
-  return existsSync(fullPath) ? fullPath : undefined
+  const dir = resolveFontsDir();
+  if (!dir) return undefined;
+  const fullPath = join(dir, filename);
+  return existsSync(fullPath) ? fullPath : undefined;
 }
 
 /**
@@ -275,12 +275,12 @@ export function resolveFontPath(filename: string): string | undefined {
  * Returns family names suitable for use in ASS `fontName` fields.
  */
 export function getBundledFontFamilies(): string[] {
-  const seen = new Set<string>()
+  const seen = new Set<string>();
   return BUNDLED_FONTS.filter((f) => {
-    if (seen.has(f.family)) return false
-    seen.add(f.family)
-    return true
-  }).map((f) => f.family)
+    if (seen.has(f.family)) return false;
+    seen.add(f.family);
+    return true;
+  }).map((f) => f.family);
 }
 
 /**
@@ -288,16 +288,16 @@ export function getBundledFontFamilies(): string[] {
  * Only includes fonts that actually exist on disk.
  */
 export function buildRendererFontManifest(): Array<{
-  family: string
-  label: string
-  file: string
-  path: string
-  weight: string
-  category: string
-  license: string
+  family: string;
+  label: string;
+  file: string;
+  path: string;
+  weight: string;
+  category: string;
+  license: string;
 }> {
-  const dir = resolveFontsDir()
-  if (!dir) return []
+  const dir = resolveFontsDir();
+  if (!dir) return [];
 
   return BUNDLED_FONTS.filter((f) => existsSync(join(dir, f.file))).map((f) => ({
     family: f.family,
@@ -306,6 +306,6 @@ export function buildRendererFontManifest(): Array<{
     path: join(dir, f.file),
     weight: f.weight,
     category: f.category,
-    license: f.license
-  }))
+    license: f.license,
+  }));
 }

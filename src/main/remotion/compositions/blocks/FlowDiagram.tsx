@@ -1,38 +1,38 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion'
-import { BRAND_ACCENT } from '../../../edit-styles/shared/brand'
-import { EASE } from '../../shared/easing'
-import { DarkCard } from '../../shared/primitives'
-import { PrestyjFonts } from '../../shared/fonts'
-import type { FlowDiagramProps } from './types'
+import React from 'react';
+import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { BRAND_ACCENT } from '../../../edit-styles/shared/brand';
+import { EASE } from '../../shared/easing';
+import { PrestyjFonts } from '../../shared/fonts';
+import { DarkCard } from '../../shared/primitives';
+import type { FlowDiagramProps } from './types';
 
 /* ------------------------------------------------------------------ */
 /*  FlowDiagram — horizontal connected-node pipeline                    */
 /* ------------------------------------------------------------------ */
 
-const NODE_WIDTH = 130
-const NODE_HEIGHT = 80
-const CONNECTOR_WIDTH = 48
+const NODE_WIDTH = 130;
+const NODE_HEIGHT = 80;
+const CONNECTOR_WIDTH = 48;
 
 export const FlowDiagram: React.FC<FlowDiagramProps> = ({
   title,
   nodes,
-  accentColor = BRAND_ACCENT
+  accentColor = BRAND_ACCENT,
 }) => {
-  const frame = useCurrentFrame()
+  const frame = useCurrentFrame();
 
   // Card entrance.
   const entranceOpacity = interpolate(frame, [0, 15], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
   const entranceY = interpolate(frame, [0, 15], [20, 0], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
-  const totalWidth = nodes.length * NODE_WIDTH + (nodes.length - 1) * CONNECTOR_WIDTH
+  const totalWidth = nodes.length * NODE_WIDTH + (nodes.length - 1) * CONNECTOR_WIDTH;
 
   return (
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -48,7 +48,7 @@ export const FlowDiagram: React.FC<FlowDiagramProps> = ({
               color: accentColor,
               textTransform: 'uppercase' as const,
               marginBottom: 32,
-              textAlign: 'center' as const
+              textAlign: 'center' as const,
             }}
           >
             {title}
@@ -59,27 +59,20 @@ export const FlowDiagram: React.FC<FlowDiagramProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
             }}
           >
             {nodes.map((node, i) => {
               // Staggered node entrance.
-              const nodeOpacity = interpolate(
-                frame,
-                [10 + i * 8, 22 + i * 8],
-                [0, 1],
-                { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
-              )
-              const nodeScale = interpolate(
-                frame,
-                [10 + i * 8, 22 + i * 8],
-                [0.8, 1],
-                {
-                  extrapolateLeft: 'clamp',
-                  extrapolateRight: 'clamp',
-                  easing: EASE.outExpo
-                }
-              )
+              const nodeOpacity = interpolate(frame, [10 + i * 8, 22 + i * 8], [0, 1], {
+                extrapolateLeft: 'clamp',
+                extrapolateRight: 'clamp',
+              });
+              const nodeScale = interpolate(frame, [10 + i * 8, 22 + i * 8], [0.8, 1], {
+                extrapolateLeft: 'clamp',
+                extrapolateRight: 'clamp',
+                easing: EASE.outExpo,
+              });
 
               return (
                 <React.Fragment key={`${node.label}-${i}`}>
@@ -97,7 +90,7 @@ export const FlowDiagram: React.FC<FlowDiagramProps> = ({
                       gap: 6,
                       opacity: nodeOpacity,
                       transform: `scale(${nodeScale})`,
-                      boxShadow: node.active ? `0 0 16px ${accentColor}33` : 'none'
+                      boxShadow: node.active ? `0 0 16px ${accentColor}33` : 'none',
                     }}
                   >
                     {node.icon && <span style={{ fontSize: 20 }}>{node.icon}</span>}
@@ -108,7 +101,7 @@ export const FlowDiagram: React.FC<FlowDiagramProps> = ({
                         letterSpacing: 1.5,
                         color: node.active ? accentColor : '#f6ecd9aa',
                         textTransform: 'uppercase' as const,
-                        textAlign: 'center' as const
+                        textAlign: 'center' as const,
                       }}
                     >
                       {node.label}
@@ -122,21 +115,19 @@ export const FlowDiagram: React.FC<FlowDiagramProps> = ({
                         width: CONNECTOR_WIDTH,
                         height: 2,
                         backgroundColor: accentColor,
-                        opacity: interpolate(
-                          frame,
-                          [18 + i * 8, 26 + i * 8],
-                          [0, 0.5],
-                          { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
-                        )
+                        opacity: interpolate(frame, [18 + i * 8, 26 + i * 8], [0, 0.5], {
+                          extrapolateLeft: 'clamp',
+                          extrapolateRight: 'clamp',
+                        }),
                       }}
                     />
                   )}
                 </React.Fragment>
-              )
+              );
             })}
           </div>
         </DarkCard>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

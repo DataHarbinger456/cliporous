@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html data-width="720" data-height="1280">
+<head>
+  <meta charset="utf-8"><title>HyperFrames — Brand Score</title>
+  <link rel="stylesheet" href="shared/styles.css">
+  <style>
+    .card { position:absolute; left:50%; width:590px; transform:translate(-50%,-50%); padding:30px; border-radius:24px; background:rgba(12,25,44,.96); border:1px solid #ffffff22; box-shadow:0 24px 70px #000b; color:#fff; font-family:Inter,sans-serif; }
+    .head { display:flex; justify-content:space-between; align-items:end; margin-bottom:22px; }.label { font-size:16px; letter-spacing:.12em; color:#b9c8dc; text-transform:uppercase; }.score { color:var(--accent); font-size:64px; line-height:.9; font-weight:850; }.score small { font-size:22px; color:#b9c8dc; }
+    .bar { height:10px; border-radius:8px; background:#ffffff16; overflow:hidden; margin-bottom:24px; }.fill { height:100%; width:0; border-radius:inherit; background:linear-gradient(90deg,var(--accent),#83b4e8); }
+    .checks { display:grid; gap:11px; }.check { display:flex; justify-content:space-between; gap:16px; font-size:18px; padding-bottom:10px; border-bottom:1px solid #ffffff12; }.check span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.status { color:#6ee7a0; font-weight:700; }
+  </style>
+</head>
+<body><div class="card" id="root"><div class="head"><span class="label" id="label"></span><span class="score"><span id="score"></span><small>/100</small></span></div><div class="bar"><div class="fill" id="fill"></div></div><div class="checks" id="checks"></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script><script>
+const v=window.__hyperframes?.getVariables?.()??{},root=document.getElementById('root'),accent=v.accentColor??'#1d3557'; root.style.top=Math.max(10,Math.min(90,Number(v.yPos??50)))+'%';root.style.setProperty('--accent',accent); const score=Math.max(0,Math.min(100,Number(v.score??0)));document.getElementById('label').textContent=v.label??'BRAND CONSISTENCY';document.getElementById('score').textContent=String(score); const fill=document.getElementById('fill'); const checks=document.getElementById('checks');(Array.isArray(v.checks)?v.checks.slice(0,5):[]).forEach(item=>{const row=document.createElement('div');row.className='check';const text=document.createElement('span');text.textContent=String(item?.label??'Check');const status=document.createElement('span');status.className='status';status.textContent=String(item?.value??item?.status??'✓');row.append(text,status);checks.append(row)}); const dur=Math.max(.6,Number(v.timingDuration??2.5)),tl=gsap.timeline({defaults:{ease:'power3.out'}});tl.fromTo(root,{opacity:0,y:30,scale:.95},{opacity:1,y:0,scale:1,duration:.42});tl.to(fill,{width:score+'%',duration:.55,ease:'power2.out'},.3);tl.from('.check',{opacity:0,x:18,stagger:.08,duration:.22},.35);tl.to(root,{opacity:0,y:-18,duration:.3,ease:'power2.in'},Math.max(dur-.4,.6));
+</script></body></html>

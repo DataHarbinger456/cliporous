@@ -1,9 +1,9 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion'
-import { BRAND_ACCENT } from '../../../edit-styles/shared/brand'
-import { EASE } from '../../shared/easing'
-import { PrestyjFonts } from '../../shared/fonts'
-import type { ProgressRingProps } from './types'
+import type React from 'react';
+import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { BRAND_ACCENT } from '../../../edit-styles/shared/brand';
+import { EASE } from '../../shared/easing';
+import { PrestyjFonts } from '../../shared/fonts';
+import type { ProgressRingProps } from './types';
 
 /* ------------------------------------------------------------------ */
 /*  ProgressRing — circular animated progress indicator                 */
@@ -12,49 +12,49 @@ import type { ProgressRingProps } from './types'
 const SIZES = {
   sm: { dimension: 160, stroke: 8, fontSize: 36, labelSize: 14 },
   md: { dimension: 240, stroke: 10, fontSize: 52, labelSize: 16 },
-  lg: { dimension: 320, stroke: 12, fontSize: 72, labelSize: 18 }
-} as const
+  lg: { dimension: 320, stroke: 12, fontSize: 72, labelSize: 18 },
+} as const;
 
 export const ProgressRing: React.FC<ProgressRingProps> = ({
   value,
   label,
   sublabel,
   size = 'md',
-  accentColor = BRAND_ACCENT
+  accentColor = BRAND_ACCENT,
 }) => {
-  const frame = useCurrentFrame()
-  const { dimension, stroke, fontSize, labelSize } = SIZES[size]
+  const frame = useCurrentFrame();
+  const { dimension, stroke, fontSize, labelSize } = SIZES[size];
 
-  const radius = (dimension - stroke) / 2
-  const circumference = 2 * Math.PI * radius
+  const radius = (dimension - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
 
   // Animate stroke-dashoffset from full to target.
   const fillProgress = interpolate(frame, [0, 45], [0, value / 100], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
-  const dashOffset = circumference * (1 - fillProgress)
+    easing: EASE.outExpo,
+  });
+  const dashOffset = circumference * (1 - fillProgress);
 
   // Entrance fade.
   const entranceOpacity = interpolate(frame, [0, 15], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
   const entranceScale = interpolate(frame, [0, 20], [0.9, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
   // Label fade-in (staggered).
   const labelOpacity = interpolate(frame, [30, 45], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
 
   // Counter for the sublabel.
-  const displayPercent = Math.round(fillProgress * 100)
+  const displayPercent = Math.round(fillProgress * 100);
 
   return (
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -65,7 +65,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
           transform: `scale(${entranceScale})`,
           display: 'flex',
           flexDirection: 'column' as const,
-          alignItems: 'center'
+          alignItems: 'center',
         }}
       >
         <div style={{ position: 'relative', width: dimension, height: dimension }}>
@@ -92,7 +92,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
               strokeDashoffset={dashOffset}
               transform={`rotate(-90 ${dimension / 2} ${dimension / 2})`}
               style={{
-                filter: `drop-shadow(0 0 8px ${accentColor}66)`
+                filter: `drop-shadow(0 0 8px ${accentColor}66)`,
               }}
             />
           </svg>
@@ -108,7 +108,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
               display: 'flex',
               flexDirection: 'column' as const,
               justifyContent: 'center',
-              alignItems: 'center'
+              alignItems: 'center',
             }}
           >
             <span
@@ -116,7 +116,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
                 fontFamily: 'Bebas Neue, sans-serif',
                 fontSize,
                 color: '#f6ecd9',
-                lineHeight: 1
+                lineHeight: 1,
               }}
             >
               {sublabel ?? `${displayPercent}%`}
@@ -133,12 +133,12 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
             color: accentColor,
             textTransform: 'uppercase' as const,
             marginTop: 16,
-            opacity: labelOpacity
+            opacity: labelOpacity,
           }}
         >
           {label}
         </div>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

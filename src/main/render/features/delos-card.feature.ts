@@ -15,20 +15,17 @@
 // 9:16 feature list).
 // ---------------------------------------------------------------------------
 
-import type { DelosCardPlacement, DelosCardKind } from '@shared/types'
-import type { QualityParams } from '../../ffmpeg'
-import type { WordTimestamp } from '../point-coverage'
+import type { DelosCardKind, DelosCardPlacement } from '@shared/types';
+import type { QualityParams } from '../../ffmpeg';
 import {
   buildCardContentWithSource,
+  type CardContent,
   type CardKind,
   type CardWord,
-  type CardContent
-} from '../../hyperframes/card-content'
-import type { OverlayRequest } from '../../hyperframes/types'
-import {
-  compositeDelosCards,
-  type DelosCardOverlayInput
-} from '../longform-encode'
+} from '../../hyperframes/card-content';
+import type { OverlayRequest } from '../../hyperframes/types';
+import { compositeDelosCards, type DelosCardOverlayInput } from '../longform-encode';
+import type { WordTimestamp } from '../point-coverage';
 
 // ---------------------------------------------------------------------------
 // Compile-time guard: the IPC-serializable `DelosCardKind` (shared/) and the
@@ -38,9 +35,9 @@ import {
 // ---------------------------------------------------------------------------
 
 type _AssertCardKindMatch = (DelosCardKind extends CardKind ? true : never) &
-  (CardKind extends DelosCardKind ? true : never)
-const _assertCardKindMatch: _AssertCardKindMatch = true
-void _assertCardKindMatch
+  (CardKind extends DelosCardKind ? true : never);
+const _assertCardKindMatch: _AssertCardKindMatch = true;
+void _assertCardKindMatch;
 
 // ---------------------------------------------------------------------------
 // Geometry / positioning constants
@@ -55,18 +52,18 @@ void _assertCardKindMatch
  * taller text-forward cards (~2% bleed margin) while shorter cards float a touch
  * higher but never reach the face.
  */
-export const DELOS_CARD_YPOS = 70
+export const DELOS_CARD_YPOS = 70;
 
 /** Default card accent when no palette accent is supplied. */
-const DEFAULT_CARD_ACCENT = '#9f75ff'
+const DEFAULT_CARD_ACCENT = '#9f75ff';
 
 // ---------------------------------------------------------------------------
 // Speaker-range filtering — the "no overlap with full-frame blocks" gate
 // ---------------------------------------------------------------------------
 
 export interface SpeakerRange {
-  start: number
-  end: number
+  start: number;
+  end: number;
 }
 
 /**
@@ -77,13 +74,13 @@ export interface SpeakerRange {
  */
 export function filterCardsToSpeakerRanges(
   cards: DelosCardPlacement[],
-  speakerRanges: SpeakerRange[]
+  speakerRanges: SpeakerRange[],
 ): DelosCardPlacement[] {
   return cards.filter(
     (c) =>
       c.endTime > c.startTime &&
-      speakerRanges.some((r) => c.startTime >= r.start && c.endTime <= r.end)
-  )
+      speakerRanges.some((r) => c.startTime >= r.start && c.endTime <= r.end),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -94,22 +91,22 @@ export function filterCardsToSpeakerRanges(
 function sliceWordsToWindow(
   words: WordTimestamp[] | undefined,
   start: number,
-  end: number
+  end: number,
 ): CardWord[] {
-  if (!words || words.length === 0) return []
-  const out: CardWord[] = []
+  if (!words || words.length === 0) return [];
+  const out: CardWord[] = [];
   for (const w of words) {
     if (w.end > start && w.start < end) {
-      out.push({ text: w.text, start: w.start, end: w.end })
+      out.push({ text: w.text, start: w.start, end: w.end });
     }
   }
-  return out
+  return out;
 }
 
 /** Strip the discriminant so only the card's text/data slots remain. */
 function cardContentToSlots(content: CardContent): Record<string, unknown> {
-  const { kind: _kind, ...slots } = content
-  return slots
+  const { kind: _kind, ...slots } = content;
+  return slots;
 }
 
 /**
@@ -126,45 +123,45 @@ async function buildCardRequest(
   card: DelosCardPlacement,
   words: WordTimestamp[] | undefined,
   accentColor: string,
-  apiKey?: string
+  apiKey?: string,
 ): Promise<{ request: OverlayRequest; usedAiText: boolean }> {
-  const duration = Math.max(1, card.endTime - card.startTime)
-  const windowWords = sliceWordsToWindow(words, card.startTime, card.endTime)
+  const duration = Math.max(1, card.endTime - card.startTime);
+  const windowWords = sliceWordsToWindow(words, card.startTime, card.endTime);
   const windowText =
     card.sourceText && card.sourceText.trim().length > 0
       ? card.sourceText
-      : windowWords.map((w) => w.text).join(' ')
+      : windowWords.map((w) => w.text).join(' ');
 
   const props: Record<string, unknown> = {
     accentColor,
     // Center horizontally in-canvas; vertical drop handled by yPos. The slight
     // RIGHT drift is applied at composite time, not here.
-    position: { x: 50, y: DELOS_CARD_YPOS }
-  }
+    position: { x: 50, y: DELOS_CARD_YPOS },
+  };
 
-  let usedAiText = false
+  let usedAiText = false;
   try {
     const { content, source } = await buildCardContentWithSource(
       card.kind,
       windowText,
       windowWords,
-      apiKey ? { apiKey } : {}
-    )
-    usedAiText = source === 'ai'
-    Object.assign(props, cardContentToSlots(content))
+      apiKey ? { apiKey } : {},
+    );
+    usedAiText = source === 'ai';
+    Object.assign(props, cardContentToSlots(content));
   } catch {
     // Leave preset defaults — renderer fills sensible fallbacks per card kind.
-    usedAiText = false
+    usedAiText = false;
   }
 
   return {
     request: {
       block: card.kind,
       props: props as OverlayRequest['props'],
-      timing: { start: card.startTime, duration }
+      timing: { start: card.startTime, duration },
     },
-    usedAiText
-  }
+    usedAiText,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,23 +170,23 @@ async function buildCardRequest(
 
 export interface ApplyDelosCardsOptions {
   /** Concatenated base video (post phrase-overlay pass). */
-  inputPath: string
+  inputPath: string;
   /** Final output path. */
-  outputPath: string
+  outputPath: string;
   /** Cards already filtered to speaker ranges (re-filtered defensively here). */
-  cards: DelosCardPlacement[]
+  cards: DelosCardPlacement[];
   /** Speaker ranges used to reject any card overlapping a full-frame block. */
-  speakerRanges: SpeakerRange[]
+  speakerRanges: SpeakerRange[];
   /** Absolute-time word timestamps used to populate card content. */
-  words?: WordTimestamp[] | undefined
-  width: number
-  height: number
-  fps: number
-  qualityParams: QualityParams
+  words?: WordTimestamp[] | undefined;
+  width: number;
+  height: number;
+  fps: number;
+  qualityParams: QualityParams;
   /** Accent color, resolved from the user-selected palette. */
-  accentColor?: string | undefined
+  accentColor?: string | undefined;
   /** Gemini key for card-content summarization (falls back deterministically). */
-  apiKey?: string | undefined
+  apiKey?: string | undefined;
 }
 
 /**
@@ -198,13 +195,13 @@ export interface ApplyDelosCardsOptions {
  */
 export interface DelosCardStats {
   /** Cards composited onto the final video. */
-  rendered: number
+  rendered: number;
   /** Cards that survived speaker-range filtering but failed to render. */
-  dropped: number
+  dropped: number;
   /** Cards whose text came from the Gemini pass. */
-  aiText: number
+  aiText: number;
   /** Cards that fell back to deterministic offline text. */
-  fallbackText: number
+  fallbackText: number;
 }
 
 /**
@@ -215,7 +212,7 @@ export interface DelosCardStats {
  * surface a rendered/unavailable count.
  */
 export async function applyDelosCards(
-  opts: ApplyDelosCardsOptions
+  opts: ApplyDelosCardsOptions,
 ): Promise<{ outputPath: string; tempFiles: string[]; stats: DelosCardStats }> {
   const {
     inputPath,
@@ -227,57 +224,57 @@ export async function applyDelosCards(
     height,
     qualityParams,
     accentColor,
-    apiKey
-  } = opts
+    apiKey,
+  } = opts;
 
-  const surviving = filterCardsToSpeakerRanges(cards, speakerRanges)
+  const surviving = filterCardsToSpeakerRanges(cards, speakerRanges);
   if (surviving.length === 0) {
     return {
       outputPath: inputPath,
       tempFiles: [],
-      stats: { rendered: 0, dropped: 0, aiText: 0, fallbackText: 0 }
-    }
+      stats: { rendered: 0, dropped: 0, aiText: 0, fallbackText: 0 },
+    };
   }
 
   // Dynamic import keeps the HyperFrames engine out of the static module graph
   // so importing this feature in unit tests never spawns a renderer.
-  const { renderOverlays } = await import('../../hyperframes/renderer')
+  const { renderOverlays } = await import('../../hyperframes/renderer');
 
-  const accent = accentColor ?? DEFAULT_CARD_ACCENT
-  const requests: OverlayRequest[] = []
-  let aiText = 0
-  let fallbackText = 0
+  const accent = accentColor ?? DEFAULT_CARD_ACCENT;
+  const requests: OverlayRequest[] = [];
+  let aiText = 0;
+  let fallbackText = 0;
   for (const card of surviving) {
-    const { request, usedAiText } = await buildCardRequest(card, words, accent, apiKey)
-    requests.push(request)
-    if (usedAiText) aiText++
-    else fallbackText++
+    const { request, usedAiText } = await buildCardRequest(card, words, accent, apiKey);
+    requests.push(request);
+    if (usedAiText) aiText++;
+    else fallbackText++;
   }
 
-  const results = await renderOverlays(requests)
+  const results = await renderOverlays(requests);
 
-  const tempFiles: string[] = []
-  const overlays: DelosCardOverlayInput[] = []
+  const tempFiles: string[] = [];
+  const overlays: DelosCardOverlayInput[] = [];
   results.forEach((result, i) => {
-    if (!result.movPath) return // failed render — skip this card
-    const req = requests[i]
-    if (!req) return
-    tempFiles.push(result.movPath)
+    if (!result.movPath) return; // failed render — skip this card
+    const req = requests[i];
+    if (!req) return;
+    tempFiles.push(result.movPath);
     overlays.push({
       overlayPath: result.movPath,
       startTime: req.timing.start,
-      endTime: req.timing.start + req.timing.duration
-    })
-  })
+      endTime: req.timing.start + req.timing.duration,
+    });
+  });
 
   // A surviving card with no .mov was dropped at render time (the warn-and-skip
   // path in renderOverlays). Surface that count rather than swallowing it.
-  const rendered = overlays.length
-  const dropped = surviving.length - rendered
-  const stats: DelosCardStats = { rendered, dropped, aiText, fallbackText }
+  const rendered = overlays.length;
+  const dropped = surviving.length - rendered;
+  const stats: DelosCardStats = { rendered, dropped, aiText, fallbackText };
 
   if (overlays.length === 0) {
-    return { outputPath: inputPath, tempFiles, stats }
+    return { outputPath: inputPath, tempFiles, stats };
   }
 
   await compositeDelosCards({
@@ -286,8 +283,8 @@ export async function applyDelosCards(
     overlays,
     width,
     height,
-    qualityParams
-  })
+    qualityParams,
+  });
 
-  return { outputPath, tempFiles, stats }
+  return { outputPath, tempFiles, stats };
 }

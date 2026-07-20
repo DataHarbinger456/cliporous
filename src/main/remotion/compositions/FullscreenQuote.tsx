@@ -1,67 +1,67 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, spring } from 'remotion'
-import { PrestyjFonts } from '../shared/fonts'
-import { EASE } from '../shared/easing'
-import { BRAND_ACCENT, BRAND_BG, BRAND_FG } from '../../edit-styles/shared/brand'
+import React from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { BRAND_ACCENT, BRAND_BG, BRAND_FG } from '../../edit-styles/shared/brand';
+import { EASE } from '../shared/easing';
+import { PrestyjFonts } from '../shared/fonts';
 
 // fullscreen-quote inverts the brand palette: sand background, dark-brown
 // quote. Keeps the moment from reading like the video has cut to black, and
 // matches the FFmpeg `buildFullscreenQuote` color source.
-const QUOTE_BG = BRAND_FG
-const QUOTE_FG = BRAND_BG
+const QUOTE_BG = BRAND_FG;
+const QUOTE_FG = BRAND_BG;
 
 /** Word with clip-relative seconds. End is optional (currently unused for visuals,
  *  but plumbed so future variants can fade out on word.end). */
 export interface QuoteWord {
-  text: string
+  text: string;
   /** Clip-relative seconds, snapped to the segment start. */
-  start: number
-  end?: number
+  start: number;
+  end?: number;
 }
 
 export interface FullscreenQuoteProps {
   /** The quote body, used as fallback when `words` is omitted. */
-  quote: string
+  quote: string;
   /**
    * Per-word timings, clip-relative. When supplied, each word reveals on the
    * frame matching its spoken `start` — i.e. the on-screen text marches in
    * lock-step with the speaker. When omitted, words are evenly spaced across
    * the segment duration so the composition still works in Studio previews.
    */
-  words?: QuoteWord[]
+  words?: QuoteWord[];
   /** Optional attribution rendered below the quote in script font. */
-  attribution?: string
+  attribution?: string;
   /**
    * Accent color used for attribution glow + emphasis word recolor. Defaults
    * to BRAND_ACCENT. The accent bar that used to sit above the quote has
    * been removed — the quote itself is the hero now.
    */
-  accentColor?: string
+  accentColor?: string;
   /** Primary text color. Defaults to BRAND_FG. */
-  primaryColor?: string
+  primaryColor?: string;
   /**
    * Solid background color rendered behind the quote. Defaults to BRAND_BG.
    * Mirrors the FFmpeg `color=` source used by buildFullscreenTextCenter so
    * preview and final render are pixel-identical on the backdrop.
    */
-  backgroundColor?: string
+  backgroundColor?: string;
   /** Body display font family — must match a loaded @font-face. */
-  bodyFont: string
+  bodyFont: string;
   /** Script attribution font family — must match a loaded @font-face. */
-  scriptFont: string
+  scriptFont: string;
   /**
    * Optional set of word indices that should render in the accent color.
    * Lets `emphasis` / `emphasis_highlight` caption modes carry through to
    * this archetype.
    */
-  emphasisIndices?: number[]
+  emphasisIndices?: number[];
 }
 
 // Per-word reveal: gentle 10-frame ease, no motion blur, no rise — the cut
 // between words *is* the percussion, no need to dress it up. Each word holds
 // once revealed.
-const WORD_REVEAL_FRAMES = 10
-const ATTRIBUTION_DELAY_FRAMES = 14
+const WORD_REVEAL_FRAMES = 10;
+const ATTRIBUTION_DELAY_FRAMES = 14;
 
 export const FullscreenQuote: React.FC<FullscreenQuoteProps> = ({
   quote,
@@ -72,41 +72,36 @@ export const FullscreenQuote: React.FC<FullscreenQuoteProps> = ({
   backgroundColor = QUOTE_BG,
   bodyFont,
   scriptFont,
-  emphasisIndices
+  emphasisIndices,
 }) => {
-  const frame = useCurrentFrame()
-  const { fps, durationInFrames } = useVideoConfig()
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
 
   // Resolve the on-screen word list + per-word reveal frame.
-  const words = resolveWords(quote, wordsProp, fps, durationInFrames)
-  const lastWordEnter = (words[words.length - 1]?.revealFrame ?? 0) + WORD_REVEAL_FRAMES
-  const attributionStart = lastWordEnter + ATTRIBUTION_DELAY_FRAMES
+  const words = resolveWords(quote, wordsProp, fps, durationInFrames);
+  const lastWordEnter = (words[words.length - 1]?.revealFrame ?? 0) + WORD_REVEAL_FRAMES;
+  const attributionStart = lastWordEnter + ATTRIBUTION_DELAY_FRAMES;
 
   // Sizing: Instrument Serif Italic is a proportional serif (not condensed),
   // so it eats more horizontal room than Bebas did. Drop the size a notch and
   // let long quotes wrap to two/three lines without shrinking too aggressively.
   const fontSize =
-    words.length <= 6 ? 168 : words.length <= 12 ? 132 : words.length <= 20 ? 104 : 88
+    words.length <= 6 ? 168 : words.length <= 12 ? 132 : words.length <= 20 ? 104 : 88;
 
   // Subtle 4% scale-out near the very end gives the segment a "release"
   // even if the next segment uses hard-cut. Cinematic micro-detail.
-  const exitStart = durationInFrames - fps * 0.6
+  const exitStart = durationInFrames - fps * 0.6;
   const releaseScale = interpolate(frame, [exitStart, durationInFrames], [1, 1.04], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.inExpo
-  })
-  const releaseOpacity = interpolate(
-    frame,
-    [exitStart, durationInFrames],
-    [1, 0.85],
-    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
-  )
+    easing: EASE.inExpo,
+  });
+  const releaseOpacity = interpolate(frame, [exitStart, durationInFrames], [1, 0.85], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
 
-  const emphasisSet = React.useMemo(
-    () => new Set(emphasisIndices ?? []),
-    [emphasisIndices]
-  )
+  const emphasisSet = React.useMemo(() => new Set(emphasisIndices ?? []), [emphasisIndices]);
 
   return (
     <AbsoluteFill style={{ backgroundColor }}>
@@ -125,7 +120,7 @@ export const FullscreenQuote: React.FC<FullscreenQuoteProps> = ({
           justifyContent: 'center',
           padding: '0 110px',
           transform: `scale(${releaseScale})`,
-          opacity: releaseOpacity
+          opacity: releaseOpacity,
         }}
       >
         <p
@@ -143,7 +138,7 @@ export const FullscreenQuote: React.FC<FullscreenQuoteProps> = ({
             lineHeight: 1.08,
             letterSpacing: '0.005em',
             textAlign: 'center',
-            margin: 0
+            margin: 0,
           }}
         >
           {words.map((w, i) => (
@@ -169,16 +164,16 @@ export const FullscreenQuote: React.FC<FullscreenQuoteProps> = ({
         ) : null}
       </AbsoluteFill>
     </AbsoluteFill>
-  )
-}
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 interface ResolvedWord {
-  text: string
-  revealFrame: number
+  text: string;
+  revealFrame: number;
 }
 
 /**
@@ -192,28 +187,25 @@ function resolveWords(
   quote: string,
   wordsProp: QuoteWord[] | undefined,
   fps: number,
-  durationInFrames: number
+  durationInFrames: number,
 ): ResolvedWord[] {
   if (wordsProp && wordsProp.length > 0) {
     // Assume `start` is segment-relative (0 = first frame of this composition).
     // Anchor the first word to frame 0 in case ASR has a small lead-in.
-    const firstStart = wordsProp[0].start
+    const firstStart = wordsProp[0].start;
     return wordsProp.map((w, i) => ({
       text: w.text,
-      revealFrame:
-        i === 0
-          ? 0
-          : Math.max(0, Math.round((w.start - firstStart) * fps))
-    }))
+      revealFrame: i === 0 ? 0 : Math.max(0, Math.round((w.start - firstStart) * fps)),
+    }));
   }
 
-  const fallback = quote.split(/\s+/).filter(Boolean)
-  if (fallback.length === 0) return []
+  const fallback = quote.split(/\s+/).filter(Boolean);
+  if (fallback.length === 0) return [];
   // Spread evenly across the first 80% of the composition so the last word
   // has room to breathe before the release scale-out.
-  const usable = Math.max(1, Math.floor(durationInFrames * 0.8))
-  const step = Math.max(3, Math.floor(usable / fallback.length))
-  return fallback.map((text, i) => ({ text, revealFrame: i * step }))
+  const usable = Math.max(1, Math.floor(durationInFrames * 0.8));
+  const step = Math.max(3, Math.floor(usable / fallback.length));
+  return fallback.map((text, i) => ({ text, revealFrame: i * step }));
 }
 
 // ---------------------------------------------------------------------------
@@ -221,45 +213,45 @@ function resolveWords(
 // ---------------------------------------------------------------------------
 
 const Word: React.FC<{
-  word: string
-  revealFrame: number
-  frame: number
-  accent: string | null
+  word: string;
+  revealFrame: number;
+  frame: number;
+  accent: string | null;
 }> = ({ word, revealFrame, frame, accent }) => {
-  const localFrame = frame - revealFrame
+  const localFrame = frame - revealFrame;
   const progress = interpolate(localFrame, [0, WORD_REVEAL_FRAMES], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
   return (
     <span
       style={{
         display: 'inline-block',
         opacity: progress,
         marginRight: '0.28em',
-        color: accent ?? undefined
+        color: accent ?? undefined,
       }}
     >
       {word}
     </span>
-  )
-}
+  );
+};
 
 const Attribution: React.FC<{
-  text: string
-  font: string
-  color: string
-  startFrame: number
-  frame: number
-  fps: number
+  text: string;
+  font: string;
+  color: string;
+  startFrame: number;
+  frame: number;
+  fps: number;
 }> = ({ text, font, color, startFrame, frame, fps }) => {
-  const localFrame = frame - startFrame
+  const localFrame = frame - startFrame;
   const enter = spring({
     frame: localFrame,
     fps,
-    config: { damping: 18, stiffness: 110, mass: 0.7 }
-  })
+    config: { damping: 18, stiffness: 110, mass: 0.7 },
+  });
   return (
     <p
       style={{
@@ -272,10 +264,10 @@ const Attribution: React.FC<{
         transform: `translateY(${(1 - enter) * 24}px)`,
         letterSpacing: '0.01em',
         // Faint glow makes script type read as "luxe" against dark bg.
-        textShadow: `0 0 30px ${color}44`
+        textShadow: `0 0 30px ${color}44`,
       }}
     >
       {text}
     </p>
-  )
-}
+  );
+};

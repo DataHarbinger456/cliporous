@@ -10,30 +10,48 @@
 //   - Sound design, B-roll, and filler removal are skipped
 // ---------------------------------------------------------------------------
 
-import { join } from 'path'
-import { tmpdir } from 'os'
-import { unlinkSync } from 'fs'
-import { getVideoMetadata } from '../ffmpeg'
-import { OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_FPS } from '../aspect-ratios'
-import { generateZoomFilter } from '../auto-zoom'
-import { buildVideoFilter, renderClip } from './base-render'
-import { createCaptionsFeature } from './features/captions.feature'
-import { createHookTitleFeature } from './features/hook-title.feature'
-import { renderSegmentedClip, type SegmentRenderConfig, type ResolvedSegment } from './segment-render'
-import { getEditStyleById, DEFAULT_EDIT_STYLE_ID } from './../edit-styles/index'
-import { ARCHETYPE_DEFAULT_TRANSITION_IN } from './../edit-styles/shared/archetypes'
-import type { RenderFeature, FilterContext, OverlayContext, OverlayPassResult } from './features/feature'
-import type { RenderClipJob, RenderBatchOptions, CaptionStyleInput, HookTitleConfig, ZoomSettings } from './types'
-import type { VideoSegment, EmphasizedWord } from '@shared/types'
+import { unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { EmphasizedWord, VideoSegment } from '@shared/types';
+import { OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../aspect-ratios';
+import { generateZoomFilter } from '../auto-zoom';
+import { DEFAULT_EDIT_STYLE_ID, getEditStyleById } from './../edit-styles/index';
+import { ARCHETYPE_DEFAULT_TRANSITION_IN } from './../edit-styles/shared/archetypes';
+import { getVideoMetadata } from '../ffmpeg';
+import { buildVideoFilter, renderClip } from './base-render';
+import { createCaptionsFeature } from './features/captions.feature';
+import type {
+  FilterContext,
+  OverlayContext,
+  OverlayPassResult,
+  RenderFeature,
+} from './features/feature';
+import { createHookTitleFeature } from './features/hook-title.feature';
+import { createRehookFeature } from './features/rehook.feature';
+import { wordEmphasisFeature } from './features/word-emphasis.feature';
+import {
+  type ResolvedSegment,
+  renderSegmentedClip,
+  type SegmentRenderConfig,
+} from './segment-render';
+import type {
+  CaptionStyleInput,
+  HookTitleConfig,
+  RehookConfig,
+  RenderBatchOptions,
+  RenderClipJob,
+  ZoomSettings,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /** Preview output resolution — locked to the same 1080×1920 @ 30fps as final renders. */
-const PREVIEW_WIDTH = OUTPUT_WIDTH
-const PREVIEW_HEIGHT = OUTPUT_HEIGHT
-const PREVIEW_FPS = OUTPUT_FPS
+const PREVIEW_WIDTH = OUTPUT_WIDTH;
+const PREVIEW_HEIGHT = OUTPUT_HEIGHT;
+const PREVIEW_FPS = OUTPUT_FPS;
 
 /**
  * Derive a lighter tint from a hex color for the supersize word color.
@@ -41,14 +59,14 @@ const PREVIEW_FPS = OUTPUT_FPS
  * (Mirrored from accent-color.feature.ts to avoid import coupling.)
  */
 function lightenColor(hex: string, amount = 0.4): string {
-  const clean = hex.replace('#', '')
-  const r = parseInt(clean.substring(0, 2), 16)
-  const g = parseInt(clean.substring(2, 4), 16)
-  const b = parseInt(clean.substring(4, 6), 16)
-  const lr = Math.round(r + (255 - r) * amount)
-  const lg = Math.round(g + (255 - g) * amount)
-  const lb = Math.round(b + (255 - b) * amount)
-  return `#${lr.toString(16).padStart(2, '0')}${lg.toString(16).padStart(2, '0')}${lb.toString(16).padStart(2, '0')}`
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  const lr = Math.round(r + (255 - r) * amount);
+  const lg = Math.round(g + (255 - g) * amount);
+  const lb = Math.round(b + (255 - b) * amount);
+  return `#${lr.toString(16).padStart(2, '0')}${lg.toString(16).padStart(2, '0')}${lb.toString(16).padStart(2, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,50 +74,58 @@ function lightenColor(hex: string, amount = 0.4): string {
 // ---------------------------------------------------------------------------
 
 export interface PreviewRenderConfig {
-  sourceVideoPath: string
-  startTime: number
-  endTime: number
-  cropRegion?: { x: number; y: number; width: number; height: number }
+  sourceVideoPath: string;
+  startTime: number;
+  endTime: number;
+  cropRegion?: { x: number; y: number; width: number; height: number };
   cropTimeline?: Array<{
-    startTime: number
-    endTime: number
-    x: number
-    y: number
-    width: number
-    height: number
-    faceDetected: boolean
-  }>
-  wordTimestamps?: { text: string; start: number; end: number }[]
-  hookTitleText?: string
+    startTime: number;
+    endTime: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    faceDetected: boolean;
+  }>;
+  wordTimestamps?: { text: string; start: number; end: number }[];
+  hookTitleText?: string;
+  /** Creator-approved text for the registered mid-clip re-hook feature. */
+  rehookText?: string;
   /** Whether to burn in captions (requires wordTimestamps + captionStyle) */
-  captionsEnabled?: boolean
-  captionStyle?: CaptionStyleInput
+  captionsEnabled?: boolean;
+  captionStyle?: CaptionStyleInput;
   /** Hook title overlay config — applied when enabled=true AND hookTitleText is set */
-  hookTitleOverlay?: HookTitleConfig
+  hookTitleOverlay?: HookTitleConfig;
+  /** Mid-clip re-hook config — applied when enabled=true. */
+  rehookOverlay?: RehookConfig;
+  /** Whether word emphasis contributes caption and reactive-zoom keyframes. */
+  wordEmphasisEnabled?: boolean;
+  /** Whether segmented previews use their configured transitions. */
+  shotTransitionsEnabled?: boolean;
   /** Auto-zoom (Ken Burns) — applied when enabled=true */
-  autoZoom?: ZoomSettings
+  autoZoom?: ZoomSettings;
   /**
    * Per-clip accent color (CSS hex, e.g. '#FF6B35').
    * When set, overrides highlight/emphasis/supersize colors in captions,
    * hook title text color, rehook text color, and progress bar color.
    */
-  accentColor?: string
+  accentColor?: string;
   /**
    * Per-segment render plan. When present and non-empty, the preview renders
    * each segment with its own archetype layout/zoom/caption treatment via
    * renderSegmentedClip(), matching the batch render's segmented path.
    * When absent, the preview falls back to the single-clip path.
    */
-  segments?: VideoSegment[]
+  segments?: VideoSegment[];
   /**
    * Active edit style id — used to resolve per-segment templates. Only
    * consumed when `segments` is non-empty. Falls back to DEFAULT_EDIT_STYLE_ID.
    */
-  stylePresetId?: string
+  stylePresetId?: string;
   /**
    * Optional pre-computed word emphasis passed through to segmented preview.
    */
-  wordEmphasis?: EmphasizedWord[]
+  wordEmphasis?: EmphasizedWord[];
 }
 
 // ---------------------------------------------------------------------------
@@ -114,14 +140,14 @@ export interface PreviewRenderConfig {
  */
 async function renderSegmentedPreview(
   config: PreviewRenderConfig,
-  outputPath: string
+  outputPath: string,
 ): Promise<string> {
-  const meta = await getVideoMetadata(config.sourceVideoPath)
+  const meta = await getVideoMetadata(config.sourceVideoPath);
 
-  const editStyleId = config.stylePresetId ?? DEFAULT_EDIT_STYLE_ID
-  const editStyle = getEditStyleById(editStyleId) ?? getEditStyleById(DEFAULT_EDIT_STYLE_ID)!
+  const editStyleId = config.stylePresetId ?? DEFAULT_EDIT_STYLE_ID;
+  const editStyle = getEditStyleById(editStyleId) ?? getEditStyleById(DEFAULT_EDIT_STYLE_ID)!;
 
-  const rawSegments = config.segments ?? []
+  const rawSegments = config.segments ?? [];
   const resolvedSegments: ResolvedSegment[] = rawSegments.map((raw) => {
     return {
       startTime: raw.startTime,
@@ -129,12 +155,15 @@ async function renderSegmentedPreview(
       archetype: raw.archetype,
       zoom: {
         style: 'none',
-        intensity: 1.0
+        intensity: 1.0,
       },
-      transitionIn: ARCHETYPE_DEFAULT_TRANSITION_IN[raw.archetype] ?? editStyle.defaultTransition,
-      imagePath: raw.imagePath
-    }
-  })
+      transitionIn:
+        config.shotTransitionsEnabled === false
+          ? 'hard-cut'
+          : (ARCHETYPE_DEFAULT_TRANSITION_IN[raw.archetype] ?? editStyle.defaultTransition),
+      imagePath: raw.imagePath,
+    };
+  });
 
   const segConfig: SegmentRenderConfig = {
     sourceVideoPath: config.sourceVideoPath,
@@ -146,16 +175,21 @@ async function renderSegmentedPreview(
     sourceWidth: meta.width,
     sourceHeight: meta.height,
     wordTimestamps: config.wordTimestamps,
-    wordEmphasis: config.wordEmphasis,
+    wordEmphasis: config.wordEmphasisEnabled === false ? undefined : config.wordEmphasis,
     captionStyle: config.captionStyle,
-    captionsEnabled: config.captionsEnabled ?? true
-  }
+    captionsEnabled: config.captionsEnabled ?? true,
+    hookTitleText: config.hookTitleText,
+    hookTitleConfig: config.hookTitleOverlay,
+    rehookText: config.rehookText,
+    rehookConfig: config.rehookOverlay,
+    rehookAppearTime: config.hookTitleOverlay?.displayDuration ?? 2.5,
+  };
 
   await renderSegmentedClip(segConfig, outputPath, () => {
     // Preview has no progress reporting — swallow updates.
-  })
+  });
 
-  return outputPath
+  return outputPath;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,15 +204,15 @@ async function renderSegmentedPreview(
  * @returns Absolute path to the rendered temp file (caller must delete it).
  */
 export async function renderPreview(config: PreviewRenderConfig): Promise<string> {
-  const clipId = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-  const outputPath = join(tmpdir(), `batchcontent-preview-${Date.now()}.mp4`)
+  const clipId = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const outputPath = join(tmpdir(), `batchcontent-preview-${Date.now()}.mp4`);
 
   // ── Segmented preview shortcut ──────────────────────────────────────────
   // When the clip has per-segment styling, render each segment with its
   // own archetype layout via renderSegmentedClip(). This mirrors the batch
   // render path in pipeline.ts but at preview resolution/quality.
   if (config.segments && config.segments.length > 0) {
-    return renderSegmentedPreview(config, outputPath)
+    return renderSegmentedPreview(config, outputPath);
   }
 
   // ── Build job ─────────────────────────────────────────────────────────────
@@ -190,8 +224,9 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
     cropRegion: config.cropRegion,
     cropTimeline: config.cropTimeline,
     wordTimestamps: config.wordTimestamps,
-    hookTitleText: config.hookTitleText
-  }
+    hookTitleText: config.hookTitleText,
+    rehookText: config.rehookText,
+  };
 
   // ── Build batch options (no sound design, no B-roll, no filler removal) ───
   const batchOptions: RenderBatchOptions = {
@@ -200,72 +235,90 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
     captionsEnabled: config.captionsEnabled,
     captionStyle: config.captionStyle,
     hookTitleOverlay: config.hookTitleOverlay,
-    autoZoom: config.autoZoom
+    rehookOverlay: config.rehookOverlay,
+    autoZoom: config.autoZoom,
+    wordEmphasisEnabled: config.wordEmphasisEnabled,
+    shotTransitionsEnabled: config.shotTransitionsEnabled,
     // soundDesign, fillerRemoval, broll intentionally omitted
-  }
+  };
 
   // ── Apply accent color to batch options (same logic as accent-color.feature) ──
   if (config.accentColor) {
-    const accent = config.accentColor
+    const accent = config.accentColor;
     if (batchOptions.captionStyle) {
       batchOptions.captionStyle = {
         ...batchOptions.captionStyle,
         highlightColor: accent,
         emphasisColor: accent,
         // Lighten 40% toward white for supersize (same as accent-color.feature)
-        supersizeColor: lightenColor(accent, 0.4)
-      }
+        supersizeColor: lightenColor(accent, 0.4),
+      };
     }
     if (batchOptions.hookTitleOverlay) {
       batchOptions.hookTitleOverlay = {
         ...batchOptions.hookTitleOverlay,
-        textColor: accent
-      }
+        textColor: accent,
+      };
     }
-    console.log(`[Preview] Applying accent color: ${accent}`)
+    console.log(`[Preview] Applying accent color: ${accent}`);
   }
 
   // ── Get source metadata ───────────────────────────────────────────────────
-  const meta = await getVideoMetadata(config.sourceVideoPath)
+  const meta = await getVideoMetadata(config.sourceVideoPath);
 
   // ── Create fresh feature instances for this preview ───────────────────────
   // We create fresh instances of stateful features to avoid state pollution
   // between concurrent preview renders and batch renders.
   const features: RenderFeature[] = [
+    wordEmphasisFeature,
     createCaptionsFeature(),
-    createHookTitleFeature()
-  ]
+    createHookTitleFeature(),
+    createRehookFeature(),
+  ];
 
   // Auto-zoom filter (call generateZoomFilter directly — the autoZoomFeature
   // singleton stores per-clipId state which we avoid by calling the function
   // directly here with our unique preview clipId).
-  const clipDuration = config.endTime - config.startTime
-  let autoZoomFilter: string | null = null
+  const clipDuration = config.endTime - config.startTime;
+  let autoZoomFilter: string | null = null;
   if (config.autoZoom?.enabled) {
     try {
-      const filter = generateZoomFilter(clipDuration, config.autoZoom, 0.38, PREVIEW_WIDTH, PREVIEW_HEIGHT)
-      autoZoomFilter = filter || null
+      const filter = generateZoomFilter(
+        clipDuration,
+        config.autoZoom,
+        0.38,
+        PREVIEW_WIDTH,
+        PREVIEW_HEIGHT,
+      );
+      autoZoomFilter = filter || null;
     } catch (err) {
-      console.warn('[Preview] Auto-zoom filter generation failed, skipping:', err)
+      console.warn('[Preview] Auto-zoom filter generation failed, skipping:', err);
     }
   }
 
   // ── Phase 1: Prepare all features ─────────────────────────────────────────
-  const allTempFiles: string[] = []
+  const allTempFiles: string[] = [];
   for (const feature of features) {
     if (feature.prepare) {
-      const result = await feature.prepare(job, batchOptions)
-      allTempFiles.push(...result.tempFiles)
+      const result = await feature.prepare(job, batchOptions);
+      allTempFiles.push(...result.tempFiles);
     }
   }
 
   // ── Phase 2: Build video filter chain ─────────────────────────────────────
-  const targetResolution = { width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT }
-  let videoFilter = buildVideoFilter(job, meta.width, meta.height, targetResolution, '9:16', meta.fps)
+  const targetResolution = { width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT };
+  let videoFilter = buildVideoFilter(
+    job,
+    meta.width,
+    meta.height,
+    targetResolution,
+    '9:16',
+    meta.fps,
+  );
 
   // Append auto-zoom if enabled
   if (autoZoomFilter) {
-    videoFilter = videoFilter + ',' + autoZoomFilter
+    videoFilter = `${videoFilter},${autoZoomFilter}`;
   }
 
   // Feature video filters (none of the current features use this for preview,
@@ -276,13 +329,13 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
     targetWidth: PREVIEW_WIDTH,
     targetHeight: PREVIEW_HEIGHT,
     clipDuration,
-    outputAspectRatio: '9:16'
-  }
+    outputAspectRatio: '9:16',
+  };
   for (const feature of features) {
     if (feature.videoFilter) {
-      const featureFilter = feature.videoFilter(job, filterContext)
+      const featureFilter = feature.videoFilter(job, filterContext);
       if (featureFilter) {
-        videoFilter = videoFilter + ',' + featureFilter
+        videoFilter = `${videoFilter},${featureFilter}`;
       }
     }
   }
@@ -291,20 +344,20 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
   const overlayContext: OverlayContext = {
     clipDuration,
     targetWidth: PREVIEW_WIDTH,
-    targetHeight: PREVIEW_HEIGHT
-  }
-  const overlaySteps: OverlayPassResult[] = []
+    targetHeight: PREVIEW_HEIGHT,
+  };
+  const overlaySteps: OverlayPassResult[] = [];
   for (const feature of features) {
     if (feature.overlayPass) {
-      const step = feature.overlayPass(job, overlayContext)
-      if (step) overlaySteps.push(step)
+      const step = feature.overlayPass(job, overlayContext);
+      if (step) overlaySteps.push(step);
     }
   }
 
   // ── Phase 4: Render at preview quality ────────────────────────────────────
   // CRF 35 + ultrafast preset gives the fastest possible encode.
   // GPU (NVENC p1 / QSV fast) or software (libx264 ultrafast) — both work fine.
-  const previewQuality = { crf: 35, preset: 'ultrafast' as const }
+  const previewQuality = { crf: 35, preset: 'ultrafast' as const };
 
   try {
     await renderClip(
@@ -317,16 +370,20 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
       'mp4',
       null,
       null,
-      overlaySteps
-    )
+      overlaySteps,
+    );
   } finally {
     // Clean up temp files from features (ASS files, etc.)
     for (const tmp of allTempFiles) {
-      try { unlinkSync(tmp) } catch { /* ignore */ }
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
-  return outputPath
+  return outputPath;
 }
 
 // ---------------------------------------------------------------------------
@@ -338,8 +395,8 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
  */
 export function cleanupPreviewFile(previewPath: string): void {
   try {
-    unlinkSync(previewPath)
-    console.log(`[Preview] Cleaned up temp file: ${previewPath}`)
+    unlinkSync(previewPath);
+    console.log(`[Preview] Cleaned up temp file: ${previewPath}`);
   } catch {
     // Ignore — file may have already been deleted or never created
   }

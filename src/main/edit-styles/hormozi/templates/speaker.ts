@@ -1,4 +1,4 @@
-import type { LongformArchetypeTemplate } from './types'
+import type { LongformArchetypeTemplate } from './types';
 
 /**
  * speaker — full-frame 16:9 talking head with a subtle Hormozi punch-in.
@@ -7,5 +7,5 @@ import type { LongformArchetypeTemplate } from './types'
 export const speaker: LongformArchetypeTemplate = {
   archetype: 'speaker',
   zoomStyle: 'snap',
-  zoomIntensity: 1.12
-}
+  zoomIntensity: 1.12,
+};

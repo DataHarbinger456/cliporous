@@ -1,4 +1,4 @@
-import type { EditStyleTemplate } from '../../shared/types'
+import type { EditStyleTemplate } from '../../shared/types';
 
 export const wideBreather: EditStyleTemplate = {
   archetype: 'wide-breather',
@@ -7,5 +7,5 @@ export const wideBreather: EditStyleTemplate = {
   captionPosition: 'lower-third',
   captionMarginV: 230,
   hookTitleY: 220,
-  rehookY: 220
-}
+  rehookY: 220,
+};

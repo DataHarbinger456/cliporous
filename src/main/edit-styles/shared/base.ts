@@ -3,7 +3,7 @@
  * Moved verbatim from the old src/main/edit-styles.ts monolith.
  */
 
-import type { Energy, TMap } from './types'
+import type { Energy, TMap } from './types';
 
 // Types referenced below (EditStyle, CaptionStyleInput, HeadlineStyleConfig,
 // VFXOverlay, ColorGradeParams, TextAnimationStyle, TransitionType) are
@@ -19,8 +19,8 @@ export const LOW_ENERGY_SEGMENTS = [
   'main-video-normal',
   'main-video-wide',
   'main-video-text-lower',
-  'fullscreen-text-center'
-]
+  'fullscreen-text-center',
+];
 
 export const MEDIUM_ENERGY_SEGMENTS = [
   'main-video-normal',
@@ -28,8 +28,8 @@ export const MEDIUM_ENERGY_SEGMENTS = [
   'main-video-wide',
   'main-video-text-lower',
   'main-video-text-center',
-  'fullscreen-text-center'
-]
+  'fullscreen-text-center',
+];
 
 export const HIGH_ENERGY_SEGMENTS = [
   'main-video-normal',
@@ -37,29 +37,29 @@ export const HIGH_ENERGY_SEGMENTS = [
   'main-video-text-lower',
   'main-video-text-center',
   'fullscreen-text-center',
-  'fullscreen-text-headline'
-]
+  'fullscreen-text-headline',
+];
 
 export const ENERGY_DEFAULTS: Record<
   Energy,
   {
-    availableSegmentStyles: string[]
-    segmentDurationTarget: { min: number; max: number; ideal: number }
+    availableSegmentStyles: string[];
+    segmentDurationTarget: { min: number; max: number; ideal: number };
   }
 > = {
   low: {
     availableSegmentStyles: LOW_ENERGY_SEGMENTS,
-    segmentDurationTarget: { min: 4, max: 10, ideal: 6 }
+    segmentDurationTarget: { min: 4, max: 10, ideal: 6 },
   },
   medium: {
     availableSegmentStyles: MEDIUM_ENERGY_SEGMENTS,
-    segmentDurationTarget: { min: 3, max: 7, ideal: 5 }
+    segmentDurationTarget: { min: 3, max: 7, ideal: 5 },
   },
   high: {
     availableSegmentStyles: HIGH_ENERGY_SEGMENTS,
-    segmentDurationTarget: { min: 2, max: 5, ideal: 3 }
-  }
-}
+    segmentDurationTarget: { min: 2, max: 5, ideal: 3 },
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Caption + headline baselines (the shape ~14/15 styles share)
@@ -78,8 +78,8 @@ export const CAPTION_BASE: CaptionStyleInput = {
   wordsPerLine: 5,
   animation: 'captions-ai',
   emphasisColor: '#FFFFFF',
-  supersizeColor: '#FFFFFF'
-}
+  supersizeColor: '#FFFFFF',
+};
 
 export const HEADLINE_BASE: HeadlineStyleConfig = {
   fontSize: 60,
@@ -92,39 +92,36 @@ export const HEADLINE_BASE: HeadlineStyleConfig = {
   animation: 'fade',
   animationDurationMs: 400,
   fadeOutMs: 400,
-  verticalPosition: 0.12
-}
+  verticalPosition: 0.12,
+};
 
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
-export type EditStyleOverrides = Omit<
-  Partial<EditStyle>,
-  'captionStyle' | 'headlineStyle'
-> & {
-  id: string
-  name: string
-  energy: Energy
-  accentColor: string
-  defaultZoomStyle: EditStyle['defaultZoomStyle']
-  defaultZoomIntensity: number
-  defaultTransition: TransitionType
-  flashColor: string
-  transitionDuration: number
-  targetEditsPerSecond: number
-  description: string
-  textAnimation: TextAnimationStyle
-  colorGrade: ColorGradeParams
-  transitionMap: TMap
-  vfxOverlays: VFXOverlay[]
-  captionStyle?: Partial<CaptionStyleInput>
-  headlineStyle?: Partial<HeadlineStyleConfig>
-}
+export type EditStyleOverrides = Omit<Partial<EditStyle>, 'captionStyle' | 'headlineStyle'> & {
+  id: string;
+  name: string;
+  energy: Energy;
+  accentColor: string;
+  defaultZoomStyle: EditStyle['defaultZoomStyle'];
+  defaultZoomIntensity: number;
+  defaultTransition: TransitionType;
+  flashColor: string;
+  transitionDuration: number;
+  targetEditsPerSecond: number;
+  description: string;
+  textAnimation: TextAnimationStyle;
+  colorGrade: ColorGradeParams;
+  transitionMap: TMap;
+  vfxOverlays: VFXOverlay[];
+  captionStyle?: Partial<CaptionStyleInput>;
+  headlineStyle?: Partial<HeadlineStyleConfig>;
+};
 
 export function createEditStyle(o: EditStyleOverrides): EditStyle {
-  const energyDefaults = ENERGY_DEFAULTS[o.energy]
-  const { captionStyle, headlineStyle, ...rest } = o
+  const energyDefaults = ENERGY_DEFAULTS[o.energy];
+  const { captionStyle, headlineStyle, ...rest } = o;
   return {
     captionBgOpacity: 0,
     letterbox: 'none',
@@ -132,6 +129,6 @@ export function createEditStyle(o: EditStyleOverrides): EditStyle {
     segmentDurationTarget: energyDefaults.segmentDurationTarget,
     ...rest,
     captionStyle: { ...CAPTION_BASE, ...captionStyle },
-    headlineStyle: { ...HEADLINE_BASE, ...headlineStyle }
-  }
+    headlineStyle: { ...HEADLINE_BASE, ...headlineStyle },
+  };
 }

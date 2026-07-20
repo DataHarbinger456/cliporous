@@ -11,7 +11,7 @@
 // FFmpeg execution is mocked — the test never shells out.
 // ---------------------------------------------------------------------------
 
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be defined before imports that reference them
@@ -23,18 +23,18 @@ vi.mock('fs', () => ({
   copyFileSync: vi.fn(),
   unlinkSync: vi.fn(),
   mkdirSync: vi.fn(),
-  readFileSync: vi.fn(() => Buffer.from(''))
-}))
+  readFileSync: vi.fn(() => Buffer.from('')),
+}));
 
 vi.mock('fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
   mkdir: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn().mockResolvedValue(Buffer.from(''))
-}))
+  readFile: vi.fn().mockResolvedValue(Buffer.from('')),
+}));
 
 vi.mock('electron', () => ({
-  app: { isPackaged: false, getPath: vi.fn(() => '/tmp') }
-}))
+  app: { isPackaged: false, getPath: vi.fn(() => '/tmp') },
+}));
 
 // NOTE: This test file lives at src/main/render/pipeline.test.ts. Mock
 // specifiers therefore use '../<name>' to reach src/main/<name>, mirroring
@@ -42,46 +42,42 @@ vi.mock('electron', () => ({
 // when they import '../../<name>'. Both resolve to the same module URL
 // inside vitest's mock registry.
 vi.mock('../captions', () => ({
-  generateCaptions: vi.fn().mockResolvedValue('/tmp/batchcontent-captions-archetype.ass')
-}))
+  generateCaptions: vi.fn().mockResolvedValue('/tmp/batchcontent-captions-archetype.ass'),
+}));
 
 vi.mock('../word-emphasis', () => ({
-  analyzeEmphasisHeuristic: vi.fn(
-    (words: Array<{ text: string; start: number; end: number }>) =>
-      words.map((w, i) => ({
-        ...w,
-        // Mark a couple of words as emphasis so downstream features have data to consume.
-        emphasis: i % 3 === 0 ? 'emphasis' : 'normal'
-      }))
-  )
-}))
+  analyzeEmphasisHeuristic: vi.fn((words: Array<{ text: string; start: number; end: number }>) =>
+    words.map((w, i) => ({
+      ...w,
+      // Mark a couple of words as emphasis so downstream features have data to consume.
+      emphasis: i % 3 === 0 ? 'emphasis' : 'normal',
+    })),
+  ),
+}));
 
 vi.mock('../auto-zoom', () => ({
-  generateZoomFilter: vi.fn(
-    () => 'crop=trunc(iw*1.1):trunc(ih*1.1):0:0,scale=1080:1920'
-  ),
+  generateZoomFilter: vi.fn(() => 'crop=trunc(iw*1.1):trunc(ih*1.1):0:0,scale=1080:1920'),
   generatePiecewiseZoomFilter: vi.fn(
-    () =>
-      "crop=w='iw*1.1':h='ih*1.1':x='(iw-iw*1.1)/2':y='(ih-ih*1.1)/2',scale=1080:1920"
-  )
-}))
+    () => "crop=w='iw*1.1':h='ih*1.1':x='(iw-iw*1.1)/2':y='(ih-ih*1.1)/2',scale=1080:1920",
+  ),
+}));
 
 vi.mock('../overlays/rehook', () => ({
-  getDefaultRehookPhrase: vi.fn(() => 'Wait for it...')
-}))
+  getDefaultRehookPhrase: vi.fn(() => 'Wait for it...'),
+}));
 
 vi.mock('../filler-detection', () => ({
   detectFillers: vi.fn(() => ({
     segments: [],
     counts: { filler: 0, silence: 0, repeat: 0 },
-    timeSaved: 0
-  }))
-}))
+    timeSaved: 0,
+  })),
+}));
 
 vi.mock('../filler-cuts', () => ({
   buildKeepSegments: vi.fn(() => []),
-  remapWordTimestamps: vi.fn(() => [])
-}))
+  remapWordTimestamps: vi.fn(() => []),
+}));
 
 // FFmpeg execution surface — every shell-out path is fully mocked. Each call
 // to `ffmpeg(...)` returns a chainable object whose `.run()` resolves
@@ -89,11 +85,11 @@ vi.mock('../filler-cuts', () => ({
 // vi.mock() factories are hoisted to the top of the file; any closure
 // variable they reference must be hoisted alongside.
 const { ffmpegRunMock } = vi.hoisted(() => ({
-  ffmpegRunMock: vi.fn().mockResolvedValue(undefined)
-}))
+  ffmpegRunMock: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock('../ffmpeg', () => {
-  const chain: Record<string, (...args: unknown[]) => unknown> = {}
+  const chain: Record<string, (...args: unknown[]) => unknown> = {};
   const methods = [
     'input',
     'inputOptions',
@@ -113,27 +109,32 @@ vi.mock('../ffmpeg', () => {
     'addInput',
     'addOption',
     'addOutputOption',
-    'addInputOption'
-  ]
-  for (const m of methods) chain[m] = vi.fn(() => chain)
-  chain.run = ffmpegRunMock
-  chain.kill = vi.fn()
+    'addInputOption',
+  ];
+  for (const m of methods) chain[m] = vi.fn(() => chain);
+  chain.run = ffmpegRunMock;
+  chain.kill = vi.fn();
   // `.save(path)` is the fluent terminator used by broll.feature.ts. Resolve
   // any registered 'end' handlers on the next tick so the wrapping Promise
   // settles cleanly.
   chain.save = vi.fn(() => {
     queueMicrotask(() => {
-      const onCalls = (chain.on as ReturnType<typeof vi.fn>).mock.calls as Array<[string, (...a: unknown[]) => void]>
+      const onCalls = (chain.on as ReturnType<typeof vi.fn>).mock.calls as Array<
+        [string, (...a: unknown[]) => void]
+      >;
       for (const [event, handler] of onCalls) {
-        if (event === 'end' && typeof handler === 'function') handler()
+        if (event === 'end' && typeof handler === 'function') handler();
       }
-    })
-    return chain
-  })
+    });
+    return chain;
+  });
   return {
     ffmpeg: vi.fn(() => chain),
     getEncoder: vi.fn(() => ({ encoder: 'libx264', presetFlag: ['-preset', 'veryfast'] })),
     getSoftwareEncoder: vi.fn(() => ({ encoder: 'libx264', presetFlag: ['-preset', 'veryfast'] })),
+    isHardwareEncoder: vi.fn(
+      (enc: string) => enc === 'h264_nvenc' || enc === 'h264_qsv' || enc === 'h264_videotoolbox',
+    ),
     isGpuSessionError: vi.fn(() => false),
     isGpuEncoderDisabled: vi.fn(() => false),
     disableGpuEncoderForSession: vi.fn(),
@@ -144,15 +145,15 @@ vi.mock('../ffmpeg', () => {
       fps: 30,
       audioCodec: 'aac',
       duration: 60,
-      videoStreamDuration: 60
-    }))
-  }
-})
+      videoStreamDuration: 60,
+    })),
+  };
+});
 
 vi.mock('../aspect-ratios', () => ({
   // Locked to 9:16 vertical at 1080×1920 @ 30fps.
   ASPECT_RATIO_CONFIGS: {
-    '9:16': { width: 1080, height: 1920 }
+    '9:16': { width: 1080, height: 1920 },
   },
   OUTPUT_WIDTH: 1080,
   OUTPUT_HEIGHT: 1920,
@@ -161,52 +162,60 @@ vi.mock('../aspect-ratios', () => ({
     x: 0,
     y: 0,
     width: sw,
-    height: sh
-  })
-}))
+    height: sh,
+  }),
+}));
 
 // Stub the broll image overlay path. The B-Roll feature's local
 // applyBRollOverlay() function uses the mocked ../ffmpeg surface above,
 // so postProcess returns immediately without spawning a child process.
 vi.mock('../broll-image-overlay', () => ({
-  applyBRollImageOverlay: vi.fn().mockResolvedValue(undefined)
-}))
+  applyBRollImageOverlay: vi.fn().mockResolvedValue(undefined),
+}));
 
 // ---------------------------------------------------------------------------
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
-import { createCaptionsFeature } from './features/captions.feature'
-import { createHookTitleFeature } from './features/hook-title.feature'
-import { createRehookFeature } from './features/rehook.feature'
-import { autoZoomFeature } from './features/auto-zoom.feature'
-import { createFillerRemovalFeature } from './features/filler-removal.feature'
-import { wordEmphasisFeature } from './features/word-emphasis.feature'
-import { brollFeature } from './features/broll.feature'
-import { shotTransitionFeature } from './features/shot-transition.feature'
-import { accentColorFeature } from './features/accent-color.feature'
+import { Ch } from '@shared/ipc-channels';
+import { ARCHETYPE_KEYS, type Archetype } from '../edit-styles/shared/archetypes';
+import { activeCommands } from './base-render';
+import { accentColorFeature } from './features/accent-color.feature';
+import { autoZoomFeature } from './features/auto-zoom.feature';
+import { brollFeature } from './features/broll.feature';
+import { createCaptionsFeature } from './features/captions.feature';
 import type {
-  RenderFeature,
   FilterContext,
   OverlayContext,
-  PostProcessContext
-} from './features/feature'
-import type { RenderClipJob, RenderBatchOptions } from './types'
-import { ARCHETYPE_KEYS, type Archetype } from '../edit-styles/shared/archetypes'
+  PostProcessContext,
+  RenderFeature,
+} from './features/feature';
+import { createFillerRemovalFeature } from './features/filler-removal.feature';
+import { createHookTitleFeature } from './features/hook-title.feature';
+import { createRehookFeature } from './features/rehook.feature';
+import { shotTransitionFeature } from './features/shot-transition.feature';
+import { wordEmphasisFeature } from './features/word-emphasis.feature';
+import {
+  beginRenderBatch,
+  cancelRender,
+  isRenderCancellationRequested,
+  startBatchRender,
+} from './pipeline';
+import type { RenderBatchOptions, RenderClipJob } from './types';
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 interface InvocationLog {
-  prepare: number
-  videoFilter: number
-  overlayPass: number
-  postProcess: number
+  prepare: number;
+  videoFilter: number;
+  overlayPass: number;
+  postProcess: number;
 }
 
 function makeInvocationLog(): InvocationLog {
-  return { prepare: 0, videoFilter: 0, overlayPass: 0, postProcess: 0 }
+  return { prepare: 0, videoFilter: 0, overlayPass: 0, postProcess: 0 };
 }
 
 /**
@@ -214,37 +223,34 @@ function makeInvocationLog(): InvocationLog {
  * the original return value / behaviour and records nothing about success or
  * failure beyond "the method was called".
  */
-function trackFeature(
-  feature: RenderFeature,
-  log: InvocationLog
-): RenderFeature {
-  const wrapped: RenderFeature = { name: feature.name }
+function trackFeature(feature: RenderFeature, log: InvocationLog): RenderFeature {
+  const wrapped: RenderFeature = { name: feature.name };
 
   if (feature.prepare) {
     wrapped.prepare = async (job, opts, onProgress) => {
-      log.prepare++
-      return feature.prepare!(job, opts, onProgress)
-    }
+      log.prepare++;
+      return feature.prepare?.(job, opts, onProgress);
+    };
   }
   if (feature.videoFilter) {
     wrapped.videoFilter = (job, ctx) => {
-      log.videoFilter++
-      return feature.videoFilter!(job, ctx)
-    }
+      log.videoFilter++;
+      return feature.videoFilter?.(job, ctx);
+    };
   }
   if (feature.overlayPass) {
     wrapped.overlayPass = (job, ctx) => {
-      log.overlayPass++
-      return feature.overlayPass!(job, ctx)
-    }
+      log.overlayPass++;
+      return feature.overlayPass?.(job, ctx);
+    };
   }
   if (feature.postProcess) {
     wrapped.postProcess = async (job, renderedPath, ctx) => {
-      log.postProcess++
-      return feature.postProcess!(job, renderedPath, ctx)
-    }
+      log.postProcess++;
+      return feature.postProcess?.(job, renderedPath, ctx);
+    };
   }
-  return wrapped
+  return wrapped;
 }
 
 /**
@@ -256,14 +262,14 @@ function trackFeature(
  * it tolerates one job per archetype.
  */
 function makeArchetypeJob(archetype: Archetype, index: number): RenderClipJob {
-  const clipDuration = 12
-  const startTime = 0
-  const endTime = startTime + clipDuration
+  const clipDuration = 12;
+  const startTime = 0;
+  const endTime = startTime + clipDuration;
   const wordTimestamps = Array.from({ length: 10 }, (_, i) => ({
     text: `word${i}`,
     start: startTime + i * 1.0,
-    end: startTime + i * 1.0 + 0.4
-  }))
+    end: startTime + i * 1.0 + 0.4,
+  }));
 
   return {
     clipId: `clip-${archetype}-${index}`,
@@ -281,24 +287,24 @@ function makeArchetypeJob(archetype: Archetype, index: number): RenderClipJob {
         videoPath: '/broll/clip.mp4',
         keyword: archetype,
         displayMode: 'fullscreen',
-        transition: 'crossfade'
-      }
+        transition: 'crossfade',
+      },
     ],
     shotStyleConfigs: [
       {
         shotIndex: 0,
         startTime: 0,
         endTime: 6,
-        transitionOut: { type: 'crossfade', duration: 0.3 }
+        transitionOut: { type: 'crossfade', duration: 0.3 },
       },
       {
         shotIndex: 1,
         startTime: 6,
         endTime: clipDuration,
-        transitionIn: { type: 'crossfade', duration: 0.3 }
-      }
-    ]
-  } as RenderClipJob
+        transitionIn: { type: 'crossfade', duration: 0.3 },
+      },
+    ],
+  } as RenderClipJob;
 }
 
 function makeBatchOptions(): RenderBatchOptions {
@@ -317,7 +323,7 @@ function makeBatchOptions(): RenderBatchOptions {
       shadow: 0,
       borderStyle: 4,
       wordsPerLine: 3,
-      animation: 'word-pop'
+      animation: 'word-pop',
     },
     hookTitleOverlay: {
       enabled: true,
@@ -326,7 +332,7 @@ function makeBatchOptions(): RenderBatchOptions {
       fadeOut: 0.3,
       fontSize: 48,
       textColor: '#FFFFFF',
-      outlineColor: '#000000'
+      outlineColor: '#000000',
     },
     rehookOverlay: {
       enabled: true,
@@ -335,15 +341,15 @@ function makeBatchOptions(): RenderBatchOptions {
       fadeOut: 0.2,
       fontSize: 36,
       textColor: '#FFFFFF',
-      outlineColor: '#000000'
+      outlineColor: '#000000',
     },
     autoZoom: {
       enabled: true,
       mode: 'ken-burns',
       intensity: 'medium',
-      intervalSeconds: 3
-    }
-  }
+      intervalSeconds: 3,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -353,8 +359,8 @@ function makeBatchOptions(): RenderBatchOptions {
 describe('pipeline: PRESTYJ archetype × ported feature matrix', () => {
   // Build the full registered feature set in pipeline.ts execution order.
   // Every active feature is exercised by at least one job in the matrix.
-  const featureLogs = new Map<string, InvocationLog>()
-  const features: RenderFeature[] = []
+  const featureLogs = new Map<string, InvocationLog>();
+  const features: RenderFeature[] = [];
 
   beforeAll(() => {
     const raw: RenderFeature[] = [
@@ -366,116 +372,166 @@ describe('pipeline: PRESTYJ archetype × ported feature matrix', () => {
       createRehookFeature(),
       autoZoomFeature,
       brollFeature,
-      shotTransitionFeature
-    ]
+      shotTransitionFeature,
+    ];
     for (const f of raw) {
-      const log = makeInvocationLog()
-      featureLogs.set(f.name, log)
-      features.push(trackFeature(f, log))
+      const log = makeInvocationLog();
+      featureLogs.set(f.name, log);
+      features.push(trackFeature(f, log));
     }
-  })
+  });
 
   // Sanity check: archetypes haven't drifted out from under the test.
   it('covers all 7 PRESTYJ archetypes', () => {
-    expect(ARCHETYPE_KEYS).toHaveLength(7)
-  })
+    expect(ARCHETYPE_KEYS).toHaveLength(7);
+  });
 
   // ── Drive a single clip per archetype through every phase ───────────────
   // Every phase call wrapped in expect(...).not.toThrow at the assertion
   // boundary; the awaited Promise rejection would surface here too.
-  it.each([...ARCHETYPE_KEYS])(
-    'drives a fake "%s" clip through prepare → videoFilter → overlayPass → postProcess without throwing',
-    async (archetype) => {
-      const job = makeArchetypeJob(archetype, 0)
-      const options = makeBatchOptions()
+  it.each([
+    ...ARCHETYPE_KEYS,
+  ])('drives a fake "%s" clip through prepare → videoFilter → overlayPass → postProcess without throwing', async (archetype) => {
+    const job = makeArchetypeJob(archetype, 0);
+    const options = makeBatchOptions();
 
-      const filterContext: FilterContext = {
-        sourceWidth: 1920,
-        sourceHeight: 1080,
-        targetWidth: 1080,
-        targetHeight: 1920,
-        clipDuration: job.endTime - job.startTime,
-        outputAspectRatio: '9:16'
-      }
-      const overlayContext: OverlayContext = {
-        clipDuration: job.endTime - job.startTime,
-        targetWidth: 1080,
-        targetHeight: 1920
-      }
-      const postContext: PostProcessContext = {
-        clipDuration: job.endTime - job.startTime,
-        outputPath: `/output/${job.clipId}.mp4`
-      }
+    const filterContext: FilterContext = {
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      targetWidth: 1080,
+      targetHeight: 1920,
+      clipDuration: job.endTime - job.startTime,
+      outputAspectRatio: '9:16',
+    };
+    const overlayContext: OverlayContext = {
+      clipDuration: job.endTime - job.startTime,
+      targetWidth: 1080,
+      targetHeight: 1920,
+    };
+    const postContext: PostProcessContext = {
+      clipDuration: job.endTime - job.startTime,
+      outputPath: `/output/${job.clipId}.mp4`,
+    };
 
-      // Phase 1: prepare()
-      for (const f of features) {
-        if (f.prepare) {
-          await expect(f.prepare(job, options)).resolves.toBeDefined()
-        }
+    // Phase 1: prepare()
+    for (const f of features) {
+      if (f.prepare) {
+        await expect(f.prepare(job, options)).resolves.toBeDefined();
       }
-
-      // Phase 2: videoFilter() — collect contributions for the graph assertion
-      const filterParts: string[] = []
-      for (const f of features) {
-        if (f.videoFilter) {
-          let part: string | null = null
-          expect(() => {
-            part = f.videoFilter!(job, filterContext)
-          }).not.toThrow()
-          if (part) filterParts.push(part)
-        }
-      }
-
-      // Phase 3: overlayPass() — collect overlay filter strings
-      const overlayParts: string[] = []
-      for (const f of features) {
-        if (f.overlayPass) {
-          let step: ReturnType<NonNullable<RenderFeature['overlayPass']>> = null
-          expect(() => {
-            step = f.overlayPass!(job, overlayContext)
-          }).not.toThrow()
-          if (step) overlayParts.push(step.filter)
-        }
-      }
-
-      // Phase 4: postProcess()
-      let renderedPath = postContext.outputPath
-      for (const f of features) {
-        if (f.postProcess) {
-          await expect(
-            f.postProcess(job, renderedPath, postContext)
-          ).resolves.toBeTypeOf('string')
-        }
-      }
-
-      // Filter graph for THIS archetype must be non-empty (videoFilter
-      // contributions ∪ overlay passes). Auto-zoom alone guarantees a
-      // videoFilter contribution; captions + hook + rehook each emit an
-      // overlay pass.
-      const graph = [...filterParts, ...overlayParts].join(';')
-      expect(graph.length).toBeGreaterThan(0)
     }
-  )
+
+    // Phase 2: videoFilter() — collect contributions for the graph assertion
+    const filterParts: string[] = [];
+    for (const f of features) {
+      if (f.videoFilter) {
+        let part: string | null = null;
+        expect(() => {
+          part = f.videoFilter?.(job, filterContext);
+        }).not.toThrow();
+        if (part) filterParts.push(part);
+      }
+    }
+
+    // Phase 3: overlayPass() — collect overlay filter strings
+    const overlayParts: string[] = [];
+    for (const f of features) {
+      if (f.overlayPass) {
+        let step: ReturnType<NonNullable<RenderFeature['overlayPass']>> = null;
+        expect(() => {
+          step = f.overlayPass?.(job, overlayContext);
+        }).not.toThrow();
+        if (step) overlayParts.push(step.filter);
+      }
+    }
+
+    // Phase 4: postProcess()
+    const renderedPath = postContext.outputPath;
+    for (const f of features) {
+      if (f.postProcess) {
+        await expect(f.postProcess(job, renderedPath, postContext)).resolves.toBeTypeOf('string');
+      }
+    }
+
+    // Filter graph for THIS archetype must be non-empty (videoFilter
+    // contributions ∪ overlay passes). Auto-zoom alone guarantees a
+    // videoFilter contribution; captions + hook + rehook each emit an
+    // overlay pass.
+    const graph = [...filterParts, ...overlayParts].join(';');
+    expect(graph.length).toBeGreaterThan(0);
+  });
 
   // ── Aggregate assertion across the full matrix ──────────────────────────
   it('invokes every registered ported feature at least once across the archetype set', () => {
     for (const [name, log] of featureLogs) {
-      const total =
-        log.prepare + log.videoFilter + log.overlayPass + log.postProcess
+      const total = log.prepare + log.videoFilter + log.overlayPass + log.postProcess;
       expect(
         total,
         `feature "${name}" was never invoked across any archetype — ` +
           `prepare=${log.prepare} videoFilter=${log.videoFilter} ` +
-          `overlayPass=${log.overlayPass} postProcess=${log.postProcess}`
-      ).toBeGreaterThan(0)
+          `overlayPass=${log.overlayPass} postProcess=${log.postProcess}`,
+      ).toBeGreaterThan(0);
     }
-  })
+  });
 
   it('never invokes the real FFmpeg base-render path', () => {
     // base-render.ts terminates its FFmpeg pipeline with `.run()`. The broll
     // postProcess uses `.save(path)` instead. Both are mocked above — so no
     // real child process is ever spawned. Confirming `.run()` was untouched
     // proves the pipeline's main encode pass never executed in this test.
-    expect(ffmpegRunMock).not.toHaveBeenCalled()
-  })
-})
+    expect(ffmpegRunMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('pipeline cancellation handoff', () => {
+  it('preserves cancellation requested during IPC preparation when encoding starts', async () => {
+    const options = makeBatchOptions();
+    options.jobs = [makeArchetypeJob('talking-head', 0)];
+    const send = vi.fn();
+    const window = {
+      webContents: { send },
+    } as unknown as Parameters<typeof startBatchRender>[1];
+
+    beginRenderBatch();
+    expect(isRenderCancellationRequested()).toBe(false);
+
+    // The IPC layer can receive cancel while it is still preparing B-roll or
+    // promo assets. startBatchRender must not erase that request on handoff.
+    cancelRender();
+    expect(isRenderCancellationRequested()).toBe(true);
+
+    await startBatchRender(options, window);
+
+    expect(send).toHaveBeenCalledWith(Ch.Send.RENDER_CANCELLED, {
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      total: 1,
+    });
+    expect(ffmpegRunMock).not.toHaveBeenCalled();
+
+    // Keep module state isolated for later tests in the same worker.
+    beginRenderBatch();
+  });
+
+  it('keeps a process tracked when termination fails so cancellation can be retried', () => {
+    const kill = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('process busy');
+      })
+      .mockImplementationOnce(() => undefined);
+    const command = { kill } as unknown as Parameters<typeof activeCommands.add>[0];
+    activeCommands.add(command);
+
+    expect(() => cancelRender()).toThrow(
+      'Cancellation failed for 1 video process(es): process busy',
+    );
+    expect(activeCommands.has(command)).toBe(true);
+
+    expect(() => cancelRender()).not.toThrow();
+    expect(kill).toHaveBeenCalledTimes(2);
+
+    activeCommands.delete(command);
+    beginRenderBatch();
+  });
+});

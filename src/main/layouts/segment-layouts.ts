@@ -19,42 +19,42 @@
  * and SAR 1:1, ready for encoding.
  */
 
-import { BRAND_FG } from '../edit-styles/shared/brand'
-import type { Archetype } from '@shared/types'
+import type { Archetype } from '@shared/types';
+import { BRAND_FG } from '../edit-styles/shared/brand';
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 export interface SegmentLayoutParams {
-  width: number                // 1080
-  height: number               // 1920
-  segmentDuration: number
+  width: number; // 1080
+  height: number; // 1920
+  segmentDuration: number;
   /** Output framerate — used to lock media inputs to the video's rate so
    *  vstack/overlay don't drop frames from the slower stream. */
-  fps?: number
+  fps?: number;
   /** Path to the contextual media (b-roll mp4) for split-image /
    *  fullscreen-image layouts. The encoder wires this as the second -i
    *  input, so layouts read from `[1:v]`. */
-  mediaPath?: string
+  mediaPath?: string;
   /** Source video width (for crop calculations). */
-  sourceWidth?: number
+  sourceWidth?: number;
   /** Source video height (for crop calculations). */
-  sourceHeight?: number
+  sourceHeight?: number;
   /** Face-detection crop rect (x, y, width, height on source). */
-  cropRect?: { x: number; y: number; width: number; height: number }
+  cropRect?: { x: number; y: number; width: number; height: number };
 }
 
 export interface SegmentLayoutResult {
   /** Complete FFmpeg filter_complex string with output label [outv]. */
-  filterComplex: string
+  filterComplex: string;
   /**
    * Number of -i inputs the caller must supply:
    *   0 = generated color source (no -i needed)
    *   1 = source video only
    *   2 = source video + b-roll video
    */
-  inputCount: number
+  inputCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,22 +63,22 @@ export interface SegmentLayoutResult {
 
 /** Ensures pixel dimensions are even (required by most video codecs). */
 function roundEven(n: number): number {
-  const v = Math.round(n)
-  return v % 2 === 0 ? v : v - 1
+  const v = Math.round(n);
+  return v % 2 === 0 ? v : v - 1;
 }
 
 /** Convert CSS hex (#RRGGBB or #RGB) to FFmpeg color format (0xRRGGBB). */
 function hexToFFmpeg(hex: string): string {
-  let clean = hex.replace(/^#/, '')
+  let clean = hex.replace(/^#/, '');
   if (clean.length === 3) {
-    clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2]
+    clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
   }
-  return '0x' + clean
+  return `0x${clean}`;
 }
 
 /** Standard finalization: SAR 1:1 + yuv420p pixel format. */
 function finalize(label: string): string {
-  return `[${label}]setsar=1,format=yuv420p[outv]`
+  return `[${label}]setsar=1,format=yuv420p[outv]`;
 }
 
 /**
@@ -87,7 +87,7 @@ function finalize(label: string): string {
  * FFmpeg's default bilinear, especially on faces and high-frequency detail
  * like text-in-frame.
  */
-const SCALE_FLAGS = 'lanczos+accurate_rnd+full_chroma_int'
+const SCALE_FLAGS = 'lanczos+accurate_rnd+full_chroma_int';
 
 /**
  * Builds the crop+scale chain for the speaker video.
@@ -97,54 +97,54 @@ function buildSpeakerCropScale(
   params: SegmentLayoutParams,
   targetW: number,
   targetH: number,
-  scaleFactor: number = 1.0
+  scaleFactor: number = 1.0,
 ): string {
-  const srcW = params.sourceWidth ?? targetW
-  const srcH = params.sourceHeight ?? targetH
-  const crop = params.cropRect
+  const srcW = params.sourceWidth ?? targetW;
+  const srcH = params.sourceHeight ?? targetH;
+  const crop = params.cropRect;
 
-  const parts: string[] = []
+  const parts: string[] = [];
 
   // Step 1 — Apply face-detection crop if available.
   if (crop) {
-    parts.push(`crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`)
+    parts.push(`crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`);
   }
 
   // Step 2 — Aspect-correct sub-crop. After step 1 the available frame may
   // have any aspect ratio (face boxes are not 9:16); cropping it to the
   // target's aspect first prevents the next scale from stretching pixels.
-  const availW = crop?.width ?? srcW
-  const availH = crop?.height ?? srcH
-  const targetAspect = targetW / targetH
-  const availAspect = availW / availH
+  const availW = crop?.width ?? srcW;
+  const availH = crop?.height ?? srcH;
+  const targetAspect = targetW / targetH;
+  const availAspect = availW / availH;
 
   if (Math.abs(availAspect - targetAspect) > 0.01) {
-    let cw: number, ch: number
+    let cw: number, ch: number;
     if (availAspect > targetAspect) {
-      ch = availH
-      cw = roundEven(Math.round(availH * targetAspect))
+      ch = availH;
+      cw = roundEven(Math.round(availH * targetAspect));
     } else {
-      cw = availW
-      ch = roundEven(Math.round(availW / targetAspect))
+      cw = availW;
+      ch = roundEven(Math.round(availW / targetAspect));
     }
-    parts.push(`crop=${cw}:${ch}`)
+    parts.push(`crop=${cw}:${ch}`);
   }
 
   // Step 3 — Scale to the target box. After step 2 the aspect already
   // matches, so this is a uniform resize (no distortion).
   if (scaleFactor > 1.0) {
     // Tight-punch path: oversize, then center-crop back to target.
-    const scaledW = roundEven(Math.round(targetW * scaleFactor))
-    const scaledH = roundEven(Math.round(targetH * scaleFactor))
-    parts.push(`scale=${scaledW}:${scaledH}:flags=${SCALE_FLAGS}`)
-    const cropX = Math.max(0, Math.round((scaledW - targetW) / 2))
-    const cropY = Math.max(0, Math.round((scaledH - targetH) / 2))
-    parts.push(`crop=${targetW}:${targetH}:${cropX}:${cropY}`)
+    const scaledW = roundEven(Math.round(targetW * scaleFactor));
+    const scaledH = roundEven(Math.round(targetH * scaleFactor));
+    parts.push(`scale=${scaledW}:${scaledH}:flags=${SCALE_FLAGS}`);
+    const cropX = Math.max(0, Math.round((scaledW - targetW) / 2));
+    const cropY = Math.max(0, Math.round((scaledH - targetH) / 2));
+    parts.push(`crop=${targetW}:${targetH}:${cropX}:${cropY}`);
   } else {
-    parts.push(`scale=${targetW}:${targetH}:flags=${SCALE_FLAGS}`)
+    parts.push(`scale=${targetW}:${targetH}:flags=${SCALE_FLAGS}`);
   }
 
-  return parts.join(',')
+  return parts.join(',');
 }
 
 // ---------------------------------------------------------------------------
@@ -153,20 +153,20 @@ function buildSpeakerCropScale(
 
 /** talking-head: face-centered 9:16 crop. Also used by quote-lower. */
 function buildTalkingHead(params: SegmentLayoutParams): SegmentLayoutResult {
-  const w = params.width
-  const h = params.height
-  const chain = buildSpeakerCropScale(params, w, h, 1.0)
-  const fc = `[0:v]${chain}[scaled];${finalize('scaled')}`
-  return { filterComplex: fc, inputCount: 1 }
+  const w = params.width;
+  const h = params.height;
+  const chain = buildSpeakerCropScale(params, w, h, 1.0);
+  const fc = `[0:v]${chain}[scaled];${finalize('scaled')}`;
+  return { filterComplex: fc, inputCount: 1 };
 }
 
 /** tight-punch: 1.15× scale (closer on the face) then crop to frame. */
 function buildTightPunch(params: SegmentLayoutParams): SegmentLayoutResult {
-  const w = params.width
-  const h = params.height
-  const chain = buildSpeakerCropScale(params, w, h, 1.15)
-  const fc = `[0:v]${chain}[scaled];${finalize('scaled')}`
-  return { filterComplex: fc, inputCount: 1 }
+  const w = params.width;
+  const h = params.height;
+  const chain = buildSpeakerCropScale(params, w, h, 1.15);
+  const fc = `[0:v]${chain}[scaled];${finalize('scaled')}`;
+  return { filterComplex: fc, inputCount: 1 };
 }
 
 /**
@@ -175,11 +175,11 @@ function buildTightPunch(params: SegmentLayoutParams): SegmentLayoutResult {
  * pacing role (relief beat) and the crossfade transition-in.
  */
 function buildWideBreather(params: SegmentLayoutParams): SegmentLayoutResult {
-  const w = params.width
-  const h = params.height
-  const chain = buildSpeakerCropScale(params, w, h, 1.0)
-  const fc = `[0:v]${chain}[scaled];${finalize('scaled')}`
-  return { filterComplex: fc, inputCount: 1 }
+  const w = params.width;
+  const h = params.height;
+  const chain = buildSpeakerCropScale(params, w, h, 1.0);
+  const fc = `[0:v]${chain}[scaled];${finalize('scaled')}`;
+  return { filterComplex: fc, inputCount: 1 };
 }
 
 /**
@@ -205,21 +205,21 @@ function buildWideBreather(params: SegmentLayoutParams): SegmentLayoutResult {
  *      split-image segments.
  */
 function buildSplitImage(params: SegmentLayoutParams): SegmentLayoutResult {
-  const w = params.width
-  const h = params.height
-  const fps = params.fps ?? 30
-  const halfH = roundEven(h / 2)
+  const w = params.width;
+  const h = params.height;
+  const fps = params.fps ?? 30;
+  const halfH = roundEven(h / 2);
 
-  const speakerChain = buildSpeakerCropScale(params, w, halfH, 1.0)
+  const speakerChain = buildSpeakerCropScale(params, w, halfH, 1.0);
 
   const parts: string[] = [
     `[1:v]scale=${w}:${halfH}:force_original_aspect_ratio=increase:flags=${SCALE_FLAGS},crop=${w}:${halfH},setpts=N/FR/TB,fps=${fps},setsar=1[top]`,
     `[0:v]${speakerChain},setpts=N/FR/TB,fps=${fps},setsar=1[bottom]`,
     `[top][bottom]vstack=inputs=2[composed]`,
-    finalize('composed')
-  ]
+    finalize('composed'),
+  ];
 
-  return { filterComplex: parts.join(';'), inputCount: 2 }
+  return { filterComplex: parts.join(';'), inputCount: 2 };
 }
 
 /**
@@ -230,15 +230,15 @@ function buildSplitImage(params: SegmentLayoutParams): SegmentLayoutResult {
  * converter on the demuxer's PTS rewind — same fix as split-image.
  */
 function buildFullscreenImage(params: SegmentLayoutParams): SegmentLayoutResult {
-  const w = params.width
-  const h = params.height
-  const fps = params.fps ?? 30
+  const w = params.width;
+  const h = params.height;
+  const fps = params.fps ?? 30;
 
   const fc =
     `[1:v]scale=${w}:${h}:force_original_aspect_ratio=increase:flags=${SCALE_FLAGS},crop=${w}:${h},setpts=N/FR/TB,fps=${fps},setsar=1[composed];` +
-    finalize('composed')
+    finalize('composed');
 
-  return { filterComplex: fc, inputCount: 2 }
+  return { filterComplex: fc, inputCount: 2 };
 }
 
 /**
@@ -249,14 +249,14 @@ function buildFullscreenImage(params: SegmentLayoutParams): SegmentLayoutResult 
  * (the source video) at the encode site.
  */
 function buildFullscreenQuote(params: SegmentLayoutParams): SegmentLayoutResult {
-  const w = params.width
-  const h = params.height
-  const dur = params.segmentDuration
-  const bgColor = hexToFFmpeg(BRAND_FG)
+  const w = params.width;
+  const h = params.height;
+  const dur = params.segmentDuration;
+  const bgColor = hexToFFmpeg(BRAND_FG);
 
-  const bg = `color=c=${bgColor}:s=${w}x${h}:d=${dur.toFixed(3)}:r=30`
-  const fc = `${bg}[composed];` + finalize('composed')
-  return { filterComplex: fc, inputCount: 0 }
+  const bg = `color=c=${bgColor}:s=${w}x${h}:d=${dur.toFixed(3)}:r=30`;
+  const fc = `${bg}[composed];${finalize('composed')}`;
+  return { filterComplex: fc, inputCount: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -275,23 +275,23 @@ function buildFullscreenQuote(params: SegmentLayoutParams): SegmentLayoutResult 
  */
 export function buildArchetypeLayout(
   archetype: Archetype,
-  params: SegmentLayoutParams
+  params: SegmentLayoutParams,
 ): SegmentLayoutResult {
   switch (archetype) {
     case 'talking-head':
     case 'quote-lower':
-      return buildTalkingHead(params)
+      return buildTalkingHead(params);
     case 'tight-punch':
-      return buildTightPunch(params)
+      return buildTightPunch(params);
     case 'wide-breather':
-      return buildWideBreather(params)
+      return buildWideBreather(params);
     case 'split-image':
-      return buildSplitImage(params)
+      return buildSplitImage(params);
     case 'fullscreen-image':
-      return buildFullscreenImage(params)
+      return buildFullscreenImage(params);
     case 'fullscreen-quote':
-      return buildFullscreenQuote(params)
+      return buildFullscreenQuote(params);
     default:
-      return buildTalkingHead(params)
+      return buildTalkingHead(params);
   }
 }

@@ -6,16 +6,20 @@
  * post is a shadcn `Card`, the author uses shadcn `Avatar` and the engagement
  * counts use shadcn `Badge`. All motion is frame-clock driven.
  */
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, spring } from 'remotion'
-import { BadgeCheck, Heart, Repeat2, MessageCircle } from 'lucide-react'
-import { BRAND_BG, BRAND_FG } from '../../../edit-styles/shared/brand'
-import { PrestyjFonts } from '../../shared/fonts'
-import { Kicker, Heading, SKINS } from '../../shared/skins'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import type { TweetCardProps } from './types'
+
+import type { Palette } from '@shared/palettes';
+import { BadgeCheck, Heart, MessageCircle, Repeat2 } from 'lucide-react';
+import type React from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { BRAND_ACCENT, BRAND_BG, BRAND_FG } from '../../../edit-styles/shared/brand';
+import { useBlockMotion } from '../../shared/block-motion';
+import { CHAR_WIDTH_RATIO, FitText } from '../../shared/fit-text';
+import { PrestyjFonts } from '../../shared/fonts';
+import { Heading, Kicker, SKIN_CONTENT_WIDTH, SKINS } from '../../shared/skins';
+import type { TweetCardProps } from './types';
 
 const initials = (name: string): string =>
   name
@@ -23,7 +27,7 @@ const initials = (name: string): string =>
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('')
+    .join('');
 
 export const TweetCard: React.FC<TweetCardProps> = ({
   skinId,
@@ -37,21 +41,34 @@ export const TweetCard: React.FC<TweetCardProps> = ({
   replies,
   reposts,
   likes,
-  accentColor
+  accentColor,
+  palette,
 }) => {
-  const frame = useCurrentFrame()
-  const { fps } = useVideoConfig()
-  const skin = SKINS[skinId]
-  const accent = accentColor ?? skin.accent
-  const cardIn = spring({ frame, fps, config: { damping: 20, stiffness: 90, mass: 0.9 } })
-  const bodyIn = spring({ frame: frame - 20, fps, config: { damping: 18, stiffness: 110 } })
-  const statsIn = spring({ frame: frame - 34, fps, config: { damping: 18, stiffness: 110 } })
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const skin = SKINS[skinId];
+  const pal: Palette = palette ?? {
+    id: 'brand',
+    name: 'Brand Default',
+    background: BRAND_BG,
+    foreground: BRAND_FG,
+    accent: BRAND_ACCENT,
+    builtin: true,
+  };
+  const accent = accentColor ?? palette?.accent ?? skin.accent;
+  const motion = useBlockMotion();
+  // Cap the post column to a comfortable measure so the card + body fill it
+  // consistently instead of bunching left on the wide editorial surface.
+  const cw = Math.min(SKIN_CONTENT_WIDTH[skinId], 1380);
+  const bodyWidth = cw - 96; // CardContent p-12 (48px each side)
+  const bodyIn = spring({ frame: frame - 20, fps, config: { damping: 18, stiffness: 110 } });
+  const statsIn = spring({ frame: frame - 34, fps, config: { damping: 18, stiffness: 110 } });
 
   const stat = (
     Icon: typeof Heart,
     count: string | undefined,
     tint: string,
-    key: string
+    key: string,
   ): React.ReactNode =>
     count ? (
       <Badge
@@ -61,39 +78,45 @@ export const TweetCard: React.FC<TweetCardProps> = ({
           display: 'inline-flex',
           alignItems: 'center',
           gap: 10,
-          borderColor: `${BRAND_FG}1f`,
-          color: `${BRAND_FG}cc`,
+          borderColor: `${pal.foreground}1f`,
+          color: `${pal.foreground}cc`,
           fontFamily: 'JetBrains Mono',
           fontSize: 26,
           padding: '10px 18px',
-          borderRadius: 999
+          borderRadius: 999,
         }}
       >
         <Icon size={26} color={tint} strokeWidth={2.4} />
         {count}
       </Badge>
-    ) : null
+    ) : null;
 
   return (
-    <AbsoluteFill style={{ backgroundColor: BRAND_BG, justifyContent: 'center', alignItems: 'center' }}>
+    <AbsoluteFill
+      style={{ backgroundColor: pal.background, justifyContent: 'center', alignItems: 'center' }}
+    >
       <PrestyjFonts />
-      <skin.Background accent={accent} />
+      <skin.Background accent={accent} bg={pal.background} fg={pal.foreground} />
       <div
         style={{
-          opacity: cardIn,
-          transform: `translateY(${interpolate(cardIn, [0, 1], [50, 0])}px)`
+          ...motion,
         }}
       >
-        <skin.Surface accent={accent}>
-          <Kicker accent={accent}>{kicker}</Kicker>
-          <Heading>{heading}</Heading>
+        <skin.Surface accent={accent} bg={pal.background} fg={pal.foreground}>
+          <Kicker accent={accent} maxWidth={cw}>
+            {kicker}
+          </Kicker>
+          <Heading fg={pal.foreground} maxWidth={cw}>
+            {heading}
+          </Heading>
 
           <Card
             className="border bg-card text-card-foreground"
             style={{
               marginTop: 48,
+              maxWidth: cw,
               borderColor: `${accent}33`,
-              boxShadow: `0 26px 70px rgba(0,0,0,0.45), inset 0 1px 0 ${BRAND_FG}12`
+              boxShadow: `0 26px 70px rgba(0,0,0,0.45), inset 0 1px 0 ${pal.foreground}12`,
             }}
           >
             <CardContent className="p-12">
@@ -108,7 +131,7 @@ export const TweetCard: React.FC<TweetCardProps> = ({
                       background: `${accent}22`,
                       color: accent,
                       fontFamily: 'Bebas Neue',
-                      fontSize: 42
+                      fontSize: 42,
                     }}
                   >
                     {initials(name)}
@@ -116,30 +139,48 @@ export const TweetCard: React.FC<TweetCardProps> = ({
                 </Avatar>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontFamily: 'Geist', fontWeight: 700, fontSize: 40, color: BRAND_FG }}>
+                    <span
+                      style={{
+                        fontFamily: 'Geist',
+                        fontWeight: 700,
+                        fontSize: 40,
+                        color: pal.foreground,
+                      }}
+                    >
                       {name}
                     </span>
                     {verified && <BadgeCheck size={36} color={accent} strokeWidth={2.4} />}
                   </div>
-                  <div style={{ fontFamily: 'Geist', fontSize: 30, color: `${BRAND_FG}88`, marginTop: 2 }}>
+                  <div
+                    style={{
+                      fontFamily: 'Geist',
+                      fontSize: 30,
+                      color: `${pal.foreground}88`,
+                      marginTop: 2,
+                    }}
+                  >
                     @{handle}
                   </div>
                 </div>
               </div>
 
-              <div
+              <FitText
+                maxWidth={bodyWidth}
+                maxFontSize={46}
+                minFontSize={30}
+                maxLines={6}
+                charWidthRatio={CHAR_WIDTH_RATIO.geist}
                 style={{
                   fontFamily: 'Geist',
-                  fontSize: 46,
                   lineHeight: 1.3,
-                  color: `${BRAND_FG}f2`,
+                  color: `${pal.foreground}f2`,
                   marginTop: 34,
                   opacity: bodyIn,
-                  transform: `translateY(${interpolate(bodyIn, [0, 1], [16, 0])}px)`
+                  transform: `translateY(${interpolate(bodyIn, [0, 1], [16, 0])}px)`,
                 }}
               >
                 {body}
-              </div>
+              </FitText>
 
               <div
                 style={{
@@ -147,7 +188,7 @@ export const TweetCard: React.FC<TweetCardProps> = ({
                   gap: 18,
                   marginTop: 40,
                   opacity: statsIn,
-                  transform: `translateY(${interpolate(statsIn, [0, 1], [16, 0])}px)`
+                  transform: `translateY(${interpolate(statsIn, [0, 1], [16, 0])}px)`,
                 }}
               >
                 {stat(MessageCircle, replies, '#60a5fa', 'replies')}
@@ -159,5 +200,5 @@ export const TweetCard: React.FC<TweetCardProps> = ({
         </skin.Surface>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

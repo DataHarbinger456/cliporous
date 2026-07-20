@@ -1,10 +1,10 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion'
-import { BRAND_BG } from '../../edit-styles/shared/brand'
+import type React from 'react';
+import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { BRAND_BG } from '../../edit-styles/shared/brand';
 
 interface Props {
   /** PRESTYJ accent (BRAND_ACCENT). Drives the gradient warmth. */
-  accentColor: string
+  accentColor: string;
 }
 
 /**
@@ -19,37 +19,41 @@ interface Props {
  * at a single frame. That's the trick.
  */
 export const PrestyjBackground: React.FC<Props> = ({ accentColor }) => {
-  const frame = useCurrentFrame()
+  const frame = useCurrentFrame();
 
   // Slow ambient drift on the gradient origin so the bg breathes (not static).
-  const driftX = interpolate(frame, [0, 300], [50, 55])
-  const driftY = interpolate(frame, [0, 300], [40, 45])
+  const driftX = interpolate(frame, [0, 300], [50, 55]);
+  const driftY = interpolate(frame, [0, 300], [40, 45]);
 
   return (
     <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: BRAND_BG }}>
       {/* Base brand gradient — accent halo melting into BRAND_BG. */}
       <AbsoluteFill
         style={{
-          background: `radial-gradient(ellipse at ${driftX}% ${driftY}%, ${accentColor}26 0%, ${BRAND_BG} 55%, #140804 100%)`
+          background: `radial-gradient(ellipse at ${driftX}% ${driftY}%, ${accentColor}26 0%, ${BRAND_BG} 55%, #140804 100%)`,
         }}
       />
       {/* Vignette — pulls focus to center without being obvious. */}
       <AbsoluteFill
         style={{
-          background:
-            'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.55) 100%)'
+          background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.55) 100%)',
         }}
       />
       {/* Film grain via SVG turbulence — purely decorative, ~3% opacity. */}
       <AbsoluteFill style={{ opacity: 0.04, mixBlendMode: 'overlay' }}>
         <svg width="100%" height="100%" preserveAspectRatio="none">
           <filter id="grain">
-            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.9"
+              numOctaves="2"
+              stitchTiles="stitch"
+            />
             <feColorMatrix type="saturate" values="0" />
           </filter>
           <rect width="100%" height="100%" filter="url(#grain)" />
         </svg>
       </AbsoluteFill>
     </AbsoluteFill>
-  )
-}
+  );
+};

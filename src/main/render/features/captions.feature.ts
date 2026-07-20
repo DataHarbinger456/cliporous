@@ -11,24 +11,24 @@
 // generateCaptions(). All V1 animation/box/supersize variations are gone.
 // ---------------------------------------------------------------------------
 
-import { existsSync } from 'fs'
-import { join } from 'path'
-import type { RenderFeature, PrepareResult, OverlayContext, OverlayPassResult } from './feature'
-import type { RenderClipJob, RenderBatchOptions } from '../types'
-import { buildASSFilter } from '../helpers'
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { ShotStyleConfig } from '@shared/types';
+import { ASPECT_RATIO_CONFIGS } from '../../aspect-ratios';
 import {
-  generateCaptions,
-  DEFAULT_ACCENT,
   type ArchetypeWindow,
   type CaptionMode,
   type CaptionStyleInput,
+  DEFAULT_ACCENT,
+  generateCaptions,
   type ShotCaptionOverride,
-  type WordInput
-} from '../../captions'
-import { analyzeEmphasisHeuristic } from '../../word-emphasis'
-import { ASPECT_RATIO_CONFIGS } from '../../aspect-ratios'
-import { DEFAULT_EDIT_STYLE_ID } from '../../edit-styles'
-import type { ShotStyleConfig } from '@shared/types'
+  type WordInput,
+} from '../../captions';
+import { DEFAULT_EDIT_STYLE_ID } from '../../edit-styles';
+import { analyzeEmphasisHeuristic } from '../../word-emphasis';
+import { buildASSFilter } from '../helpers';
+import type { RenderBatchOptions, RenderClipJob } from '../types';
+import type { OverlayContext, OverlayPassResult, PrepareResult, RenderFeature } from './feature';
 
 /**
  * Pick the V2 caption mode for a clip. Only three values are possible.
@@ -39,34 +39,33 @@ import type { ShotStyleConfig } from '@shared/types'
  *   3. Whether the style provides an accent color distinct from the standard
  *      cream. An accent present → 'emphasis_highlight'; otherwise 'emphasis'.
  */
-function resolveCaptionMode(
-  style: CaptionStyleInput,
-  words: WordInput[]
-): CaptionMode {
-  if (style.captionMode === 'standard'
-    || style.captionMode === 'emphasis'
-    || style.captionMode === 'emphasis_highlight') {
-    return style.captionMode
+function resolveCaptionMode(style: CaptionStyleInput, words: WordInput[]): CaptionMode {
+  if (
+    style.captionMode === 'standard' ||
+    style.captionMode === 'emphasis' ||
+    style.captionMode === 'emphasis_highlight'
+  ) {
+    return style.captionMode;
   }
 
   const hasEmphasis = words.some((w) => {
-    const e = w.emphasis
-    return e === true || e === 'emphasis' || e === 'supersize' || e === 'box'
-  })
-  if (!hasEmphasis) return 'standard'
+    const e = w.emphasis;
+    return e === true || e === 'emphasis' || e === 'supersize' || e === 'box';
+  });
+  if (!hasEmphasis) return 'standard';
 
   // Treat any explicit accent (on `accentColor`, or the legacy `emphasisColor`
   // / `highlightColor` slots) as a request for the highlighted variant.
-  const accent = style.accentColor ?? style.emphasisColor ?? style.highlightColor
+  const accent = style.accentColor ?? style.emphasisColor ?? style.highlightColor;
   if (accent && accent.toLowerCase() !== '#ffffff') {
-    return 'emphasis_highlight'
+    return 'emphasis_highlight';
   }
-  return 'emphasis'
+  return 'emphasis';
 }
 
 /** Resolve the accent color from a style object — or fall back to PRESTYJ purple. */
 function resolveAccent(style: CaptionStyleInput): string {
-  return style.accentColor ?? style.emphasisColor ?? style.highlightColor ?? DEFAULT_ACCENT
+  return style.accentColor ?? style.emphasisColor ?? style.highlightColor ?? DEFAULT_ACCENT;
 }
 
 /**
@@ -76,130 +75,140 @@ function resolveAccent(style: CaptionStyleInput): string {
  * across all clips in a batch without requiring a class instance.
  */
 export function createCaptionsFeature(): RenderFeature {
-  let fontsDir: string | undefined
+  let fontsDir: string | undefined;
 
   /** Resolve the bundled fonts directory once and cache it. */
   async function resolveFontsDir(): Promise<string | undefined> {
-    if (fontsDir !== undefined) return fontsDir
+    if (fontsDir !== undefined) return fontsDir;
 
     try {
-      const { app } = await import('electron')
+      const { app } = await import('electron');
       const fontsPath = app.isPackaged
         ? join(process.resourcesPath, 'fonts')
-        : join(__dirname, '../../resources/fonts')
+        : join(__dirname, '../../resources/fonts');
       if (existsSync(fontsPath)) {
-        fontsDir = fontsPath
-        console.log(`[Captions] Fonts directory: ${fontsDir}`)
-        return fontsDir
+        fontsDir = fontsPath;
+        console.log(`[Captions] Fonts directory: ${fontsDir}`);
+        return fontsDir;
       }
     } catch {
-      const fontsPath = join(__dirname, '../../resources/fonts')
+      const fontsPath = join(__dirname, '../../resources/fonts');
       if (existsSync(fontsPath)) {
-        fontsDir = fontsPath
-        return fontsDir
+        fontsDir = fontsPath;
+        return fontsDir;
       }
     }
 
-    fontsDir = undefined
-    return undefined
+    fontsDir = undefined;
+    return undefined;
   }
 
   return {
     name: 'captions',
 
-    async prepare(job: RenderClipJob, batchOptions: RenderBatchOptions, _onProgress?: (message: string, percent: number) => void): Promise<PrepareResult> {
+    async prepare(
+      job: RenderClipJob,
+      batchOptions: RenderBatchOptions,
+      _onProgress?: (message: string, percent: number) => void,
+    ): Promise<PrepareResult> {
       if (!batchOptions.captionStyle) {
-        return { tempFiles: [], modified: false }
+        return { tempFiles: [], modified: false };
       }
 
       // Per-clip opt-out (clean clip with no burn-in).
-      const captionOv = job.clipOverrides?.enableCaptions
-      const captionsEnabled = captionOv === undefined ? true : captionOv
+      const captionOv = job.clipOverrides?.enableCaptions;
+      const captionsEnabled = captionOv ?? batchOptions.captionsEnabled ?? true;
       if (!captionsEnabled) {
-        return { tempFiles: [], modified: false }
+        return { tempFiles: [], modified: false };
       }
 
       // Filter word timestamps to the clip's time range, then shift to 0-based.
       const words = (job.wordTimestamps ?? []).filter(
-        (w) => w.start >= job.startTime && w.end <= job.endTime
-      )
+        (w) => w.start >= job.startTime && w.end <= job.endTime,
+      );
       if (words.length === 0) {
-        return { tempFiles: [], modified: false }
+        return { tempFiles: [], modified: false };
       }
 
       const localWordsBase: WordInput[] = words.map((w) => ({
         text: w.text,
         start: w.start - job.startTime,
-        end: w.end - job.startTime
-      }))
+        end: w.end - job.startTime,
+      }));
 
       // Resolve emphasis: prefer the upstream word-emphasis feature, fall back
       // to the local heuristic. V2 collapses every non-normal level into a
       // single boolean, but we keep the rich enum on the wire so the data
       // stays compatible with any future re-introduction.
-      const emphasized = job.wordEmphasis && job.wordEmphasis.length > 0
-        ? localWordsBase.map((w) => {
-            const match = job.wordEmphasis!.find((ov) => Math.abs(ov.start - w.start) < 0.05)
-            return { ...w, emphasis: match?.emphasis ?? 'normal' }
-          })
-        : analyzeEmphasisHeuristic(localWordsBase)
+      const emphasisEnabled =
+        job.clipOverrides?.enableWordEmphasis ?? batchOptions.wordEmphasisEnabled ?? true;
+      const emphasized = !emphasisEnabled
+        ? localWordsBase.map((word) => ({ ...word, emphasis: 'normal' as const }))
+        : job.wordEmphasis && job.wordEmphasis.length > 0
+          ? localWordsBase.map((w) => {
+              const match = job.wordEmphasis?.find((ov) => Math.abs(ov.start - w.start) < 0.05);
+              return { ...w, emphasis: match?.emphasis ?? 'normal' };
+            })
+          : analyzeEmphasisHeuristic(localWordsBase);
 
       const localWords: WordInput[] = localWordsBase.map((w, i) => ({
         ...w,
         emphasis: ((emphasized as Array<{ emphasis?: string }>)[i]?.emphasis ?? 'normal') as
-          'normal' | 'emphasis' | 'supersize' | 'box'
-      }))
+          | 'normal'
+          | 'emphasis'
+          | 'supersize'
+          | 'box',
+      }));
 
       // Surface emphasis keyframes for downstream features (zoom, etc.) when
       // the upstream feature didn't already compute them.
       if (!job.emphasisKeyframes || job.emphasisKeyframes.length === 0) {
         job.emphasisKeyframes = localWords
-          .filter((w) => w.emphasis === 'emphasis' || w.emphasis === 'supersize' || w.emphasis === 'box')
+          .filter(
+            (w) => w.emphasis === 'emphasis' || w.emphasis === 'supersize' || w.emphasis === 'box',
+          )
           .map((w) => ({
             time: w.start,
             end: w.end,
-            level: w.emphasis as 'emphasis' | 'supersize' | 'box'
-          }))
+            level: w.emphasis as 'emphasis' | 'supersize' | 'box',
+          }));
       }
 
-      await resolveFontsDir()
+      await resolveFontsDir();
 
       try {
-        const arCfg = ASPECT_RATIO_CONFIGS[batchOptions.outputAspectRatio ?? '9:16']
+        const arCfg = ASPECT_RATIO_CONFIGS[batchOptions.outputAspectRatio ?? '9:16'];
 
         // Bottom-anchored alignment (AN2): templateLayout y is from the top
         // (percent), so marginV (from the bottom) = (1 - y/100) * height.
         const marginVOverride = batchOptions.templateLayout?.subtitles
           ? Math.round((1 - batchOptions.templateLayout.subtitles.y / 100) * arCfg.height)
-          : undefined
+          : undefined;
 
         // Lock the style to one of the three V2 modes before passing it down.
         // A per-clip `captionMode` override (set in the clip editor) wins over
         // the mode resolved from the global style, so the choice the user made
         // on this specific clip is honoured.
-        const baseStyle = batchOptions.captionStyle as CaptionStyleInput
-        const clipCaptionMode = job.clipOverrides?.captionMode
+        const baseStyle = batchOptions.captionStyle as CaptionStyleInput;
+        const clipCaptionMode = job.clipOverrides?.captionMode;
         const resolvedStyle: CaptionStyleInput = {
           ...baseStyle,
           captionMode: clipCaptionMode ?? resolveCaptionMode(baseStyle, localWords),
-          accentColor: resolveAccent(baseStyle)
-        }
+          accentColor: resolveAccent(baseStyle),
+        };
 
-        const shotCaptionOverrides = buildShotCaptionOverrides(
-          job.shotStyleConfigs,
-          localWords
-        )
+        const shotCaptionOverrides = buildShotCaptionOverrides(job.shotStyleConfigs, localWords);
 
         // Non-segmented clips don't carry per-segment archetype data. Treat
         // the whole clip as a single speaker-fullscreen 'talking-head'
         // window so the per-archetype template (and — because talking-head
         // is a speaker archetype — the user's global `templateLayout`)
         // drive the caption marginV.
-        const clipDuration = job.endTime - job.startTime
+        const clipDuration = job.endTime - job.startTime;
         const archetypeWindows: ArchetypeWindow[] = [
-          { startTime: 0, endTime: clipDuration, archetype: 'talking-head' }
-        ]
-        const editStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID
+          { startTime: 0, endTime: clipDuration, archetype: 'talking-head' },
+        ];
+        const editStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID;
 
         job.assFilePath = await generateCaptions(
           localWords,
@@ -211,26 +220,26 @@ export function createCaptionsFeature(): RenderFeature {
           shotCaptionOverrides,
           archetypeWindows,
           undefined,
-          editStyleId
-        )
+          editStyleId,
+        );
         console.log(
-          `[Captions] Clip ${job.clipId}: mode=${resolvedStyle.captionMode} → ${job.assFilePath}`
-        )
-        return { tempFiles: [job.assFilePath], modified: true }
+          `[Captions] Clip ${job.clipId}: mode=${resolvedStyle.captionMode} → ${job.assFilePath}`,
+        );
+        return { tempFiles: [job.assFilePath], modified: true };
       } catch (captionErr) {
-        console.warn(`[Captions] Clip ${job.clipId}: generation failed:`, captionErr)
-        return { tempFiles: [], modified: false }
+        console.warn(`[Captions] Clip ${job.clipId}: generation failed:`, captionErr);
+        return { tempFiles: [], modified: false };
       }
     },
 
     overlayPass(job: RenderClipJob, _context: OverlayContext): OverlayPassResult | null {
-      if (!job.assFilePath) return null
+      if (!job.assFilePath) return null;
       return {
         name: 'captions',
-        filter: buildASSFilter(job.assFilePath, fontsDir)
-      }
-    }
-  }
+        filter: buildASSFilter(job.assFilePath, fontsDir),
+      };
+    },
+  };
 }
 
 /**
@@ -243,32 +252,32 @@ export function createCaptionsFeature(): RenderFeature {
  */
 function buildShotCaptionOverrides(
   shotStyleConfigs: ShotStyleConfig[] | undefined,
-  allWords: WordInput[]
+  allWords: WordInput[],
 ): ShotCaptionOverride[] | undefined {
-  if (!shotStyleConfigs || shotStyleConfigs.length === 0) return undefined
+  if (!shotStyleConfigs || shotStyleConfigs.length === 0) return undefined;
 
-  const overrides: ShotCaptionOverride[] = []
+  const overrides: ShotCaptionOverride[] = [];
 
   for (const config of shotStyleConfigs) {
-    if (!config.captionStyle) continue
+    if (!config.captionStyle) continue;
 
     const shotWords = allWords.filter(
-      (w) => w.start >= config.startTime && w.end <= config.endTime
-    )
+      (w) => w.start >= config.startTime && w.end <= config.endTime,
+    );
 
-    const cs = config.captionStyle as CaptionStyleInput
+    const cs = config.captionStyle as CaptionStyleInput;
     const style: CaptionStyleInput = {
       ...cs,
       captionMode: resolveCaptionMode(cs, shotWords),
-      accentColor: resolveAccent(cs)
-    }
+      accentColor: resolveAccent(cs),
+    };
 
     overrides.push({
       startTime: config.startTime,
       endTime: config.endTime,
-      style
-    })
+      style,
+    });
   }
 
-  return overrides.length > 0 ? overrides : undefined
+  return overrides.length > 0 ? overrides : undefined;
 }

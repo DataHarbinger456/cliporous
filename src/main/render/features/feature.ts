@@ -2,7 +2,7 @@
 // RenderFeature interface — composable pipeline feature system
 // ---------------------------------------------------------------------------
 
-import type { RenderClipJob, RenderBatchOptions, OutputAspectRatio } from '../types'
+import type { OutputAspectRatio, RenderBatchOptions, RenderClipJob } from '../types';
 
 /**
  * A composable render feature that can hook into different phases of the
@@ -16,7 +16,7 @@ import type { RenderClipJob, RenderBatchOptions, OutputAspectRatio } from '../ty
  */
 export interface RenderFeature {
   /** Unique name for logging and debugging */
-  readonly name: string
+  readonly name: string;
 
   /**
    * Phase 1: Pre-render setup. Called before FFmpeg runs.
@@ -26,8 +26,8 @@ export interface RenderFeature {
   prepare?(
     job: RenderClipJob,
     batchOptions: RenderBatchOptions,
-    onProgress?: (message: string, percent: number) => void
-  ): Promise<PrepareResult>
+    onProgress?: (message: string, percent: number) => void,
+  ): Promise<PrepareResult>;
 
   /**
    * Phase 2: Contribute to the base video filter chain.
@@ -35,7 +35,7 @@ export interface RenderFeature {
    * Called in order: filler-select → crop → scale → zoom.
    * Return null to skip.
    */
-  videoFilter?(job: RenderClipJob, context: FilterContext): string | null
+  videoFilter?(job: RenderClipJob, context: FilterContext): string | null;
 
   /**
    * Phase 3: Post-render overlay pass.
@@ -44,7 +44,7 @@ export interface RenderFeature {
    * Windows escaping issues with massive combined filter strings.
    * Return null to skip.
    */
-  overlayPass?(job: RenderClipJob, context: OverlayContext): OverlayPassResult | null
+  overlayPass?(job: RenderClipJob, context: OverlayContext): OverlayPassResult | null;
 
   /**
    * Phase 4: Post-processing (after all overlays).
@@ -54,51 +54,51 @@ export interface RenderFeature {
   postProcess?(
     job: RenderClipJob,
     renderedPath: string,
-    context: PostProcessContext
-  ): Promise<string>
+    context: PostProcessContext,
+  ): Promise<string>;
 }
 
 /** Result from the prepare phase */
 export interface PrepareResult {
   /** Temp files to clean up after this clip finishes rendering */
-  tempFiles: string[]
+  tempFiles: string[];
   /** Whether this feature modified the job (for logging) */
-  modified: boolean
+  modified: boolean;
 }
 
 /** Context passed to videoFilter() */
 export interface FilterContext {
-  sourceWidth: number
-  sourceHeight: number
-  targetWidth: number
-  targetHeight: number
-  clipDuration: number
-  outputAspectRatio: OutputAspectRatio
+  sourceWidth: number;
+  sourceHeight: number;
+  targetWidth: number;
+  targetHeight: number;
+  clipDuration: number;
+  outputAspectRatio: OutputAspectRatio;
 }
 
 /** Context passed to overlayPass() */
 export interface OverlayContext {
-  clipDuration: number
-  targetWidth: number
-  targetHeight: number
+  clipDuration: number;
+  targetWidth: number;
+  targetHeight: number;
 }
 
 /** Result from the overlayPass phase */
 export interface OverlayPassResult {
   /** Display name for logging (e.g. 'captions', 'hook-title') */
-  name: string
+  name: string;
   /** FFmpeg video filter string to apply */
-  filter: string
+  filter: string;
   /**
    * When true, `filter` is a filter_complex string (must map [0:v] → [outv])
    * instead of a simple -vf chain. Required for filters that need multiple
    * inputs (e.g. color source + overlay for animated progress bar).
    */
-  filterComplex?: boolean
+  filterComplex?: boolean;
 }
 
 /** Context passed to postProcess() */
 export interface PostProcessContext {
-  clipDuration: number
-  outputPath: string
+  clipDuration: number;
+  outputPath: string;
 }

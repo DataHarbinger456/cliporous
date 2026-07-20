@@ -9,18 +9,18 @@
  * template with its edit-style defaults.
  */
 
-import type { Archetype } from './archetypes'
+import type { Archetype } from './archetypes';
 
 // Types referenced here (EditStyle, TransitionType, SegmentStyleCategory,
 // CaptionStyleInput, ColorGradeParams, VFXOverlay, TextAnimationStyle,
 // HeadlineStyleConfig) are declared globally in src/main/global.d.ts — we
 // consume the ambient declarations.
 
-export type Energy = 'low' | 'medium' | 'high'
+export type Energy = 'low' | 'medium' | 'high';
 
-export type TMap = Record<string, TransitionType>
+export type TMap = Record<string, TransitionType>;
 
-export type CaptionPosition = 'lower-third' | 'center' | 'top'
+export type CaptionPosition = 'lower-third' | 'center' | 'top';
 
 /**
  * Per-template caption rendering mode override.
@@ -33,66 +33,66 @@ export type CaptionPosition = 'lower-third' | 'center' | 'top'
  * When omitted, captions use the default multi-word grouping driven by
  * `CaptionStyleInput.wordsPerLine`.
  */
-export type TemplateCaptionMode = 'word-by-word'
+export type TemplateCaptionMode = 'word-by-word';
 
 export interface EditStyleTemplate {
-  archetype: Archetype
+  archetype: Archetype;
   /** Overrides the editStyle default zoom when set. */
-  zoomStyle?: EditStyle['defaultZoomStyle']
-  zoomIntensity?: number
-  captionPosition?: CaptionPosition
+  zoomStyle?: EditStyle['defaultZoomStyle'];
+  zoomIntensity?: number;
+  captionPosition?: CaptionPosition;
   /**
    * Per-archetype vertical margin (pixels) for the caption pass. Overrides
    * the captionPosition-derived default.
    */
-  captionMarginV?: number
+  captionMarginV?: number;
   /**
    * Optional per-archetype caption rendering mode. Currently only
    * 'word-by-word' is supported; omit for the default multi-word grouping.
    */
-  captionMode?: TemplateCaptionMode
+  captionMode?: TemplateCaptionMode;
   /**
    * Per-archetype Y position (pixels from top, on the locked 1280px canvas)
    * for the hook title pill. The global `templateLayout.titleText.y` still
    * wins when provided by the user.
    */
-  hookTitleY?: number
+  hookTitleY?: number;
   /**
    * Per-archetype Y position (pixels from top, on the locked 1280px canvas)
    * for the rehook pill. The global `templateLayout.rehookText.y` still wins
    * when provided by the user.
    */
-  rehookY?: number
+  rehookY?: number;
 }
 
 /** Fully resolved template — what render consumes. */
 export interface ResolvedTemplate {
-  archetype: Archetype
-  editStyleId: string
-  zoomStyle: EditStyle['defaultZoomStyle']
-  zoomIntensity: number
-  captionPosition: CaptionPosition
+  archetype: Archetype;
+  editStyleId: string;
+  zoomStyle: EditStyle['defaultZoomStyle'];
+  zoomIntensity: number;
+  captionPosition: CaptionPosition;
   /** Archetype-defined caption vertical margin in pixels. */
-  captionMarginV: number
+  captionMarginV: number;
   /** Hook title pill Y position in pixels (from top, 1280px canvas). */
-  hookTitleY: number
+  hookTitleY: number;
   /** Rehook pill Y position in pixels (from top, 1280px canvas). */
-  rehookY: number
+  rehookY: number;
   /**
    * Caption rendering mode for this archetype. `undefined` = default
    * multi-word grouping; `'word-by-word'` = one ASS event per word.
    */
-  captionMode?: TemplateCaptionMode
+  captionMode?: TemplateCaptionMode;
 }
 
 /** Picker-facing projection (includes display metadata). */
 export interface EditStyleTemplateView {
-  archetype: Archetype
-  editStyleId: string
-  name: string
-  description: string
-  category: SegmentStyleCategory
-  zoomStyle: EditStyle['defaultZoomStyle']
-  zoomIntensity: number
-  captionPosition: CaptionPosition
+  archetype: Archetype;
+  editStyleId: string;
+  name: string;
+  description: string;
+  category: SegmentStyleCategory;
+  zoomStyle: EditStyle['defaultZoomStyle'];
+  zoomIntensity: number;
+  captionPosition: CaptionPosition;
 }

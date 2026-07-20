@@ -8,14 +8,14 @@
  * captions overlay, bottom action rails).
  */
 
-import { OUTPUT_WIDTH, OUTPUT_HEIGHT } from './aspect-ratios'
+import { OUTPUT_HEIGHT, OUTPUT_WIDTH } from './aspect-ratios';
 
 // ---------------------------------------------------------------------------
 // Canvas dimensions (re-exported for convenience)
 // ---------------------------------------------------------------------------
 
-export const CANVAS_WIDTH = OUTPUT_WIDTH
-export const CANVAS_HEIGHT = OUTPUT_HEIGHT
+export const CANVAS_WIDTH = OUTPUT_WIDTH;
+export const CANVAS_HEIGHT = OUTPUT_HEIGHT;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,17 +23,17 @@ export const CANVAS_HEIGHT = OUTPUT_HEIGHT
 
 export interface SafeZoneRect {
   /** Left edge in pixels from canvas origin (top-left). */
-  x: number
+  x: number;
   /** Top edge in pixels from canvas origin (top-left). */
-  y: number
+  y: number;
   /** Width in pixels. */
-  width: number
+  width: number;
   /** Height in pixels. */
-  height: number
+  height: number;
 }
 
 /** Logical placement bucket within the safe zone. */
-export type ElementType = 'hook' | 'caption' | 'rehook' | 'logo'
+export type ElementType = 'hook' | 'caption' | 'rehook' | 'logo';
 
 // ---------------------------------------------------------------------------
 // Single union safe zone (9:16 vertical)
@@ -48,9 +48,9 @@ export type ElementType = 'hook' | 'caption' | 'rehook' | 'logo'
 // These bounds are the *union* of the strictest dead zones across short-form
 // vertical platforms — anything inside this rectangle is safe everywhere.
 
-const SIDE_MARGIN = Math.round(CANVAS_WIDTH * 0.0556)   // ~60 @ 1080
-const TOP_MARGIN = Math.round(CANVAS_HEIGHT * 0.1146)   // ~220 @ 1920
-const BOTTOM_MARGIN = Math.round(CANVAS_HEIGHT * 0.1875) // ~360 @ 1920
+const SIDE_MARGIN = Math.round(CANVAS_WIDTH * 0.0556); // ~60 @ 1080
+const TOP_MARGIN = Math.round(CANVAS_HEIGHT * 0.1146); // ~220 @ 1920
+const BOTTOM_MARGIN = Math.round(CANVAS_HEIGHT * 0.1875); // ~360 @ 1920
 
 /**
  * The single union safe zone for the locked 9:16 vertical canvas.
@@ -60,8 +60,8 @@ export const SAFE_ZONE: SafeZoneRect = {
   x: SIDE_MARGIN,
   y: TOP_MARGIN,
   width: CANVAS_WIDTH - SIDE_MARGIN * 2,
-  height: CANVAS_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN
-}
+  height: CANVAS_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,7 +69,7 @@ export const SAFE_ZONE: SafeZoneRect = {
 
 /** Return the single union safe zone. */
 export function getSafeZone(): SafeZoneRect {
-  return SAFE_ZONE
+  return SAFE_ZONE;
 }
 
 /** Return whether a point is inside the union safe zone. */
@@ -79,7 +79,7 @@ export function isInsideSafeZone(x: number, y: number): boolean {
     x <= SAFE_ZONE.x + SAFE_ZONE.width &&
     y >= SAFE_ZONE.y &&
     y <= SAFE_ZONE.y + SAFE_ZONE.height
-  )
+  );
 }
 
 /**
@@ -87,11 +87,11 @@ export function isInsideSafeZone(x: number, y: number): boolean {
  * Returns a new rect — does not mutate.
  */
 export function clampToSafeZone(rect: SafeZoneRect): SafeZoneRect {
-  const w = Math.min(rect.width, SAFE_ZONE.width)
-  const h = Math.min(rect.height, SAFE_ZONE.height)
-  const x = Math.max(SAFE_ZONE.x, Math.min(rect.x, SAFE_ZONE.x + SAFE_ZONE.width - w))
-  const y = Math.max(SAFE_ZONE.y, Math.min(rect.y, SAFE_ZONE.y + SAFE_ZONE.height - h))
-  return { x, y, width: w, height: h }
+  const w = Math.min(rect.width, SAFE_ZONE.width);
+  const h = Math.min(rect.height, SAFE_ZONE.height);
+  const x = Math.max(SAFE_ZONE.x, Math.min(rect.x, SAFE_ZONE.x + SAFE_ZONE.width - w));
+  const y = Math.max(SAFE_ZONE.y, Math.min(rect.y, SAFE_ZONE.y + SAFE_ZONE.height - h));
+  return { x, y, width: w, height: h };
 }
 
 /**
@@ -102,8 +102,8 @@ export function rectToAssMargins(): { marginL: number; marginR: number; marginV:
   return {
     marginL: SAFE_ZONE.x,
     marginR: CANVAS_WIDTH - (SAFE_ZONE.x + SAFE_ZONE.width),
-    marginV: CANVAS_HEIGHT - (SAFE_ZONE.y + SAFE_ZONE.height)
-  }
+    marginV: CANVAS_HEIGHT - (SAFE_ZONE.y + SAFE_ZONE.height),
+  };
 }
 
 /**
@@ -114,15 +114,15 @@ export function getElementPlacement(element: ElementType): { y: number } {
   switch (element) {
     case 'hook':
       // Just inside the top margin
-      return { y: SAFE_ZONE.y + Math.round(SAFE_ZONE.height * 0.04) }
+      return { y: SAFE_ZONE.y + Math.round(SAFE_ZONE.height * 0.04) };
     case 'rehook':
       // Slightly below the hook position
-      return { y: SAFE_ZONE.y + Math.round(SAFE_ZONE.height * 0.18) }
+      return { y: SAFE_ZONE.y + Math.round(SAFE_ZONE.height * 0.18) };
     case 'caption':
       // Lower-third area
-      return { y: SAFE_ZONE.y + Math.round(SAFE_ZONE.height * 0.72) }
+      return { y: SAFE_ZONE.y + Math.round(SAFE_ZONE.height * 0.72) };
     case 'logo':
       // Top-left corner of the safe zone
-      return { y: SAFE_ZONE.y }
+      return { y: SAFE_ZONE.y };
   }
 }

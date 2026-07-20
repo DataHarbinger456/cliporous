@@ -1,10 +1,10 @@
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion'
-import { BRAND_ACCENT } from '../../../edit-styles/shared/brand'
-import { EASE } from '../../shared/easing'
-import { GridOverlay, AccentLine } from '../../shared/primitives'
-import { PrestyjFonts } from '../../shared/fonts'
-import type { CategoryRevealProps } from './types'
+import type React from 'react';
+import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { BRAND_ACCENT } from '../../../edit-styles/shared/brand';
+import { EASE } from '../../shared/easing';
+import { PrestyjFonts } from '../../shared/fonts';
+import { AccentLine, GridOverlay } from '../../shared/primitives';
+import type { CategoryRevealProps } from './types';
 
 /* ------------------------------------------------------------------ */
 /*  CategoryReveal — full-screen section intro with animated line       */
@@ -13,38 +13,38 @@ import type { CategoryRevealProps } from './types'
 export const CategoryReveal: React.FC<CategoryRevealProps> = ({
   category,
   tagline,
-  accentColor = BRAND_ACCENT
+  accentColor = BRAND_ACCENT,
 }) => {
-  const frame = useCurrentFrame()
+  const frame = useCurrentFrame();
 
   // Category text entrance.
   const categoryOpacity = interpolate(frame, [5, 22], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
   const categoryY = interpolate(frame, [5, 22], [30, 0], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
   // Tagline entrance (staggered after line).
   const taglineOpacity = interpolate(frame, [35, 50], [0, 1], {
     extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp'
-  })
+    extrapolateRight: 'clamp',
+  });
   const taglineY = interpolate(frame, [35, 50], [12, 0], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
   return (
     <AbsoluteFill
       style={{
         backgroundColor: '#0a0a0a',
         justifyContent: 'center',
-        alignItems: 'center'
+        alignItems: 'center',
       }}
     >
       <PrestyjFonts />
@@ -58,7 +58,7 @@ export const CategoryReveal: React.FC<CategoryRevealProps> = ({
           display: 'flex',
           flexDirection: 'column' as const,
           alignItems: 'center',
-          gap: 20
+          gap: 20,
         }}
       >
         {/* Category name */}
@@ -70,7 +70,7 @@ export const CategoryReveal: React.FC<CategoryRevealProps> = ({
             letterSpacing: 6,
             opacity: categoryOpacity,
             transform: `translateY(${categoryY}px)`,
-            textAlign: 'center' as const
+            textAlign: 'center' as const,
           }}
         >
           {category}
@@ -98,12 +98,12 @@ export const CategoryReveal: React.FC<CategoryRevealProps> = ({
             letterSpacing: 1,
             opacity: taglineOpacity,
             transform: `translateY(${taglineY}px)`,
-            textAlign: 'center' as const
+            textAlign: 'center' as const,
           }}
         >
           {tagline}
         </div>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

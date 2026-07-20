@@ -1,4 +1,4 @@
-import type { EditStyleTemplate } from '../../shared/types'
+import type { EditStyleTemplate } from '../../shared/types';
 
 export const splitImage: EditStyleTemplate = {
   archetype: 'split-image',
@@ -9,5 +9,5 @@ export const splitImage: EditStyleTemplate = {
   captionPosition: 'center',
   captionMarginV: 864,
   hookTitleY: 220,
-  rehookY: 220
-}
+  rehookY: 220,
+};

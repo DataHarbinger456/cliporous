@@ -2,22 +2,25 @@
 // Quality resolution — extracted from render-pipeline.ts
 // ---------------------------------------------------------------------------
 
-import type { QualityParams } from '../ffmpeg'
-import type { RenderBatchOptions } from './types'
-import { OUTPUT_WIDTH, OUTPUT_HEIGHT } from '../aspect-ratios'
+import { OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../aspect-ratios';
+import type { QualityParams } from '../ffmpeg';
+import type { RenderBatchOptions } from './types';
 
 /**
  * Resolve the effective CRF and preset from a renderQuality block.
  * Named presets override the custom fields; 'custom' uses them directly.
  */
 export function resolveQualityParams(rq?: RenderBatchOptions['renderQuality']): QualityParams {
-  if (!rq) return { crf: 20, preset: 'medium' }
+  if (!rq) return { crf: 20, preset: 'medium' };
   switch (rq.preset) {
-    case 'draft':  return { crf: 28, preset: 'veryfast' }
-    case 'high':   return { crf: 17, preset: 'slow' }
-    case 'custom': return { crf: rq.customCrf, preset: rq.encodingPreset }
-    case 'normal':
-    default:       return { crf: 20, preset: 'medium' }
+    case 'draft':
+      return { crf: 28, preset: 'veryfast' };
+    case 'high':
+      return { crf: 17, preset: 'slow' };
+    case 'custom':
+      return { crf: rq.customCrf, preset: rq.encodingPreset };
+    default:
+      return { crf: 20, preset: 'medium' };
   }
 }
 
@@ -26,7 +29,7 @@ export function resolveQualityParams(rq?: RenderBatchOptions['renderQuality']): 
  * The string argument is ignored — kept for backward-compat call sites.
  */
 export function parseResolution(_res: string): { width: number; height: number } {
-  return { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT }
+  return { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT };
 }
 
 /**
@@ -50,5 +53,5 @@ export function parseResolution(_res: string): { width: number; height: number }
  * libx264's near-transparent region.
  */
 export function getIntermediateQuality(): QualityParams {
-  return { crf: 12, preset: 'veryfast' }
+  return { crf: 12, preset: 'veryfast' };
 }

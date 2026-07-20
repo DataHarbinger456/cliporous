@@ -7,64 +7,106 @@
 // overlayPass → postProcess lifecycle phases.
 // ---------------------------------------------------------------------------
 
-import { BrowserWindow } from 'electron'
-import { Ch } from '@shared/ipc-channels'
-import { basename, dirname, extname } from 'path'
-import { existsSync, mkdirSync, unlinkSync } from 'fs'
-import type { FfmpegCommand } from '../ffmpeg'
-import { getEncoder, getVideoMetadata } from '../ffmpeg'
-import { OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_FPS } from '../aspect-ratios'
-import type { OutputAspectRatio } from '../aspect-ratios'
-import { writeDescriptionFile } from '../ai/description-generator'
-import type { ManifestJobMeta } from '../export-manifest'
-
-import type { RenderClipJob, RenderBatchOptions, RenderStitchedClipJob } from './types'
-import type { RenderFeature, FilterContext, OverlayContext, PostProcessContext, OverlayPassResult } from './features/feature'
-import { buildVideoFilter, renderClip, activeCommands } from './base-render'
-import { assembleStitchedVideo } from './stitched-render'
-import { renderSegmentedClip } from './segment-render'
-import { renderLongformVideo } from './longform-pipeline'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import type { SegmentRenderConfig, ResolvedSegment } from './segment-render'
-import { enforceSpeakerOpening } from './opening-guard'
-import { resolveQualityParams } from './quality'
-import { buildOutputPath } from './filename'
-import { classifyRenderError } from './render-error-map'
-import { getEditStyleById, DEFAULT_EDIT_STYLE_ID } from './../edit-styles/index'
-import { ARCHETYPE_DEFAULT_TRANSITION_IN, ARCHETYPE_TO_CATEGORY } from './../edit-styles/shared/archetypes'
-import { fetchSegmentVideos } from '../ai/segment-videos'
-import type { VideoSegment } from '@shared/types'
-import type { ArchetypeWindow } from '../captions'
-
+import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, extname, join } from 'node:path';
+import { Ch } from '@shared/ipc-channels';
+import type { VideoSegment } from '@shared/types';
+import type { BrowserWindow } from 'electron';
+import { writeDescriptionFile } from '../ai/description-generator';
+import { fetchSegmentVideos } from '../ai/segment-videos';
+import type { OutputAspectRatio } from '../aspect-ratios';
+import { OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../aspect-ratios';
+import type { ArchetypeWindow } from '../captions';
+import { DEFAULT_EDIT_STYLE_ID, getEditStyleById } from './../edit-styles/index';
+import {
+  ARCHETYPE_DEFAULT_TRANSITION_IN,
+  ARCHETYPE_TO_CATEGORY,
+} from './../edit-styles/shared/archetypes';
+import type { ManifestJobMeta } from '../export-manifest';
+import type { FfmpegCommand } from '../ffmpeg';
+import { getEncoder, getVideoMetadata, isHardwareEncoder } from '../ffmpeg';
+import { remapTimeAfterFillers } from '../filler-cuts';
+import { activeCommands, buildVideoFilter, renderClip } from './base-render';
+import { accentColorFeature, restoreBatchOptions } from './features/accent-color.feature';
+import { autoZoomFeature } from './features/auto-zoom.feature';
+import { brollFeature } from './features/broll.feature';
+import { createCaptionsFeature } from './features/captions.feature';
+import type {
+  FilterContext,
+  OverlayContext,
+  OverlayPassResult,
+  PostProcessContext,
+  RenderFeature,
+} from './features/feature';
 // Feature imports
-import { createFillerRemovalFeature, runFillerRemoval } from './features/filler-removal.feature'
-import { remapTimeAfterFillers } from '../filler-cuts'
-import { createCaptionsFeature } from './features/captions.feature'
-import { createHookTitleFeature } from './features/hook-title.feature'
-import { createRehookFeature } from './features/rehook.feature'
-import { autoZoomFeature } from './features/auto-zoom.feature'
-import { wordEmphasisFeature } from './features/word-emphasis.feature'
-import { brollFeature } from './features/broll.feature'
-import { shotTransitionFeature } from './features/shot-transition.feature'
-import { accentColorFeature, restoreBatchOptions } from './features/accent-color.feature'
-import { hyperframesOverlayFeature } from './features/hyperframes-overlay.feature'
+import { createFillerRemovalFeature, runFillerRemoval } from './features/filler-removal.feature';
+import { createHookTitleFeature } from './features/hook-title.feature';
+import { hyperframesOverlayFeature } from './features/hyperframes-overlay.feature';
+import { createRehookFeature } from './features/rehook.feature';
+import { shotTransitionFeature } from './features/shot-transition.feature';
+import { wordEmphasisFeature } from './features/word-emphasis.feature';
+import { buildOutputPath } from './filename';
+import { renderLongformVideo } from './longform-pipeline';
+import { enforceSpeakerOpening } from './opening-guard';
+import { resolveQualityParams } from './quality';
+import { classifyRenderError } from './render-error-map';
+import type { ResolvedSegment, SegmentRenderConfig } from './segment-render';
+import { renderSegmentedClip } from './segment-render';
+import { assembleStitchedVideo } from './stitched-render';
+import type { RenderBatchOptions, RenderClipJob, RenderStitchedClipJob } from './types';
 
 // ---------------------------------------------------------------------------
 // Cancellation state
 // ---------------------------------------------------------------------------
 
-let cancelRequested = false
+let cancelRequested = false;
+let stopAfterCurrentRequested = false;
+const cancelledJobIds = new Set<string>();
+
+/** Reset cancellation before IPC preparation starts for a new batch. */
+export function beginRenderBatch(): void {
+  cancelRequested = false;
+  stopAfterCurrentRequested = false;
+  cancelledJobIds.clear();
+}
+
+/** Allow expensive IPC preparation passes to stop before encoding begins. */
+export function isRenderCancellationRequested(): boolean {
+  return cancelRequested;
+}
+
+/** Let active encodes finish, then leave every remaining row queued. */
+export function stopRenderAfterCurrent(): void {
+  stopAfterCurrentRequested = true;
+}
+
+/** Skip one job that has not started encoding yet. */
+export function cancelQueuedRenderJob(clipId: string): void {
+  cancelledJobIds.add(clipId);
+}
 
 /**
  * Cancel the active render batch. Kills all running FFmpeg processes.
  */
 export function cancelRender(): void {
-  cancelRequested = true
+  cancelRequested = true;
+  const failures: string[] = [];
   for (const cmd of activeCommands) {
-    try { (cmd as FfmpegCommand).kill('SIGTERM') } catch { /* ignore */ }
+    try {
+      (cmd as FfmpegCommand).kill('SIGTERM');
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
   }
-  activeCommands.clear()
+  // Commands remove themselves on end/error. Keeping them tracked means a user
+  // can retry cancellation if the first signal failed instead of seeing a false
+  // idle state while FFmpeg continues in the background.
+  if (failures.length > 0) {
+    throw new Error(
+      `Cancellation failed for ${failures.length} video process(es): ${failures.join('; ')}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,50 +120,49 @@ export function cancelRender(): void {
  */
 function remapSourceTime(
   sourceTime: number,
-  segments: Array<{ startTime: number; endTime: number }>
+  segments: Array<{ startTime: number; endTime: number }>,
 ): number | null {
-  let concatStart = 0
+  let concatStart = 0;
   for (const seg of segments) {
     if (sourceTime >= seg.startTime && sourceTime <= seg.endTime) {
-      return concatStart + (sourceTime - seg.startTime)
+      return concatStart + (sourceTime - seg.startTime);
     }
-    concatStart += seg.endTime - seg.startTime
+    concatStart += seg.endTime - seg.startTime;
   }
-  return null
+  return null;
 }
 
 function remapWordTimestamps(
   words: Array<{ text: string; start: number; end: number }> | undefined,
-  segments: Array<{ startTime: number; endTime: number }>
+  segments: Array<{ startTime: number; endTime: number }>,
 ): Array<{ text: string; start: number; end: number }> | undefined {
-  if (!words || words.length === 0) return words
-  const out: Array<{ text: string; start: number; end: number }> = []
+  if (!words || words.length === 0) return words;
+  const out: Array<{ text: string; start: number; end: number }> = [];
   for (const w of words) {
-    const s = remapSourceTime(w.start, segments)
-    const e = remapSourceTime(w.end, segments)
+    const s = remapSourceTime(w.start, segments);
+    const e = remapSourceTime(w.end, segments);
     if (s !== null && e !== null && e >= s) {
-      out.push({ text: w.text, start: s, end: e })
+      out.push({ text: w.text, start: s, end: e });
     }
   }
-  return out
+  return out;
 }
 
 function remapWordEmphasis<T extends { start: number; end: number }>(
   emphasis: T[] | undefined,
-  segments: Array<{ startTime: number; endTime: number }>
+  segments: Array<{ startTime: number; endTime: number }>,
 ): T[] | undefined {
-  if (!emphasis || emphasis.length === 0) return emphasis
-  const out: T[] = []
+  if (!emphasis || emphasis.length === 0) return emphasis;
+  const out: T[] = [];
   for (const e of emphasis) {
-    const s = remapSourceTime(e.start, segments)
-    const en = remapSourceTime(e.end, segments)
+    const s = remapSourceTime(e.start, segments);
+    const en = remapSourceTime(e.end, segments);
     if (s !== null && en !== null && en >= s) {
-      out.push({ ...e, start: s, end: en })
+      out.push({ ...e, start: s, end: en });
     }
   }
-  return out
+  return out;
 }
-
 
 // ---------------------------------------------------------------------------
 // Main orchestrator
@@ -145,17 +186,17 @@ function remapWordEmphasis<T extends { start: number; end: number }>(
  * `render-handlers.ts` on `render:batchDone` rather than buried mid-pipeline.
  */
 export interface BatchDoneInfo {
-  options: RenderBatchOptions
-  jobs: RenderClipJob[]
-  outputDirectory: string
-  clipMeta: ManifestJobMeta[]
-  clipResults: Map<string, string | null>
-  clipRenderTimes: Map<string, number>
-  totalRenderTimeMs: number
-  encoder: string
-  completed: number
-  failed: number
-  total: number
+  options: RenderBatchOptions;
+  jobs: RenderClipJob[];
+  outputDirectory: string;
+  clipMeta: ManifestJobMeta[];
+  clipResults: Map<string, string | null>;
+  clipRenderTimes: Map<string, number>;
+  totalRenderTimeMs: number;
+  encoder: string;
+  completed: number;
+  failed: number;
+  total: number;
 }
 
 /**
@@ -164,36 +205,38 @@ export interface BatchDoneInfo {
  * in the `render:batchDone` event (lets the UI offer an "Open CSV" action).
  */
 export interface BatchDoneResult {
-  manifestCsvPath?: string
-  manifestJsonPath?: string
+  manifestCsvPath?: string;
+  manifestJsonPath?: string;
 }
 
 export type BatchDoneHandler = (
-  info: BatchDoneInfo
-) => void | BatchDoneResult | Promise<void | BatchDoneResult>
+  info: BatchDoneInfo,
+) => undefined | BatchDoneResult | Promise<undefined | BatchDoneResult>;
 
 export async function startBatchRender(
   options: RenderBatchOptions,
   window: BrowserWindow,
-  onBatchDone?: BatchDoneHandler
+  onBatchDone?: BatchDoneHandler,
 ): Promise<void> {
-  cancelRequested = false
+  // Cancellation is reset by the IPC handler before its preparation passes.
+  // Keeping the flag here prevents a cancel received during preparation from
+  // being erased immediately before encoding starts.
 
   // ── Long-form (16:9) routing ──────────────────────────────────────────────
   // When the caller requests the long-form profile, delegate to the dedicated
   // 1920×1080 orchestrator and return. The 9:16 path below is untouched when
   // outputProfile is undefined/'vertical'.
   if (options.outputProfile === 'longform') {
-    await renderLongformVideo(options, window)
-    return
+    await renderLongformVideo(options, window);
+    return;
   }
 
-  const { jobs, outputDirectory } = options
-  const total = jobs.length
+  const { jobs, outputDirectory } = options;
+  const total = jobs.length;
 
   // Ensure output directory exists
   if (!existsSync(outputDirectory)) {
-    mkdirSync(outputDirectory, { recursive: true })
+    mkdirSync(outputDirectory, { recursive: true });
   }
 
   // ── Create feature instances ──────────────────────────────────────────────
@@ -230,68 +273,84 @@ export async function startBatchRender(
     autoZoomFeature,
     brollFeature,
     shotTransitionFeature,
-    hyperframesOverlayFeature
-  ]
+    hyperframesOverlayFeature,
+  ];
 
   // ── Resolve batch-level config ────────────────────────────────────────────
-  const qualityParams = resolveQualityParams(options.renderQuality)
-  const outputFormat = options.renderQuality?.outputFormat ?? 'mp4'
+  const qualityParams = resolveQualityParams(options.renderQuality);
+  const outputFormat = options.renderQuality?.outputFormat ?? 'mp4';
 
   // Output is hard-locked to 1080×1920 © 30fps (9:16 vertical).
   // outputAspectRatio and outputResolution are accepted for backward compat
   // but ignored — every clip renders at the locked dimensions.
-  const effectiveAspectRatio: OutputAspectRatio = '9:16'
+  const effectiveAspectRatio: OutputAspectRatio = '9:16';
   const effectiveResolution: { width: number; height: number } = {
     width: OUTPUT_WIDTH,
-    height: OUTPUT_HEIGHT
-  }
+    height: OUTPUT_HEIGHT,
+  };
 
   // ── Determine effective concurrency ───────────────────────────────────────
-  const currentEncoder = getEncoder(qualityParams)
-  const encoderIsHardware = currentEncoder.encoder === 'h264_nvenc' || currentEncoder.encoder === 'h264_qsv'
-  const requestedConcurrency = Math.max(1, Math.min(4, options.renderConcurrency ?? 1))
-  const effectiveConcurrency = encoderIsHardware ? Math.min(2, requestedConcurrency) : requestedConcurrency
+  const currentEncoder = getEncoder(qualityParams);
+  const encoderIsHardware = isHardwareEncoder(currentEncoder.encoder);
+  const requestedConcurrency = Math.max(1, Math.min(4, options.renderConcurrency ?? 1));
+  const effectiveConcurrency = encoderIsHardware
+    ? Math.min(2, requestedConcurrency)
+    : requestedConcurrency;
 
   console.log(
     `[Quality] preset=${options.renderQuality?.preset ?? 'normal'}, ` +
-    `crf=${qualityParams.crf}, preset=${qualityParams.preset}, ` +
-    `format=${outputFormat}, resolution=${effectiveResolution.width}x${effectiveResolution.height}, ` +
-    `aspectRatio=${effectiveAspectRatio}`
-  )
+      `crf=${qualityParams.crf}, preset=${qualityParams.preset}, ` +
+      `format=${outputFormat}, resolution=${effectiveResolution.width}x${effectiveResolution.height}, ` +
+      `aspectRatio=${effectiveAspectRatio}`,
+  );
   console.log(
     `[Concurrency] requested=${requestedConcurrency}, effective=${effectiveConcurrency}, ` +
-    `encoder=${currentEncoder.encoder}`
-  )
+      `encoder=${currentEncoder.encoder}`,
+  );
 
-  let completed = 0
-  let failed = 0
-
+  let completed = 0;
+  let failed = 0;
+  let cancelled = 0;
   // Manifest tracking
-  const manifestResults = new Map<string, string | null>()
-  const manifestRenderTimes = new Map<string, number>()
-  const batchStartTime = Date.now()
+  const manifestResults = new Map<string, string | null>();
+  const manifestRenderTimes = new Map<string, number>();
+  const batchStartTime = Date.now();
 
   // Cache video metadata per source file to avoid redundant ffprobe calls
-  const metadataCache = new Map<string, { width: number; height: number; codec: string; fps: number; audioCodec: string; duration: number }>()
+  const metadataCache = new Map<
+    string,
+    {
+      width: number;
+      height: number;
+      codec: string;
+      fps: number;
+      audioCodec: string;
+      duration: number;
+    }
+  >();
 
   // ── Per-clip job processor ────────────────────────────────────────────────
 
   const processJob = async (job: RenderClipJob, i: number): Promise<void> => {
-    if (cancelRequested) return
-
+    if (cancelRequested) return;
+    if (cancelledJobIds.has(job.clipId)) {
+      cancelled++;
+      window.webContents.send(Ch.Send.RENDER_CLIP_CANCELLED, { clipId: job.clipId });
+      return;
+    }
     const outputPath = buildOutputPath(
       outputDirectory,
       job,
       i,
       outputFormat,
       options.filenameTemplate,
-      { score: job.manifestMeta?.score ?? 0, quality: options.renderQuality?.preset ?? 'normal' }
-    )
+      { score: job.manifestMeta?.score ?? 0, quality: options.renderQuality?.preset ?? 'normal' },
+    );
 
     // Safety: ensure output directory exists right before rendering
-    const clipOutputDir = dirname(outputPath)
+    const clipOutputDir = dirname(outputPath);
     if (!existsSync(clipOutputDir)) {
-      mkdirSync(clipOutputDir, { recursive: true })
+      mkdirSync(clipOutputDir, { recursive: true });
     }
 
     window.webContents.send(Ch.Send.RENDER_CLIP_START, {
@@ -299,19 +358,19 @@ export async function startBatchRender(
       index: i,
       total,
       encoder: currentEncoder.encoder,
-      encoderIsHardware
-    })
+      encoderIsHardware,
+    });
 
     // Initial prepare-phase progress
     window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
       clipId: job.clipId,
       message: 'Preparing clip…',
-      percent: 0
-    })
+      percent: 0,
+    });
 
-    const clipStartTime = Date.now()
-    let capturedCommand: string | undefined
-    const allTempFiles: string[] = []
+    const clipStartTime = Date.now();
+    let capturedCommand: string | undefined;
+    const allTempFiles: string[] = [];
 
     try {
       // ── Stitched clip assembly pre-pass ──────────────────────────────────
@@ -326,10 +385,10 @@ export async function startBatchRender(
         window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
           clipId: job.clipId,
           message: 'Assembling stitched segments…',
-          percent: 0
-        })
+          percent: 0,
+        });
 
-        const stitchedStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID
+        const stitchedStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID;
         // Stitched assembly only needs to crop+scale source ranges and concat
         // them. Archetype text / color treatment is owned by the feature
         // pipeline that runs on the assembled output, so strip overlayText /
@@ -340,8 +399,8 @@ export async function startBatchRender(
           endTime: seg.endTime,
           role: seg.role,
           imagePath: seg.imagePath,
-          cropRect: seg.cropRect
-        }))
+          cropRect: seg.cropRect,
+        }));
 
         const assemblyJob: RenderStitchedClipJob = {
           clipId: job.clipId,
@@ -349,25 +408,33 @@ export async function startBatchRender(
           segments: styledStitchedSegments,
           stylePresetId: stitchedStyleId,
           cropRegion: job.cropRegion,
-          outputFileName: job.outputFileName
-        }
+          outputFileName: job.outputFileName,
+        };
 
-        const assembledPath = join(tmpdir(), `batchcontent-stitched-${job.clipId}-${Date.now()}.mp4`)
-        allTempFiles.push(assembledPath)
+        const assembledPath = join(
+          tmpdir(),
+          `batchcontent-stitched-${job.clipId}-${Date.now()}.mp4`,
+        );
+        allTempFiles.push(assembledPath);
 
-        await assembleStitchedVideo(assemblyJob, assembledPath, (percent) => {
-          if (!cancelRequested) {
-            // Assembly runs in the prepare phase — report under the same
-            // prepare channel the feature pipeline will use shortly.
-            window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
-              clipId: job.clipId,
-              message: 'Assembling stitched segments…',
-              // Reserve the first half of the prepare percent budget for
-              // assembly so feature-prepare can claim 50-100.
-              percent: Math.min(49, Math.round(percent * 0.49))
-            })
-          }
-        }, qualityParams)
+        await assembleStitchedVideo(
+          assemblyJob,
+          assembledPath,
+          (percent) => {
+            if (!cancelRequested) {
+              // Assembly runs in the prepare phase — report under the same
+              // prepare channel the feature pipeline will use shortly.
+              window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
+                clipId: job.clipId,
+                message: 'Assembling stitched segments…',
+                // Reserve the first half of the prepare percent budget for
+                // assembly so feature-prepare can claim 50-100.
+                percent: Math.min(49, Math.round(percent * 0.49)),
+              });
+            }
+          },
+          qualityParams,
+        );
 
         // ── Rewrite the job to look like a regular clip on the assembled MP4 ──
         // Remap all source-time data (word timestamps, word emphasis, shots)
@@ -375,30 +442,33 @@ export async function startBatchRender(
         // see the right times when they run.
         const totalDuration = styledStitchedSegments.reduce(
           (sum, s) => sum + (s.endTime - s.startTime),
-          0
-        )
+          0,
+        );
 
         // wordTimestamps / wordEmphasis are in source-video time for stitched
         // clips (same convention the old stitched path used). Remap them onto
         // the concatenated timeline so caption / sound-design / word-emphasis
         // features see clip-local times.
-        job.wordTimestamps = remapWordTimestamps(job.wordTimestamps, styledStitchedSegments)
-        job.wordEmphasis = remapWordEmphasis(job.wordEmphasis, styledStitchedSegments)
-        job.wordEmphasisOverride = remapWordEmphasis(job.wordEmphasisOverride, styledStitchedSegments)
+        job.wordTimestamps = remapWordTimestamps(job.wordTimestamps, styledStitchedSegments);
+        job.wordEmphasis = remapWordEmphasis(job.wordEmphasis, styledStitchedSegments);
+        job.wordEmphasisOverride = remapWordEmphasis(
+          job.wordEmphasisOverride,
+          styledStitchedSegments,
+        );
 
         // Shot-based data is not currently populated for stitched clips; if it
         // shows up in the future, decide the time basis at that point.
-        job.shots = undefined
-        job.shotStyleConfigs = undefined
-        job.shotStyles = undefined
+        job.shots = undefined;
+        job.shotStyleConfigs = undefined;
+        job.shotStyles = undefined;
 
-        job.sourceVideoPath = assembledPath
-        job.startTime = 0
-        job.endTime = totalDuration
+        job.sourceVideoPath = assembledPath;
+        job.startTime = 0;
+        job.endTime = totalDuration;
         // Assembled video is already at the locked 1080×1920 — no further crop needed.
-        job.cropRegion = undefined
+        job.cropRegion = undefined;
         // Clear the stitched marker so we don't re-enter this block.
-        job.stitchedSegments = undefined
+        job.stitchedSegments = undefined;
         // Fall through to the regular feature pipeline below.
       }
 
@@ -415,26 +485,22 @@ export async function startBatchRender(
         //      cleaned timeline so each segment encodes the right audio range
         //   3. `job.wordTimestamps` are 0-based against the cleaned source
         //      (handled inside `runFillerRemoval`)
-        if (options.fillerRemoval?.enabled) {
+        if (options.fillerRemoval?.enabled && job.clipOverrides?.enableFillerRemoval !== false) {
           window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
             clipId: job.clipId,
             message: 'Removing fillers & silences…',
-            percent: 2
-          })
-          const fillerResult = await runFillerRemoval(
-            job,
-            options,
-            (message, percent) => {
-              if (!cancelRequested) {
-                window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
-                  clipId: job.clipId,
-                  message,
-                  percent: Math.min(4, Math.round(percent * 0.04))
-                })
-              }
+            percent: 2,
+          });
+          const fillerResult = await runFillerRemoval(job, options, (message, percent) => {
+            if (!cancelRequested) {
+              window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
+                clipId: job.clipId,
+                message,
+                percent: Math.min(4, Math.round(percent * 0.04)),
+              });
             }
-          )
-          allTempFiles.push(...fillerResult.tempFiles)
+          });
+          allTempFiles.push(...fillerResult.tempFiles);
 
           if (fillerResult.modified) {
             // Remap every segment's source-time bounds onto the cleaned
@@ -442,68 +508,69 @@ export async function startBatchRender(
             // (start ≥ end after remap) — they were 100% filler/silence.
             // The metadata cache key was the OLD source path; invalidate it
             // so the metadata fetch below probes the cleaned intermediate.
-            metadataCache.delete(job.sourceVideoPath)
+            metadataCache.delete(job.sourceVideoPath);
             const remappedSegments = job.segmentedSegments
               .map((raw) => {
                 const newStart = remapTimeAfterFillers(
                   raw.startTime,
                   fillerResult.originalStart,
                   fillerResult.originalEnd,
-                  fillerResult.fillerSegments
-                )
+                  fillerResult.fillerSegments,
+                );
                 const newEnd = remapTimeAfterFillers(
                   raw.endTime,
                   fillerResult.originalStart,
                   fillerResult.originalEnd,
-                  fillerResult.fillerSegments
-                )
-                return { ...raw, startTime: newStart, endTime: newEnd }
+                  fillerResult.fillerSegments,
+                );
+                return { ...raw, startTime: newStart, endTime: newEnd };
               })
-              .filter((s) => s.endTime - s.startTime >= 0.1)
+              .filter((s) => s.endTime - s.startTime >= 0.1);
 
             if (remappedSegments.length === 0) {
               console.warn(
-                `[Pipeline] Filler removal collapsed every segment for clip ${job.clipId} — aborting clip`
-              )
+                `[Pipeline] Filler removal collapsed every segment for clip ${job.clipId} — aborting clip`,
+              );
               window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
                 clipId: job.clipId,
-                error: 'Filler removal removed every segment; clip is empty.'
-              })
-              return
+                error: 'Filler removal removed every segment; clip is empty.',
+              });
+              return;
             }
-            job.segmentedSegments = remappedSegments
+            job.segmentedSegments = remappedSegments;
           }
         }
 
         // Resolve source metadata for the segmented clip (after potential
         // filler-removal swap of `job.sourceVideoPath` to the cleaned file).
-        let segMeta: { width: number; height: number; fps: number }
-        const segCached = metadataCache.get(job.sourceVideoPath)
+        let segMeta: { width: number; height: number; fps: number };
+        const segCached = metadataCache.get(job.sourceVideoPath);
         if (segCached) {
-          segMeta = segCached
+          segMeta = segCached;
         } else {
           try {
-            const fullMeta = await getVideoMetadata(job.sourceVideoPath)
-            metadataCache.set(job.sourceVideoPath, fullMeta)
-            segMeta = fullMeta
+            const fullMeta = await getVideoMetadata(job.sourceVideoPath);
+            metadataCache.set(job.sourceVideoPath, fullMeta);
+            segMeta = fullMeta;
           } catch (metaErr) {
-            const msg = metaErr instanceof Error ? metaErr.message : String(metaErr)
-            throw new Error(`Failed to read source video metadata for segmented clip ${job.clipId}: ${msg}`)
+            const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+            throw new Error(
+              `Failed to read source video metadata for segmented clip ${job.clipId}: ${msg}`,
+            );
           }
         }
 
         // Resolve edit style (defaults to cinematic if not set)
-        const editStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID
-        const editStyle = getEditStyleById(editStyleId) ?? getEditStyleById(DEFAULT_EDIT_STYLE_ID)!
+        const editStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID;
+        const editStyle = getEditStyleById(editStyleId) ?? getEditStyleById(DEFAULT_EDIT_STYLE_ID)!;
 
         // ── Inline b-roll video fetch for media-archetype segments ──────────
         // Only runs at render time, only for approved clips that contain a
         // split-image / fullscreen-image segment, only when the Pexels key
         // is set. Cached on disk so re-renders are free.
         const mediaRaws = job.segmentedSegments.filter(
-          (raw) =>
-            raw.archetype === 'split-image' || raw.archetype === 'fullscreen-image'
-        )
+          (raw) => raw.archetype === 'split-image' || raw.archetype === 'fullscreen-image',
+        );
         if (
           mediaRaws.length > 0 &&
           options.pexelsApiKey &&
@@ -512,8 +579,8 @@ export async function startBatchRender(
           window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
             clipId: job.clipId,
             message: `Fetching ${mediaRaws.length} b-roll video(s)…`,
-            percent: 5
-          })
+            percent: 5,
+          });
           // Build minimal VideoSegment-shaped objects for the video fetcher.
           // It only reads id, captionText, segmentStyleCategory, start/end.
           const stubs: VideoSegment[] = mediaRaws.map((raw) => ({
@@ -528,24 +595,22 @@ export async function startBatchRender(
             segmentStyleCategory: ARCHETYPE_TO_CATEGORY[raw.archetype],
             zoomKeyframes: [],
             transitionIn: 'hard-cut',
-            transitionOut: 'hard-cut'
-          }))
+            transitionOut: 'hard-cut',
+          }));
           try {
             const videoMap = await fetchSegmentVideos(
               stubs,
               options.pexelsApiKey,
-              options.geminiApiKey ?? ''
-            )
+              options.geminiApiKey ?? '',
+            );
             for (const raw of mediaRaws) {
-              const stubId = raw.id ?? `${job.clipId}-${raw.startTime}`
-              const path = videoMap.get(stubId)
-              if (path) raw.videoPath = path
+              const stubId = raw.id ?? `${job.clipId}-${raw.startTime}`;
+              const path = videoMap.get(stubId);
+              if (path) raw.videoPath = path;
             }
           } catch (vidErr) {
-            const msg = vidErr instanceof Error ? vidErr.message : String(vidErr)
-            console.warn(
-              `[Pipeline] Segment b-roll fetch failed for clip ${job.clipId}: ${msg}`
-            )
+            const msg = vidErr instanceof Error ? vidErr.message : String(vidErr);
+            console.warn(`[Pipeline] Segment b-roll fetch failed for clip ${job.clipId}: ${msg}`);
             // Non-fatal — segments without videoPath surface as fallbackReason
             // at render time and degrade to talking-head.
           }
@@ -561,13 +626,16 @@ export async function startBatchRender(
           archetype: raw.archetype,
           zoom: {
             style: raw.zoomStyle ?? editStyle.defaultZoomStyle,
-            intensity: raw.zoomIntensity ?? editStyle.defaultZoomIntensity
+            intensity: raw.zoomIntensity ?? editStyle.defaultZoomIntensity,
           },
           transitionIn:
-            ARCHETYPE_DEFAULT_TRANSITION_IN[raw.archetype] ?? editStyle.defaultTransition,
+            options.shotTransitionsEnabled === false ||
+            job.clipOverrides?.enableShotTransitions === false
+              ? 'hard-cut'
+              : (ARCHETYPE_DEFAULT_TRANSITION_IN[raw.archetype] ?? editStyle.defaultTransition),
           videoPath: raw.videoPath,
-          cropRect: raw.cropRect
-        }))
+          cropRect: raw.cropRect,
+        }));
 
         // ── Opening guard ────────────────────────────────────────────────
         // Guarantee the clip opens on the speaker (talking-head) within the
@@ -575,31 +643,32 @@ export async function startBatchRender(
         // archetype (fullscreen image/quote card, split-image), it is split or
         // demoted so a face is visible from frame 0 and any media/card overlay
         // is delayed past the lead.
-        const resolvedSegments: ResolvedSegment[] = enforceSpeakerOpening(builtSegments)
+        const resolvedSegments: ResolvedSegment[] = enforceSpeakerOpening(builtSegments);
 
         // Clip-relative archetype windows for the post-concat caption pass.
-        const archetypeWindows: ArchetypeWindow[] = []
+        const archetypeWindows: ArchetypeWindow[] = [];
         {
-          let cumulative = 0
+          let cumulative = 0;
           for (const seg of resolvedSegments) {
-            const segDuration = seg.endTime - seg.startTime
+            const segDuration = seg.endTime - seg.startTime;
             archetypeWindows.push({
               startTime: cumulative,
               endTime: cumulative + segDuration,
-              archetype: seg.archetype
-            })
-            cumulative += segDuration
+              archetype: seg.archetype,
+            });
+            cumulative += segDuration;
           }
         }
 
         // Rehook config for the segmented path — feature pipeline doesn't run
         // here, so wire it directly from batch options.
-        const rehookEnabled = options.rehookOverlay?.enabled === true
-        const rehookText = rehookEnabled ? job.rehookText : undefined
-        const rehookConfig = rehookEnabled ? options.rehookOverlay : undefined
+        const rehookEnabled =
+          options.rehookOverlay?.enabled === true && job.clipOverrides?.enableRehook !== false;
+        const rehookText = rehookEnabled ? job.rehookText : undefined;
+        const rehookConfig = rehookEnabled ? options.rehookOverlay : undefined;
         const rehookAppearTime = rehookEnabled
-          ? options.hookTitleOverlay?.displayDuration ?? 2.5
-          : undefined
+          ? (options.hookTitleOverlay?.displayDuration ?? 2.5)
+          : undefined;
 
         const segConfig: SegmentRenderConfig = {
           sourceVideoPath: job.sourceVideoPath,
@@ -613,10 +682,17 @@ export async function startBatchRender(
           wordTimestamps: job.wordTimestamps,
           wordEmphasis: job.wordEmphasis,
           captionStyle: options.captionStyle,
-          captionsEnabled: true,
+          captionsEnabled:
+            options.captionsEnabled !== false && job.clipOverrides?.enableCaptions !== false,
           archetypeWindows,
           hookTitleText: job.hookTitleText,
-          hookTitleConfig: options.hookTitleOverlay,
+          hookTitleConfig: options.hookTitleOverlay
+            ? {
+                ...options.hookTitleOverlay,
+                enabled:
+                  options.hookTitleOverlay.enabled && job.clipOverrides?.enableHookTitle !== false,
+              }
+            : undefined,
           rehookText,
           rehookConfig,
           rehookAppearTime,
@@ -628,37 +704,44 @@ export async function startBatchRender(
                 clipId: job.clipId,
                 segmentIndex: info.segmentIndex,
                 archetype: info.archetype,
-                reason: info.reason
-              })
+                reason: info.reason,
+              });
             }
-          }
-        }
+          },
+        };
 
         await renderSegmentedClip(segConfig, outputPath, (percent) => {
           if (!cancelRequested) {
-            window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent })
+            window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent });
           }
-        })
+        });
 
-        manifestResults.set(job.clipId, outputPath)
-        manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime)
-        completed++
-        window.webContents.send(Ch.Send.RENDER_CLIP_DONE, { clipId: job.clipId, outputPath })
-        return
+        manifestResults.set(job.clipId, outputPath);
+        manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime);
+        completed++;
+        window.webContents.send(Ch.Send.RENDER_CLIP_DONE, { clipId: job.clipId, outputPath });
+        return;
       }
 
       // ── Phase 0: Get source metadata ────────────────────────────────────
-      let meta: { width: number; height: number; codec: string; fps: number; audioCodec: string; duration: number }
-      const cached = metadataCache.get(job.sourceVideoPath)
+      let meta: {
+        width: number;
+        height: number;
+        codec: string;
+        fps: number;
+        audioCodec: string;
+        duration: number;
+      };
+      const cached = metadataCache.get(job.sourceVideoPath);
       if (cached) {
-        meta = cached
+        meta = cached;
       } else {
         try {
-          meta = await getVideoMetadata(job.sourceVideoPath)
-          metadataCache.set(job.sourceVideoPath, meta)
+          meta = await getVideoMetadata(job.sourceVideoPath);
+          metadataCache.set(job.sourceVideoPath, meta);
         } catch (metaErr) {
-          const msg = metaErr instanceof Error ? metaErr.message : String(metaErr)
-          throw new Error(`Failed to read source video metadata for clip ${job.clipId}: ${msg}`)
+          const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+          throw new Error(`Failed to read source video metadata for clip ${job.clipId}: ${msg}`);
         }
       }
 
@@ -666,57 +749,57 @@ export async function startBatchRender(
       // Each feature is isolated: a failure in one feature does NOT prevent
       // the remaining features from preparing. The clip still renders, just
       // without that one feature's contribution.
-      const featureCount = features.length
+      const featureCount = features.length;
       for (let fi = 0; fi < featureCount; fi++) {
-        const feature = features[fi]
-        if (cancelRequested) return
+        const feature = features[fi];
+        if (cancelRequested) return;
         if (feature.prepare) {
           window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
             clipId: job.clipId,
             message: `Preparing ${feature.name}…`,
-            percent: Math.round(((fi + 1) / featureCount) * 50)
-          })
+            percent: Math.round(((fi + 1) / featureCount) * 50),
+          });
           try {
             const result = await feature.prepare(job, options, (message, percent) => {
               window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
                 clipId: job.clipId,
                 message,
-                percent
-              })
-            })
+                percent,
+              });
+            });
             if (result.tempFiles.length > 0) {
-              allTempFiles.push(...result.tempFiles)
+              allTempFiles.push(...result.tempFiles);
             }
             if (result.modified) {
-              console.log(`[Pipeline] ${feature.name}: prepared clip ${job.clipId}`)
+              console.log(`[Pipeline] ${feature.name}: prepared clip ${job.clipId}`);
             }
           } catch (featureErr) {
-            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr)
+            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr);
             console.error(
-              `[Pipeline] ${feature.name} prepare() failed for clip ${job.clipId}, skipping: ${msg}`
-            )
+              `[Pipeline] ${feature.name} prepare() failed for clip ${job.clipId}, skipping: ${msg}`,
+            );
             window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
               clipId: job.clipId,
               error: `[${feature.name}] prepare failed (clip will render without this feature): ${msg}`,
-              ffmpegCommand: null
-            })
+              ffmpegCommand: null,
+            });
           }
         }
       }
 
-      if (cancelRequested) return
+      if (cancelRequested) return;
 
       // After filler removal, the job's sourceVideoPath may have changed.
       // Re-fetch metadata if the source path is no longer in the cache.
       if (!metadataCache.has(job.sourceVideoPath)) {
         try {
-          meta = await getVideoMetadata(job.sourceVideoPath)
-          metadataCache.set(job.sourceVideoPath, meta)
+          meta = await getVideoMetadata(job.sourceVideoPath);
+          metadataCache.set(job.sourceVideoPath, meta);
         } catch {
           // If intermediate file can't be probed, use original meta
         }
       } else {
-        meta = metadataCache.get(job.sourceVideoPath)!
+        meta = metadataCache.get(job.sourceVideoPath)!;
       }
 
       // ── Phase 2: Build video filter chain ──────────────────────────────
@@ -727,32 +810,32 @@ export async function startBatchRender(
         meta.height,
         effectiveResolution,
         effectiveAspectRatio,
-        meta.fps
-      )
+        meta.fps,
+      );
 
       // Append feature video filters (auto-zoom)
-      const clipDuration = job.endTime - job.startTime
+      const clipDuration = job.endTime - job.startTime;
       const filterContext: FilterContext = {
         sourceWidth: meta.width,
         sourceHeight: meta.height,
         targetWidth: effectiveResolution.width,
         targetHeight: effectiveResolution.height,
         clipDuration,
-        outputAspectRatio: effectiveAspectRatio
-      }
+        outputAspectRatio: effectiveAspectRatio,
+      };
 
       for (const feature of features) {
         if (feature.videoFilter) {
           try {
-            const featureFilter = feature.videoFilter(job, filterContext)
+            const featureFilter = feature.videoFilter(job, filterContext);
             if (featureFilter) {
-              videoFilter = videoFilter + ',' + featureFilter
+              videoFilter = `${videoFilter},${featureFilter}`;
             }
           } catch (featureErr) {
-            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr)
+            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr);
             console.error(
-              `[Pipeline] ${feature.name} videoFilter() failed for clip ${job.clipId}, skipping: ${msg}`
-            )
+              `[Pipeline] ${feature.name} videoFilter() failed for clip ${job.clipId}, skipping: ${msg}`,
+            );
           }
         }
       }
@@ -761,22 +844,22 @@ export async function startBatchRender(
       const overlayContext: OverlayContext = {
         clipDuration,
         targetWidth: effectiveResolution.width,
-        targetHeight: effectiveResolution.height
-      }
+        targetHeight: effectiveResolution.height,
+      };
 
-      const overlaySteps: OverlayPassResult[] = []
+      const overlaySteps: OverlayPassResult[] = [];
       for (const feature of features) {
         if (feature.overlayPass) {
           try {
-            const step = feature.overlayPass(job, overlayContext)
+            const step = feature.overlayPass(job, overlayContext);
             if (step) {
-              overlaySteps.push(step)
+              overlaySteps.push(step);
             }
           } catch (featureErr) {
-            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr)
+            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr);
             console.error(
-              `[Pipeline] ${feature.name} overlayPass() failed for clip ${job.clipId}, skipping: ${msg}`
-            )
+              `[Pipeline] ${feature.name} overlayPass() failed for clip ${job.clipId}, skipping: ${msg}`,
+            );
           }
         }
       }
@@ -793,80 +876,80 @@ export async function startBatchRender(
       // The base videoFilter ends in `…,format=yuv420p`; we strip that tail,
       // append each mergeable overlay, then re-pin format=yuv420p so the
       // final output stays in universally-playable subsampling.
-      const complexSteps: OverlayPassResult[] = []
-      const mergedNames: string[] = []
+      const complexSteps: OverlayPassResult[] = [];
+      const mergedNames: string[] = [];
       for (const step of overlaySteps) {
         if (step.filterComplex) {
-          complexSteps.push(step)
+          complexSteps.push(step);
         } else {
-          videoFilter = videoFilter.replace(/,format=yuv420p$/, '')
-          videoFilter = `${videoFilter},${step.filter},format=yuv420p`
-          mergedNames.push(step.name)
+          videoFilter = videoFilter.replace(/,format=yuv420p$/, '');
+          videoFilter = `${videoFilter},${step.filter},format=yuv420p`;
+          mergedNames.push(step.name);
         }
       }
       if (mergedNames.length > 0) {
         console.log(
           `[Pipeline] Clip ${job.clipId}: merged ${mergedNames.length} overlay(s) ` +
-          `into base encode (${mergedNames.join(', ')})`
-        )
+            `into base encode (${mergedNames.join(', ')})`,
+        );
       }
 
       // ── Phase 4: Base render ───────────────────────────────────────────
       window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
         clipId: job.clipId,
         message: 'Encoding…',
-        percent: 50
-      })
+        percent: 50,
+      });
       await renderClip(
         job,
         outputPath,
         videoFilter,
         (percent) => {
           if (!cancelRequested) {
-            window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent })
+            window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent });
           }
         },
         (cmd) => {
-          capturedCommand = cmd
+          capturedCommand = cmd;
           if (options.developerMode) {
-            console.log(`[DevMode] Clip ${job.clipId} FFmpeg:`, cmd)
+            console.log(`[DevMode] Clip ${job.clipId} FFmpeg:`, cmd);
             window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
               clipId: `${job.clipId}__devmode`,
               error: `[DevMode] FFmpeg command for clip ${job.clipId}`,
-              ffmpegCommand: cmd
-            })
+              ffmpegCommand: cmd,
+            });
           }
         },
         qualityParams,
         outputFormat,
         null, // hookFontPath — no longer needed, features handle their own fonts
         null, // captionFontsDir — features handle their own font dirs
-        complexSteps
-      )
+        complexSteps,
+      );
 
-      if (cancelRequested) return
+      if (cancelRequested) return;
 
       // ── Phase 5: Post-process — call feature.postProcess() ─────────────
       const postContext: PostProcessContext = {
         clipDuration,
-        outputPath
-      }
+        outputPath,
+      };
 
       for (const feature of features) {
-        if (cancelRequested) return
+        if (cancelRequested) return;
         if (feature.postProcess) {
           try {
-            await feature.postProcess(job, outputPath, postContext)
+            await feature.postProcess(job, outputPath, postContext);
           } catch (featureErr) {
-            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr)
+            const msg = featureErr instanceof Error ? featureErr.message : String(featureErr);
             console.error(
-              `[Pipeline] ${feature.name} postProcess() failed for clip ${job.clipId}, skipping: ${msg}`
-            )
+              `[Pipeline] ${feature.name} postProcess() failed for clip ${job.clipId}, skipping: ${msg}`,
+            );
             window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
               clipId: job.clipId,
               error: `[${feature.name}] postProcess failed (clip may be incomplete): ${msg}`,
-              ffmpegCommand: null
-            })
+              ffmpegCommand: null,
+            });
           }
         }
       }
@@ -874,87 +957,98 @@ export async function startBatchRender(
       // ── Restore batch options after this clip's overlays are done ──────
       // The accent-color feature mutates shared batchOptions during prepare().
       // Restore now so the next clip doesn't inherit this clip's accent color.
-      restoreBatchOptions(job, options)
+      restoreBatchOptions(job, options);
 
       // ── Write description file ─────────────────────────────────────────
       if (job.description) {
         try {
-          const clipFilename = basename(outputPath)
-          writeDescriptionFile(outputDirectory, clipFilename, job.description)
-          console.log(`[Description] Written: ${basename(clipFilename, extname(clipFilename))}.txt`)
+          const clipFilename = basename(outputPath);
+          writeDescriptionFile(outputDirectory, clipFilename, job.description);
+          console.log(
+            `[Description] Written: ${basename(clipFilename, extname(clipFilename))}.txt`,
+          );
         } catch (descErr) {
-          console.warn(`[Description] Failed to write .txt for clip ${job.clipId}:`, descErr)
+          console.warn(`[Description] Failed to write .txt for clip ${job.clipId}:`, descErr);
         }
       }
 
-      manifestResults.set(job.clipId, outputPath)
-      manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime)
-      completed++
-      window.webContents.send(Ch.Send.RENDER_CLIP_DONE, { clipId: job.clipId, outputPath })
+      manifestResults.set(job.clipId, outputPath);
+      manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime);
+      completed++;
+      window.webContents.send(Ch.Send.RENDER_CLIP_DONE, { clipId: job.clipId, outputPath });
     } catch (err) {
       // Clean up partial output file on failure
       try {
-        if (existsSync(outputPath)) unlinkSync(outputPath)
+        if (existsSync(outputPath)) unlinkSync(outputPath);
       } catch {
         // Ignore cleanup errors
       }
 
-      if (cancelRequested) return
+      if (cancelRequested) return;
 
       // Restore batch options even on failure so the next clip isn't affected
-      restoreBatchOptions(job, options)
+      restoreBatchOptions(job, options);
 
-      manifestResults.set(job.clipId, null)
-      manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime)
-      failed++
-      const rawMessage = err instanceof Error ? err.message : String(err)
+      manifestResults.set(job.clipId, null);
+      manifestRenderTimes.set(job.clipId, Date.now() - clipStartTime);
+      failed++;
+      const rawMessage = err instanceof Error ? err.message : String(err);
       // Map raw engine output → human summary + suggested action (RF-022),
       // keeping the raw stderr tail available behind a "details" expander.
-      const classified = classifyRenderError(rawMessage)
+      const classified = classifyRenderError(rawMessage);
       window.webContents.send(Ch.Send.RENDER_CLIP_ERROR, {
         clipId: job.clipId,
-        error: classified.message,
-        suggestion: classified.suggestion,
-        details: classified.details,
-        ffmpegCommand: capturedCommand
-      })
+        error: classified,
+        ffmpegCommand: capturedCommand,
+      });
     } finally {
       // Clean up temp files from all features
       for (const tempFile of allTempFiles) {
-        try { unlinkSync(tempFile) } catch { /* ignore */ }
+        try {
+          unlinkSync(tempFile);
+        } catch {
+          /* ignore */
+        }
       }
     }
-  }
+  };
 
   // ── Concurrent render pool ──────────────────────────────────────────────
   if (effectiveConcurrency <= 1) {
     // Sequential path (no overhead)
     for (let i = 0; i < jobs.length; i++) {
       if (cancelRequested) {
-        window.webContents.send(Ch.Send.RENDER_CANCELLED, { completed, failed, total })
-        return
+        window.webContents.send(Ch.Send.RENDER_CANCELLED, { completed, failed, cancelled, total });
+        return;
       }
-      await processJob(jobs[i], i)
+      const job = jobs[i];
+      if (!job) continue;
+      await processJob(job, i);
+      if (stopAfterCurrentRequested && i < jobs.length - 1) {
+        window.webContents.send(Ch.Send.RENDER_CANCELLED, { completed, failed, cancelled, total });
+        return;
+      }
     }
   } else {
-    // Parallel path — shared queue index advanced atomically (single-threaded JS)
-    let nextJobIndex = 0
+    // Parallel path: each worker finishes its current encode before honoring stop-after-current.
+    let nextJobIndex = 0;
 
     const worker = async (): Promise<void> => {
       while (true) {
-        if (cancelRequested) return
-        const i = nextJobIndex++
-        if (i >= jobs.length) return
-        await processJob(jobs[i], i)
+        if (cancelRequested || stopAfterCurrentRequested) return;
+        const i = nextJobIndex++;
+        if (i >= jobs.length) return;
+        const job = jobs[i];
+        if (!job) return;
+        await processJob(job, i);
       }
-    }
+    };
 
-    // Launch effectiveConcurrency workers and wait for all to drain the queue
-    await Promise.all(Array.from({ length: effectiveConcurrency }, worker))
+    await Promise.all(Array.from({ length: effectiveConcurrency }, worker));
 
-    if (cancelRequested) {
-      window.webContents.send(Ch.Send.RENDER_CANCELLED, { completed, failed, total })
-      return
+    if (cancelRequested || (stopAfterCurrentRequested && nextJobIndex < jobs.length)) {
+      window.webContents.send(Ch.Send.RENDER_CANCELLED, { completed, failed, cancelled, total });
+      return;
     }
   }
 
@@ -963,8 +1057,8 @@ export async function startBatchRender(
   // The export manifest is written from `render-handlers.ts` on the
   // `render:batchDone` boundary rather than here, so this orchestrator stays
   // focused on rendering and IO concerns live at the IPC layer.
-  let manifestCsvPath: string | undefined
-  let manifestJsonPath: string | undefined
+  let manifestCsvPath: string | undefined;
+  let manifestJsonPath: string | undefined;
   if (onBatchDone) {
     try {
       const clipMeta: ManifestJobMeta[] = jobs.map((job) => ({
@@ -974,8 +1068,8 @@ export async function startBatchRender(
         reasoning: job.manifestMeta?.reasoning ?? '',
         transcriptText: job.manifestMeta?.transcriptText ?? '',
         loopScore: job.manifestMeta?.loopScore,
-        description: job.description
-      }))
+        description: job.description,
+      }));
 
       const result = await onBatchDone({
         options,
@@ -988,22 +1082,23 @@ export async function startBatchRender(
         encoder: getEncoder().encoder,
         completed,
         failed,
-        total
-      })
+        total,
+      });
       if (result) {
-        manifestCsvPath = result.manifestCsvPath
-        manifestJsonPath = result.manifestJsonPath
+        manifestCsvPath = result.manifestCsvPath;
+        manifestJsonPath = result.manifestJsonPath;
       }
     } catch (err) {
-      console.warn('[render-pipeline] onBatchDone handler threw:', err)
+      console.warn('[render-pipeline] onBatchDone handler threw:', err);
     }
   }
 
   window.webContents.send(Ch.Send.RENDER_BATCH_DONE, {
     completed,
     failed,
+    cancelled,
     total,
     manifestCsvPath,
-    manifestJsonPath
-  })
+    manifestJsonPath,
+  });
 }

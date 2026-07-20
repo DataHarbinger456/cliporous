@@ -9,35 +9,40 @@
 // caption track, hook title, and rehook overlay are burned post-concat.
 // ---------------------------------------------------------------------------
 
-import { join } from 'path'
-import { unlinkSync, writeFileSync, renameSync, existsSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { EmphasizedWord } from '@shared/types';
+import type { ArchetypeWindow, CaptionStyleInput, WordInput } from '../captions';
+import { generateCaptions } from '../captions';
+import { DEFAULT_EDIT_STYLE_ID, isSpeakerFullscreen, resolveTemplate } from '../edit-styles';
 import {
+  disableGpuEncoderForSession,
   ffmpeg,
   getEncoder,
   getSoftwareEncoder,
-  isGpuSessionError,
-  isGpuEncoderDisabled,
-  disableGpuEncoderForSession,
   getVideoMetadata,
-  type QualityParams
-} from '../ffmpeg'
-import type { HookTitleConfig } from './types'
-import type { CaptionStyleInput, ArchetypeWindow, WordInput } from '../captions'
-import type { EmphasizedWord } from '@shared/types'
-import { toFFmpegPath, buildASSFilter } from './helpers'
-import { generateCaptions } from '../captions'
-import { resolveTemplate, isSpeakerFullscreen, DEFAULT_EDIT_STYLE_ID } from '../edit-styles'
-import { analyzeEmphasisHeuristic } from '../word-emphasis'
-import { resolveFontsDir } from '../font-registry'
-import { buildSnapZoom, buildWordPulseZoom, buildDriftZoom, buildZoomOutReveal } from '../zoom-filters'
-import { applyFilterPass } from './overlay-runner'
-import { getIntermediateQuality } from './quality'
-import { generateHookTitleASSFile } from './features/hook-title.feature'
-import { generateRehookASSFile } from './features/rehook.feature'
-import { buildArchetypeLayout, type SegmentLayoutParams } from '../layouts/segment-layouts'
-import { buildEditStyleColorGradeFilter } from './color-grade-filter'
-import type { RehookConfig, OverlayVisualSettings } from '../overlays/rehook'
+  isGpuEncoderDisabled,
+  isGpuSessionError,
+  type QualityParams,
+} from '../ffmpeg';
+import { resolveFontsDir } from '../font-registry';
+import { buildArchetypeLayout, type SegmentLayoutParams } from '../layouts/segment-layouts';
+import type { OverlayVisualSettings, RehookConfig } from '../overlays/rehook';
+import { analyzeEmphasisHeuristic } from '../word-emphasis';
+import {
+  buildDriftZoom,
+  buildSnapZoom,
+  buildWordPulseZoom,
+  buildZoomOutReveal,
+} from '../zoom-filters';
+import { buildEditStyleColorGradeFilter } from './color-grade-filter';
+import { generateHookTitleASSFile } from './features/hook-title.feature';
+import { generateRehookASSFile } from './features/rehook.feature';
+import { buildASSFilter, toFFmpegPath } from './helpers';
+import { applyFilterPass } from './overlay-runner';
+import { getIntermediateQuality } from './quality';
+import type { HookTitleConfig } from './types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,80 +50,80 @@ import type { RehookConfig, OverlayVisualSettings } from '../overlays/rehook'
 
 export interface ResolvedSegment {
   /** Segment time range in source video (absolute seconds) */
-  startTime: number
-  endTime: number
+  startTime: number;
+  endTime: number;
   /** Archetype drives the segment's visual layout. */
-  archetype: Archetype
+  archetype: Archetype;
   /** Zoom parameters (segment-local — applied after the layout filter). */
   zoom: {
-    style: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out'
-    intensity: number
-  }
+    style: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out';
+    intensity: number;
+  };
   /** Transition INTO this segment (ignored on the first segment). */
-  transitionIn: TransitionType
+  transitionIn: TransitionType;
   /** Contextual image path (legacy — still accepted but unused by the active
    *  split-image / fullscreen-image layouts, which now consume `videoPath`). */
-  imagePath?: string
+  imagePath?: string;
   /** Contextual b-roll video path (for split-image / fullscreen-image archetypes). */
-  videoPath?: string
+  videoPath?: string;
   /** Per-segment face crop override on the source video. */
-  cropRect?: { x: number; y: number; width: number; height: number }
+  cropRect?: { x: number; y: number; width: number; height: number };
   /**
    * Set when a requested archetype could not be honored at render time
    * (e.g. split-image / fullscreen-image with no image) and was degraded
    * to talking-head. Mirrored to upstream via SegmentRenderConfig.onFallback.
    */
-  fallbackReason?: string
+  fallbackReason?: string;
 }
 
 export interface SegmentRenderConfig {
   /** Source video path */
-  sourceVideoPath: string
+  sourceVideoPath: string;
   /** Per-segment render instructions */
-  segments: ResolvedSegment[]
+  segments: ResolvedSegment[];
   /** Edit style providing color-grade and transition defaults */
-  editStyle: EditStyle
+  editStyle: EditStyle;
   /** Target output dimensions */
-  width: number
-  height: number
+  width: number;
+  height: number;
   /** Video FPS */
-  fps: number
+  fps: number;
   /** Source video metadata */
-  sourceWidth: number
-  sourceHeight: number
+  sourceWidth: number;
+  sourceHeight: number;
   /** Word timestamps (absolute, for caption generation) */
-  wordTimestamps?: { text: string; start: number; end: number }[]
+  wordTimestamps?: { text: string; start: number; end: number }[];
   /** Word emphasis data (clip-relative or absolute — matched by start time) */
-  wordEmphasis?: EmphasizedWord[]
+  wordEmphasis?: EmphasizedWord[];
   /** Caption style — required for the clip-level caption pass to render. */
-  captionStyle?: CaptionStyleInput
+  captionStyle?: CaptionStyleInput;
   /** Whether captions are enabled */
-  captionsEnabled?: boolean
+  captionsEnabled?: boolean;
   /** Archetype windows for per-line marginV / fontSize in the captions pass. */
-  archetypeWindows?: ArchetypeWindow[]
+  archetypeWindows?: ArchetypeWindow[];
   /** Template layout positions (only titleText.y + rehookText.y are read). */
   templateLayout?: {
-    titleText: { x: number; y: number }
-    subtitles: { x: number; y: number }
-    rehookText: { x: number; y: number }
-  }
+    titleText: { x: number; y: number };
+    subtitles: { x: number; y: number };
+    rehookText: { x: number; y: number };
+  };
   /** Hook title text + config — burned post-concat into the first N seconds. */
-  hookTitleText?: string
-  hookTitleConfig?: HookTitleConfig
+  hookTitleText?: string;
+  hookTitleConfig?: HookTitleConfig;
   /** Rehook text + config — burned post-concat after the hook title. */
-  rehookText?: string
-  rehookConfig?: RehookConfig
+  rehookText?: string;
+  rehookConfig?: RehookConfig;
   /** Clip-relative seconds at which the rehook should appear. */
-  rehookAppearTime?: number
+  rehookAppearTime?: number;
   /** Visual settings used for the rehook pill (inherits from hook by default). */
-  rehookVisuals?: OverlayVisualSettings
+  rehookVisuals?: OverlayVisualSettings;
   /**
    * Called when a segment's requested archetype could not be honored
    * and was degraded at render time (image archetype with no image →
    * talking-head). Implementations typically forward this as IPC via
    * `Ch.Send.SEGMENT_FALLBACK`.
    */
-  onFallback?: (info: { segmentIndex: number; archetype: string; reason: string }) => void
+  onFallback?: (info: { segmentIndex: number; archetype: string; reason: string }) => void;
   /**
    * Encoder quality (CRF + speed preset). Forwarded to every per-segment
    * encode, xfade concat, and post-concat overlay pass so the user's
@@ -126,7 +131,7 @@ export interface SegmentRenderConfig {
    * segmented render path. When omitted, falls back to the encoder defaults
    * (CRF 20, medium preset).
    */
-  qualityParams?: QualityParams
+  qualityParams?: QualityParams;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,23 +145,23 @@ function buildSegmentZoomFilter(
   targetHeight: number,
   fps: number,
   wordTimestamps?: { text: string; start: number; end: number }[],
-  wordEmphasis?: EmphasizedWord[]
+  wordEmphasis?: EmphasizedWord[],
 ): string {
-  const { style, intensity } = seg.zoom
-  if (style === 'none' || intensity <= 1.001) return ''
+  const { style, intensity } = seg.zoom;
+  if (style === 'none' || intensity <= 1.001) return '';
 
   switch (style) {
     case 'snap': {
-      const segStart = seg.startTime
-      const segEnd = seg.endTime
-      const localEmphasis: { time: number; duration: number }[] = []
+      const segStart = seg.startTime;
+      const segEnd = seg.endTime;
+      const localEmphasis: { time: number; duration: number }[] = [];
       if (wordEmphasis) {
         for (const em of wordEmphasis) {
-          if (em.emphasis === 'normal') continue
+          if (em.emphasis === 'normal') continue;
           if (em.end > segStart && em.start < segEnd) {
-            const cs = Math.max(em.start, segStart)
-            const ce = Math.min(em.end, segEnd)
-            localEmphasis.push({ time: cs - segStart, duration: ce - cs })
+            const cs = Math.max(em.start, segStart);
+            const ce = Math.min(em.end, segEnd);
+            localEmphasis.push({ time: cs - segStart, duration: ce - cs });
           }
         }
       }
@@ -168,8 +173,8 @@ function buildSegmentZoomFilter(
           duration: segDuration,
           zoomIntensity: intensity,
           startTime: 0,
-          emphasisTimestamps: localEmphasis
-        })
+          emphasisTimestamps: localEmphasis,
+        });
       }
       return buildDriftZoom({
         width: targetWidth,
@@ -177,8 +182,8 @@ function buildSegmentZoomFilter(
         fps,
         duration: segDuration,
         zoomIntensity: intensity,
-        startTime: 0
-      })
+        startTime: 0,
+      });
     }
     case 'drift':
       return buildDriftZoom({
@@ -187,8 +192,8 @@ function buildSegmentZoomFilter(
         fps,
         duration: segDuration,
         zoomIntensity: intensity,
-        startTime: 0
-      })
+        startTime: 0,
+      });
     case 'zoom-out':
       return buildZoomOutReveal({
         width: targetWidth,
@@ -196,18 +201,18 @@ function buildSegmentZoomFilter(
         fps,
         duration: segDuration,
         zoomIntensity: intensity,
-        startTime: 0
-      })
+        startTime: 0,
+      });
     case 'word-pulse': {
-      const segStart = seg.startTime
-      const segEnd = seg.endTime
-      const localWords: { time: number; duration: number }[] = []
+      const segStart = seg.startTime;
+      const segEnd = seg.endTime;
+      const localWords: { time: number; duration: number }[] = [];
       if (wordTimestamps) {
         for (const w of wordTimestamps) {
           if (w.end > segStart && w.start < segEnd) {
-            const cs = Math.max(w.start, segStart)
-            const ce = Math.min(w.end, segEnd)
-            localWords.push({ time: cs - segStart, duration: ce - cs })
+            const cs = Math.max(w.start, segStart);
+            const ce = Math.min(w.end, segEnd);
+            localWords.push({ time: cs - segStart, duration: ce - cs });
           }
         }
       }
@@ -219,11 +224,12 @@ function buildSegmentZoomFilter(
         zoomIntensity: intensity,
         startTime: 0,
         allWordTimestamps: localWords.length > 0 ? localWords : undefined,
-        emphasisTimestamps: localWords.length === 0 ? [{ time: 0, duration: segDuration }] : undefined
-      })
+        emphasisTimestamps:
+          localWords.length === 0 ? [{ time: 0, duration: segDuration }] : undefined,
+      });
     }
     default:
-      return ''
+      return '';
   }
 }
 
@@ -245,23 +251,23 @@ async function encodeSegment(
   segIndex: number,
   segDuration: number,
   tempPath: string,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
 ): Promise<string[]> {
-  const segmentTempFiles: string[] = []
-  const { width: tw, height: th, sourceWidth, sourceHeight, fps } = config
+  const segmentTempFiles: string[] = [];
+  const { width: tw, height: th, sourceWidth, sourceHeight, fps } = config;
 
   // ── Image-archetype fallback: degrade to talking-head when no image ──
-  let archetype: Archetype = seg.archetype
-  const needsMedia = archetype === 'split-image' || archetype === 'fullscreen-image'
+  let archetype: Archetype = seg.archetype;
+  const needsMedia = archetype === 'split-image' || archetype === 'fullscreen-image';
   if (needsMedia && (!seg.videoPath || !existsSync(seg.videoPath))) {
-    const reason = 'No b-roll video available; showing talking-head instead'
+    const reason = 'No b-roll video available; showing talking-head instead';
     console.warn(
       `[SegmentRender] Segment ${segIndex} requested '${archetype}' but b-roll is ` +
-      `missing — degrading to talking-head. ` +
-      `[SEGMENT_FALLBACK] segmentIndex=${segIndex} archetype=${archetype} reason="${reason}"`
-    )
-    config.onFallback?.({ segmentIndex: segIndex, archetype, reason })
-    archetype = 'talking-head'
+        `missing — degrading to talking-head. ` +
+        `[SEGMENT_FALLBACK] segmentIndex=${segIndex} archetype=${archetype} reason="${reason}"`,
+    );
+    config.onFallback?.({ segmentIndex: segIndex, archetype, reason });
+    archetype = 'talking-head';
   }
 
   // ── Build the archetype's filter_complex ──────────────────────────────
@@ -273,10 +279,10 @@ async function encodeSegment(
     mediaPath: seg.videoPath,
     sourceWidth,
     sourceHeight,
-    cropRect: seg.cropRect
-  }
-  const layout = buildArchetypeLayout(archetype, layoutParams)
-  const filterComplex = layout.filterComplex
+    cropRect: seg.cropRect,
+  };
+  const layout = buildArchetypeLayout(archetype, layoutParams);
+  const filterComplex = layout.filterComplex;
 
   // split-image / fullscreen-image read the b-roll from [1:v]; the source
   // video stays at [0:v] so `-map 0:a` pulls the speaker's audio.
@@ -284,8 +290,8 @@ async function encodeSegment(
   // The source video is still input 0 so audio maps cleanly.
 
   // ── Append post-layout filters (zoom, color grade) ────────────────────
-  let currentLabel = 'outv'
-  const extras: string[] = []
+  let currentLabel = 'outv';
+  const extras: string[] = [];
 
   // Zoom after the layout, before color grade.
   const zoomFilter = buildSegmentZoomFilter(
@@ -295,29 +301,29 @@ async function encodeSegment(
     th,
     fps,
     config.wordTimestamps,
-    config.wordEmphasis
-  )
+    config.wordEmphasis,
+  );
   if (zoomFilter) {
-    extras.push(`[${currentLabel}]${zoomFilter}[zoom]`)
-    currentLabel = 'zoom'
+    extras.push(`[${currentLabel}]${zoomFilter}[zoom]`);
+    currentLabel = 'zoom';
   }
 
   // Edit-style color grade.
   if (config.editStyle?.colorGrade) {
-    const gradeFilter = buildEditStyleColorGradeFilter(config.editStyle.colorGrade)
+    const gradeFilter = buildEditStyleColorGradeFilter(config.editStyle.colorGrade);
     if (gradeFilter) {
-      extras.push(`[${currentLabel}]${gradeFilter}[grade]`)
-      currentLabel = 'grade'
+      extras.push(`[${currentLabel}]${gradeFilter}[grade]`);
+      currentLabel = 'grade';
     }
   }
 
-  let fullFilterComplex: string
+  let fullFilterComplex: string;
   if (extras.length > 0) {
-    fullFilterComplex = filterComplex + ';' + extras.join(';')
-    fullFilterComplex += `;[${currentLabel}]format=yuv420p[finalv]`
-    currentLabel = 'finalv'
+    fullFilterComplex = `${filterComplex};${extras.join(';')}`;
+    fullFilterComplex += `;[${currentLabel}]format=yuv420p[finalv]`;
+    currentLabel = 'finalv';
   } else {
-    fullFilterComplex = filterComplex
+    fullFilterComplex = filterComplex;
   }
 
   // ── Pick encoder ──────────────────────────────────────────────────────
@@ -328,27 +334,27 @@ async function encodeSegment(
   // 480p" softness. Use near-lossless intermediate quality (CRF 12, veryfast)
   // here; the final overlay pass is the only encode that honours the user's
   // selected preset, which is the correct place for that knob.
-  const qp = getIntermediateQuality()
-  const { encoder: detectedEncoder, presetFlag: detectedPresetFlag } = getEncoder(qp)
-  const useSwFallback = isGpuEncoderDisabled() && detectedEncoder !== 'libx264'
-  const sw = useSwFallback ? getSoftwareEncoder(qp) : null
-  const encoder = sw ? sw.encoder : detectedEncoder
-  const presetFlag = sw ? sw.presetFlag : detectedPresetFlag
+  const qp = getIntermediateQuality();
+  const { encoder: detectedEncoder, presetFlag: detectedPresetFlag } = getEncoder(qp);
+  const useSwFallback = isGpuEncoderDisabled() && detectedEncoder !== 'libx264';
+  const sw = useSwFallback ? getSoftwareEncoder(qp) : null;
+  const encoder = sw ? sw.encoder : detectedEncoder;
+  const presetFlag = sw ? sw.presetFlag : detectedPresetFlag;
 
   await new Promise<void>((resolve, reject) => {
-    let fallbackAttempted = false
+    let fallbackAttempted = false;
 
     function runEncode(enc: string, flags: string[], useHwAccel = true): void {
-      const cmd = ffmpeg(toFFmpegPath(config.sourceVideoPath))
-      let stderrOutput = ''
+      const cmd = ffmpeg(toFFmpegPath(config.sourceVideoPath));
+      let stderrOutput = '';
 
       if (useHwAccel) {
-        cmd.inputOptions(['-hwaccel', 'auto'])
+        cmd.inputOptions(['-hwaccel', 'auto']);
       }
 
       // Seek source video to segment start (audio + speaker video)
-      cmd.seekInput(seg.startTime)
-      cmd.duration(segDuration)
+      cmd.seekInput(seg.startTime);
+      cmd.duration(segDuration);
 
       // Add the b-roll video as input 1 for media-based layouts. We loop
       // the b-roll (`-stream_loop -1`) so segments longer than the source
@@ -363,71 +369,83 @@ async function encodeSegment(
       // loop boundaries are handled by `setpts=N/FR/TB` in the layout
       // filter so `fps=` doesn't stall the rate converter.
       const needsMediaInput =
-        !!seg.videoPath &&
-        (archetype === 'split-image' || archetype === 'fullscreen-image')
+        !!seg.videoPath && (archetype === 'split-image' || archetype === 'fullscreen-image');
 
       if (needsMediaInput && seg.videoPath) {
-        cmd.input(toFFmpegPath(seg.videoPath))
-        cmd.inputOptions(['-stream_loop', '-1'])
+        cmd.input(toFFmpegPath(seg.videoPath));
+        cmd.inputOptions(['-stream_loop', '-1']);
       }
 
       cmd
         .outputOptions([
-          '-filter_complex', fullFilterComplex,
-          '-map', `[${currentLabel}]`,
-          '-map', '0:a',
-          '-c:v', enc,
+          '-filter_complex',
+          fullFilterComplex,
+          '-map',
+          `[${currentLabel}]`,
+          '-map',
+          '0:a',
+          '-c:v',
+          enc,
           ...flags,
-          '-r', String(fps),
+          '-r',
+          String(fps),
           // Force constant frame rate. Without this, FFmpeg can mark
           // frames as duplicates / drop them at -ss boundaries (typical
           // when the source is VFR or 29.97), shifting per-segment PTS
           // by up to one frame each — a drift the caption timeline can't
           // see because captions are derived from word timestamps, not
           // emitted PTS.
-          '-fps_mode', 'cfr',
+          '-fps_mode',
+          'cfr',
           // Force 4:2:0 at the encoder sink to match what every downstream
           // consumer (xfade concat, overlay pass) expects. The filter graph
           // already ends in `format=yuv420p` but encoder negotiation can
           // promote to yuv444p mid-pipeline if upstream filters report it.
-          '-pix_fmt', 'yuv420p',
-          '-c:a', 'aac',
-          '-b:a', '192k',
+          '-pix_fmt',
+          'yuv420p',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '192k',
           // Lock audio sample rate too so concat doesn't have to resample
           // mid-chain. 48 kHz matches the AAC stream encoders produce.
-          '-ar', '48000',
-          '-movflags', '+faststart',
-          '-y'
+          '-ar',
+          '48000',
+          '-movflags',
+          '+faststart',
+          '-y',
         ])
         .on('progress', (progress: { percent?: number }) => {
-          onProgress(Math.min(99, progress.percent ?? 0))
+          onProgress(Math.min(99, progress.percent ?? 0));
         })
-        .on('stderr', (line: string) => { stderrOutput += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderrOutput += `${line}\n`;
+        })
         .on('end', () => {
-          onProgress(100)
-          resolve()
+          onProgress(100);
+          resolve();
         })
         .on('error', (err: Error) => {
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderrOutput)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderrOutput}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
             console.warn(
-              `[SegmentRender] GPU error in segment encode, falling back to software encoder: ${err.message}`
-            )
-            const fb = getSoftwareEncoder(qp)
-            runEncode(fb.encoder, fb.presetFlag, false)
+              `[SegmentRender] GPU error in segment encode, falling back to software encoder: ${err.message}`,
+            );
+            const fb = getSoftwareEncoder(qp);
+            runEncode(fb.encoder, fb.presetFlag, false);
           } else {
-            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n')
-            reject(new Error(`${err.message}\n[stderr tail] ${stderrTail}`))
+            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n');
+            reject(new Error(`${err.message}\n[stderr tail] ${stderrTail}`));
           }
         })
-        .save(toFFmpegPath(tempPath))
+        .save(toFFmpegPath(tempPath));
     }
 
-    runEncode(encoder, presetFlag)
-  })
+    runEncode(encoder, presetFlag);
+  });
 
-  return segmentTempFiles
+  return segmentTempFiles;
 }
 
 // ---------------------------------------------------------------------------
@@ -441,13 +459,11 @@ async function encodeSegment(
 async function concatWithDemuxer(
   segmentFiles: string[],
   outputPath: string,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
 ): Promise<void> {
-  const listFile = join(tmpdir(), `batchcontent-seg-list-${Date.now()}.txt`)
-  const listContent = segmentFiles
-    .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
-    .join('\n')
-  writeFileSync(listFile, listContent, 'utf-8')
+  const listFile = join(tmpdir(), `batchcontent-seg-list-${Date.now()}.txt`);
+  const listContent = segmentFiles.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+  writeFileSync(listFile, listContent, 'utf-8');
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -457,18 +473,30 @@ async function concatWithDemuxer(
         .outputOptions(['-c', 'copy', '-movflags', '+faststart', '-y'])
         .on('progress', () => onProgress(95))
         .on('end', () => {
-          try { unlinkSync(listFile) } catch { /* ignore */ }
-          resolve()
+          try {
+            unlinkSync(listFile);
+          } catch {
+            /* ignore */
+          }
+          resolve();
         })
         .on('error', (err: Error) => {
-          try { unlinkSync(listFile) } catch { /* ignore */ }
-          reject(err)
+          try {
+            unlinkSync(listFile);
+          } catch {
+            /* ignore */
+          }
+          reject(err);
         })
-        .save(toFFmpegPath(outputPath))
-    })
+        .save(toFFmpegPath(outputPath));
+    });
   } catch {
-    try { unlinkSync(listFile) } catch { /* ignore */ }
-    throw new Error('Concat demuxer failed for segmented clip')
+    try {
+      unlinkSync(listFile);
+    } catch {
+      /* ignore */
+    }
+    throw new Error('Concat demuxer failed for segmented clip');
   }
 }
 
@@ -478,13 +506,13 @@ async function concatWithDemuxer(
  * ship the `fadecolor` xfade transition (added in FFmpeg 7.1).
  */
 function pickFadeByBrightness(hex: string): 'fadewhite' | 'fadeblack' {
-  const m = hex.replace(/^#/, '').match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i)
-  if (!m) return 'fadewhite'
-  const r = parseInt(m[1], 16)
-  const g = parseInt(m[2], 16)
-  const b = parseInt(m[3], 16)
-  const luma = 0.299 * r + 0.587 * g + 0.114 * b
-  return luma >= 128 ? 'fadewhite' : 'fadeblack'
+  const m = hex.replace(/^#/, '').match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return 'fadewhite';
+  const r = parseInt(m[1], 16);
+  const g = parseInt(m[2], 16);
+  const b = parseInt(m[3], 16);
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luma >= 128 ? 'fadewhite' : 'fadeblack';
 }
 
 /**
@@ -494,19 +522,17 @@ function pickFadeByBrightness(hex: string): 'fadewhite' | 'fadeblack' {
 function getXfadeType(transition: TransitionType, flashColor?: string): string | null {
   switch (transition) {
     case 'crossfade':
-      return 'fade'
+      return 'fade';
     case 'flash-cut': {
-      if (flashColor) return pickFadeByBrightness(flashColor)
-      return 'fadewhite'
+      if (flashColor) return pickFadeByBrightness(flashColor);
+      return 'fadewhite';
     }
     case 'color-wash': {
-      if (flashColor) return pickFadeByBrightness(flashColor)
-      return 'fadeblack'
+      if (flashColor) return pickFadeByBrightness(flashColor);
+      return 'fadeblack';
     }
-    case 'hard-cut':
-    case 'none':
     default:
-      return null
+      return null;
   }
 }
 
@@ -550,77 +576,77 @@ async function concatWithXfade(
   flashColor?: string,
   transitionDuration?: number,
   _xfQuality?: QualityParams,
-  requestedDurations?: number[]
+  requestedDurations?: number[],
 ): Promise<void> {
-  if (segmentFiles.length === 0) throw new Error('No segments to concatenate')
+  if (segmentFiles.length === 0) throw new Error('No segments to concatenate');
   if (segmentFiles.length === 1) {
-    const { copyFileSync } = await import('fs')
-    copyFileSync(segmentFiles[0], outputPath)
-    return
+    const { copyFileSync } = await import('node:fs');
+    copyFileSync(segmentFiles[0], outputPath);
+    return;
   }
 
   // Probe each segment's actual video-stream duration and clamp against the
   // requested duration. See the function docstring for why we need both.
-  const durations: number[] = []
+  const durations: number[] = [];
   for (let i = 0; i < segmentFiles.length; i++) {
-    const meta = await getVideoMetadata(segmentFiles[i])
-    const probed = meta.videoStreamDuration > 0 ? meta.videoStreamDuration : meta.duration
-    const requested = requestedDurations?.[i]
+    const meta = await getVideoMetadata(segmentFiles[i]);
+    const probed = meta.videoStreamDuration > 0 ? meta.videoStreamDuration : meta.duration;
+    const requested = requestedDurations?.[i];
     // Use the smaller of probed-stream and requested. If either is missing
     // or zero, fall back to whichever is available.
-    let chosen: number
+    let chosen: number;
     if (requested && requested > 0 && probed > 0) {
-      chosen = Math.min(probed, requested)
+      chosen = Math.min(probed, requested);
       if (Math.abs(probed - requested) > 0.05) {
         console.warn(
           `[SegmentRender] Segment ${i} duration drift: requested=${requested.toFixed(3)}s ` +
-            `probed-stream=${probed.toFixed(3)}s — using ${chosen.toFixed(3)}s for xfade offset.`
-        )
+            `probed-stream=${probed.toFixed(3)}s — using ${chosen.toFixed(3)}s for xfade offset.`,
+        );
       }
     } else {
-      chosen = probed > 0 ? probed : (requested ?? meta.duration)
+      chosen = probed > 0 ? probed : (requested ?? meta.duration);
     }
-    durations.push(chosen)
+    durations.push(chosen);
   }
 
   // Build the video xfade chain and a parallel audio acrossfade chain.
   // Without the audio chain, `-map 0:a` would only pull the first segment's
   // audio, leaving the rest of the concatenated output silent. acrossfade
   // mirrors xfade's crossfade duration so audio fades through transitions.
-  const filterParts: string[] = []
-  const audioParts: string[] = []
-  const xfadeDuration = transitionDuration ?? 0.3
+  const filterParts: string[] = [];
+  const audioParts: string[] = [];
+  const xfadeDuration = transitionDuration ?? 0.3;
   // Minimum duration the xfade filter can resolve at the output framerate.
   // We pick exactly one output frame (1/fps) so a "hard-cut inside an xfade
   // chain" looks frame-identical to a true butt-splice while still being a
   // legal xfade slice that doesn't truncate the second segment. At 30 fps
   // that's ~0.033 s; the previous 0.05 s ceiling drifted captions by 17 ms
   // per join because the chain shrank by more than one frame per cut.
-  const hardCutXfade = Math.max(1 / 30, 0.005)
+  const hardCutXfade = Math.max(1 / 30, 0.005);
 
-  let inputLabel = '0:v'
-  let outputLabel = 'v0'
-  let audioInputLabel = '0:a'
-  let audioOutputLabel = 'a0'
-  let accumulatedDuration = durations[0]
+  let inputLabel = '0:v';
+  let outputLabel = 'v0';
+  let audioInputLabel = '0:a';
+  let audioOutputLabel = 'a0';
+  let accumulatedDuration = durations[0];
 
   for (let i = 1; i < segmentFiles.length; i++) {
-    const transition = transitions[i] ?? 'hard-cut'
-    const xfadeType = getXfadeType(transition, flashColor)
+    const transition = transitions[i] ?? 'hard-cut';
+    const xfadeType = getXfadeType(transition, flashColor);
 
-    let stepDuration: number
+    let stepDuration: number;
     if (xfadeType === null) {
-      stepDuration = hardCutXfade
-      const offset = Math.max(0, accumulatedDuration - stepDuration)
+      stepDuration = hardCutXfade;
+      const offset = Math.max(0, accumulatedDuration - stepDuration);
       filterParts.push(
-        `[${inputLabel}][${i}:v]xfade=transition=fade:duration=${stepDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${outputLabel}]`
-      )
+        `[${inputLabel}][${i}:v]xfade=transition=fade:duration=${stepDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${outputLabel}]`,
+      );
     } else {
-      stepDuration = xfadeDuration
-      const offset = Math.max(0, accumulatedDuration - stepDuration)
+      stepDuration = xfadeDuration;
+      const offset = Math.max(0, accumulatedDuration - stepDuration);
       filterParts.push(
-        `[${inputLabel}][${i}:v]xfade=transition=${xfadeType}:duration=${stepDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${outputLabel}]`
-      )
+        `[${inputLabel}][${i}:v]xfade=transition=${xfadeType}:duration=${stepDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${outputLabel}]`,
+      );
     }
     // Audio crossfade. For hard-cuts inside the xfade chain we want a
     // clean butt-splice (no soft fade) so the speaker's voice doesn't
@@ -629,16 +655,16 @@ async function concatWithXfade(
     // crossfade still has to exist (acrossfade requires d > 0) but it
     // contributes no audible taper. Soft transitions keep the triangular
     // curve so audio fades match the visual fade.
-    const audioCurves = xfadeType === null ? 'c1=nofade:c2=nofade' : 'c1=tri:c2=tri'
+    const audioCurves = xfadeType === null ? 'c1=nofade:c2=nofade' : 'c1=tri:c2=tri';
     audioParts.push(
-      `[${audioInputLabel}][${i}:a]acrossfade=d=${stepDuration.toFixed(3)}:${audioCurves}[${audioOutputLabel}]`
-    )
-    accumulatedDuration += durations[i] - stepDuration
+      `[${audioInputLabel}][${i}:a]acrossfade=d=${stepDuration.toFixed(3)}:${audioCurves}[${audioOutputLabel}]`,
+    );
+    accumulatedDuration += durations[i] - stepDuration;
 
-    inputLabel = outputLabel
-    outputLabel = `v${i}`
-    audioInputLabel = audioOutputLabel
-    audioOutputLabel = `a${i}`
+    inputLabel = outputLabel;
+    outputLabel = `v${i}`;
+    audioInputLabel = audioOutputLabel;
+    audioOutputLabel = `a${i}`;
   }
 
   // Rename the final video stream to an intermediate label so we can append
@@ -647,87 +673,97 @@ async function concatWithXfade(
   // negotiates up), which then makes libx264 try the `high` profile and fail
   // with "high profile doesn't support 4:4:4". Forcing yuv420p on the chain
   // output lets libx264 pick a compatible profile every time.
-  const lastVideoLabel = `v${segmentFiles.length - 2}`
-  const lastVideoFilter = filterParts[filterParts.length - 1]
+  const lastVideoLabel = `v${segmentFiles.length - 2}`;
+  const lastVideoFilter = filterParts[filterParts.length - 1];
   filterParts[filterParts.length - 1] = lastVideoFilter.replace(
     new RegExp(`\\[${lastVideoLabel}\\]$`),
-    '[vxfaded]'
-  )
-  filterParts.push('[vxfaded]format=yuv420p[outv]')
+    '[vxfaded]',
+  );
+  filterParts.push('[vxfaded]format=yuv420p[outv]');
 
-  const lastAudioLabel = `a${segmentFiles.length - 2}`
-  const lastAudioFilter = audioParts[audioParts.length - 1]
+  const lastAudioLabel = `a${segmentFiles.length - 2}`;
+  const lastAudioFilter = audioParts[audioParts.length - 1];
   audioParts[audioParts.length - 1] = lastAudioFilter.replace(
     new RegExp(`\\[${lastAudioLabel}\\]$`),
-    '[outa]'
-  )
+    '[outa]',
+  );
 
-  const filterComplex = [...filterParts, ...audioParts].join(';')
+  const filterComplex = [...filterParts, ...audioParts].join(';');
 
   await new Promise<void>((resolve, reject) => {
     // Intermediate encode — see comment on `concatWithXfade`. Always use
     // near-lossless params so the immediate-downstream overlay pass starts
     // from a clean source rather than CRF-20 mush.
-    const xfIntermediate = getIntermediateQuality()
-    const { encoder: xfDetectedEnc, presetFlag: xfDetectedFlags } = getEncoder(xfIntermediate)
-    const xfUseSw = isGpuEncoderDisabled() && xfDetectedEnc !== 'libx264'
-    const xfSw = xfUseSw ? getSoftwareEncoder(xfIntermediate) : null
-    const xfEncoder = xfSw ? xfSw.encoder : xfDetectedEnc
-    const xfPresetFlag = xfSw ? xfSw.presetFlag : xfDetectedFlags
-    let fallbackAttempted = false
-    let stderrOutput = ''
+    const xfIntermediate = getIntermediateQuality();
+    const { encoder: xfDetectedEnc, presetFlag: xfDetectedFlags } = getEncoder(xfIntermediate);
+    const xfUseSw = isGpuEncoderDisabled() && xfDetectedEnc !== 'libx264';
+    const xfSw = xfUseSw ? getSoftwareEncoder(xfIntermediate) : null;
+    const xfEncoder = xfSw ? xfSw.encoder : xfDetectedEnc;
+    const xfPresetFlag = xfSw ? xfSw.presetFlag : xfDetectedFlags;
+    let fallbackAttempted = false;
+    let stderrOutput = '';
 
     function runXfade(enc: string, flags: string[], useHwAccel = true): void {
-      const cmd = ffmpeg()
+      const cmd = ffmpeg();
 
       for (let fi = 0; fi < segmentFiles.length; fi++) {
-        cmd.input(toFFmpegPath(segmentFiles[fi]))
+        cmd.input(toFFmpegPath(segmentFiles[fi]));
         if (fi === 0 && useHwAccel) {
-          cmd.inputOptions(['-hwaccel', 'auto'])
+          cmd.inputOptions(['-hwaccel', 'auto']);
         }
       }
 
       cmd
         .outputOptions([
-          '-filter_complex', filterComplex,
-          '-map', '[outv]',
-          '-map', '[outa]',
-          '-c:v', enc,
+          '-filter_complex',
+          filterComplex,
+          '-map',
+          '[outv]',
+          '-map',
+          '[outa]',
+          '-c:v',
+          enc,
           ...flags,
           // Belt-and-suspenders for the `format=yuv420p` filter at the tail
           // of the xfade chain — also force the encoder pixel format so any
           // future filter that re-negotiates upward still hits a 4:2:0 sink.
-          '-pix_fmt', 'yuv420p',
-          '-c:a', 'aac',
-          '-b:a', '192k',
-          '-movflags', '+faststart',
-          '-y'
+          '-pix_fmt',
+          'yuv420p',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '192k',
+          '-movflags',
+          '+faststart',
+          '-y',
         ])
         .on('start', (cmdLine: string) => {
-          console.log(`[SegmentRender] xfade command: ${cmdLine}`)
+          console.log(`[SegmentRender] xfade command: ${cmdLine}`);
         })
-        .on('stderr', (line: string) => { stderrOutput += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderrOutput += `${line}\n`;
+        })
         .on('progress', (progress) => {
-          onProgress(Math.min(95, progress.percent ?? 0))
+          onProgress(Math.min(95, progress.percent ?? 0));
         })
         .on('end', () => resolve())
         .on('error', (err: Error) => {
-          console.error(`[SegmentRender] xfade stderr:\n${stderrOutput}`)
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderrOutput)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const fb = getSoftwareEncoder(xfIntermediate)
-            runXfade(fb.encoder, fb.presetFlag, false)
+          console.error(`[SegmentRender] xfade stderr:\n${stderrOutput}`);
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderrOutput}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const fb = getSoftwareEncoder(xfIntermediate);
+            runXfade(fb.encoder, fb.presetFlag, false);
           } else {
-            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n')
-            reject(new Error(`xfade concat failed: ${err.message}\n[stderr tail] ${stderrTail}`))
+            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n');
+            reject(new Error(`xfade concat failed: ${err.message}\n[stderr tail] ${stderrTail}`));
           }
         })
-        .save(toFFmpegPath(outputPath))
+        .save(toFFmpegPath(outputPath));
     }
 
-    runXfade(xfEncoder, xfPresetFlag, !xfUseSw)
-  })
+    runXfade(xfEncoder, xfPresetFlag, !xfUseSw);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -755,22 +791,22 @@ function computeStepDurations(
   transitionDuration: number,
   fps: number,
   flashColor: string | undefined,
-  useXfadeConcat: boolean
+  useXfadeConcat: boolean,
 ): number[] {
   // No xfade pass → demuxer concat → zero overlap at every join.
-  if (!useXfadeConcat) return transitions.map(() => 0)
+  if (!useXfadeConcat) return transitions.map(() => 0);
 
   // Minimum xfade slice the filter can resolve at the output framerate —
   // one full frame (1/fps). This is effectively a single-frame crossfade,
   // visually indistinguishable from a hard cut, and matches what
   // `concatWithXfade` emits for hard-cut entries inside an xfade chain.
-  const hardCutXfade = Math.max(1 / Math.max(1, fps), 0.005)
+  const hardCutXfade = Math.max(1 / Math.max(1, fps), 0.005);
 
   return transitions.map((t, i) => {
-    if (i === 0) return 0
-    const xfadeType = getXfadeType(t, flashColor)
-    return xfadeType === null ? hardCutXfade : transitionDuration
-  })
+    if (i === 0) return 0;
+    const xfadeType = getXfadeType(t, flashColor);
+    return xfadeType === null ? hardCutXfade : transitionDuration;
+  });
 }
 
 /**
@@ -785,36 +821,36 @@ function buildClipLevelWords(
   segments: ResolvedSegment[],
   wordTimestamps: { text: string; start: number; end: number }[] | undefined,
   wordEmphasis: EmphasizedWord[] | undefined,
-  stepDurations: number[]
+  stepDurations: number[],
 ): WordInput[] {
-  if (!wordTimestamps || wordTimestamps.length === 0) return []
-  if (segments.length === 0) return []
+  if (!wordTimestamps || wordTimestamps.length === 0) return [];
+  if (segments.length === 0) return [];
 
   // The clip's source-time range is [first.startTime, last.endTime). Words
   // outside this range are dropped. We map source time → concatenated clip
   // time by walking the segments in order and accumulating each segment's
   // local offset, MINUS the xfade overlap consumed by the transition into
   // that segment (`stepDurations[i]`).
-  const clipWords: WordInput[] = []
-  let cumulative = 0
+  const clipWords: WordInput[] = [];
+  let cumulative = 0;
   for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]
-    const segDuration = seg.endTime - seg.startTime
-    const step = stepDurations[i] ?? 0
+    const seg = segments[i];
+    const segDuration = seg.endTime - seg.startTime;
+    const step = stepDurations[i] ?? 0;
     // Segment `i` (i ≥ 1) starts `step` seconds BEFORE the un-shrunk
     // cumulative position, because xfade overlaps it with segment i-1.
-    cumulative -= step
+    cumulative -= step;
     for (const w of wordTimestamps) {
-      if (w.end <= seg.startTime || w.start >= seg.endTime) continue
-      const localStart = Math.max(0, w.start - seg.startTime)
-      const localEnd = Math.min(segDuration, w.end - seg.startTime)
+      if (w.end <= seg.startTime || w.start >= seg.endTime) continue;
+      const localStart = Math.max(0, w.start - seg.startTime);
+      const localEnd = Math.min(segDuration, w.end - seg.startTime);
       clipWords.push({
         text: w.text,
         start: cumulative + localStart,
-        end: cumulative + localEnd
-      })
+        end: cumulative + localEnd,
+      });
     }
-    cumulative += segDuration
+    cumulative += segDuration;
   }
 
   // Attach emphasis. We match by source-time start (within 50 ms) against
@@ -822,35 +858,37 @@ function buildClipLevelWords(
   // heuristic on the (clip-relative) word list.
   if (wordEmphasis && wordEmphasis.length > 0) {
     // Rebuild with emphasis by re-walking — we need the source time to match.
-    const out: WordInput[] = []
-    let cum2 = 0
+    const out: WordInput[] = [];
+    let cum2 = 0;
     for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i]
-      const segDuration = seg.endTime - seg.startTime
-      const step = stepDurations[i] ?? 0
-      cum2 -= step
+      const seg = segments[i];
+      const segDuration = seg.endTime - seg.startTime;
+      const step = stepDurations[i] ?? 0;
+      cum2 -= step;
       for (const w of wordTimestamps) {
-        if (w.end <= seg.startTime || w.start >= seg.endTime) continue
-        const localStart = Math.max(0, w.start - seg.startTime)
-        const localEnd = Math.min(segDuration, w.end - seg.startTime)
-        const match = wordEmphasis.find((ov) => Math.abs(ov.start - w.start) < 0.05)
+        if (w.end <= seg.startTime || w.start >= seg.endTime) continue;
+        const localStart = Math.max(0, w.start - seg.startTime);
+        const localEnd = Math.min(segDuration, w.end - seg.startTime);
+        const match = wordEmphasis.find((ov) => Math.abs(ov.start - w.start) < 0.05);
         out.push({
           text: w.text,
           start: cum2 + localStart,
           end: cum2 + localEnd,
-          emphasis: match?.emphasis ?? 'normal'
-        })
+          emphasis: match?.emphasis ?? 'normal',
+        });
       }
-      cum2 += segDuration
+      cum2 += segDuration;
     }
-    return out
+    return out;
   }
 
-  const heuristic = analyzeEmphasisHeuristic(clipWords.map((w) => ({ text: w.text, start: w.start, end: w.end })))
+  const heuristic = analyzeEmphasisHeuristic(
+    clipWords.map((w) => ({ text: w.text, start: w.start, end: w.end })),
+  );
   return clipWords.map((w, i) => ({
     ...w,
-    emphasis: (heuristic[i]?.emphasis ?? 'normal') as 'normal' | 'emphasis' | 'supersize' | 'box'
-  }))
+    emphasis: (heuristic[i]?.emphasis ?? 'normal') as 'normal' | 'emphasis' | 'supersize' | 'box',
+  }));
 }
 
 /**
@@ -859,7 +897,7 @@ function buildClipLevelWords(
  * far from the ASR-reported word boundary even if the inter-word gap is
  * huge — so we never bleed into the next word's audio under the wrong scene.
  */
-const BOUNDARY_HOLD_MAX_SECONDS = 0.15
+const BOUNDARY_HOLD_MAX_SECONDS = 0.15;
 
 /**
  * Push each segment boundary later into the inter-word silence so the
@@ -883,40 +921,40 @@ const BOUNDARY_HOLD_MAX_SECONDS = 0.15
  */
 function rebalanceSegmentBoundaries(
   segments: ResolvedSegment[],
-  wordTimestamps: { text: string; start: number; end: number }[] | undefined
+  wordTimestamps: { text: string; start: number; end: number }[] | undefined,
 ): ResolvedSegment[] {
   if (segments.length < 2 || !wordTimestamps || wordTimestamps.length === 0) {
-    return segments
+    return segments;
   }
 
-  const out = segments.map((s) => ({ ...s }))
+  const out = segments.map((s) => ({ ...s }));
 
   for (let i = 0; i < out.length - 1; i++) {
-    const boundary = out[i].endTime // == out[i + 1].startTime by construction
+    const boundary = out[i].endTime; // == out[i + 1].startTime by construction
 
     // Last word of segment N: the latest word whose end is <= boundary.
-    let prevLastEnd = -Infinity
+    let prevLastEnd = -Infinity;
     for (const w of wordTimestamps) {
-      if (w.end <= boundary + 1e-6 && w.end > prevLastEnd) prevLastEnd = w.end
+      if (w.end <= boundary + 1e-6 && w.end > prevLastEnd) prevLastEnd = w.end;
     }
     // First word of segment N+1: the earliest word whose start is >= boundary.
-    let nextFirstStart = Infinity
+    let nextFirstStart = Infinity;
     for (const w of wordTimestamps) {
-      if (w.start >= boundary - 1e-6 && w.start < nextFirstStart) nextFirstStart = w.start
+      if (w.start >= boundary - 1e-6 && w.start < nextFirstStart) nextFirstStart = w.start;
     }
 
-    if (!isFinite(prevLastEnd) || !isFinite(nextFirstStart)) continue
-    const gap = nextFirstStart - prevLastEnd
-    if (gap <= 0) continue // words overlap or are adjacent — no silence to use
+    if (!Number.isFinite(prevLastEnd) || !Number.isFinite(nextFirstStart)) continue;
+    const gap = nextFirstStart - prevLastEnd;
+    if (gap <= 0) continue; // words overlap or are adjacent — no silence to use
 
-    const shift = Math.min(gap / 2, BOUNDARY_HOLD_MAX_SECONDS)
-    if (shift <= 0) continue
+    const shift = Math.min(gap / 2, BOUNDARY_HOLD_MAX_SECONDS);
+    if (shift <= 0) continue;
 
-    out[i].endTime = boundary + shift
-    out[i + 1].startTime = boundary + shift
+    out[i].endTime = boundary + shift;
+    out[i + 1].startTime = boundary + shift;
   }
 
-  return out
+  return out;
 }
 
 /**
@@ -929,23 +967,23 @@ function rebalanceSegmentBoundaries(
  */
 function buildClipArchetypeWindows(
   segments: ResolvedSegment[],
-  stepDurations: number[]
+  stepDurations: number[],
 ): ArchetypeWindow[] {
-  const windows: ArchetypeWindow[] = []
-  let cumulative = 0
+  const windows: ArchetypeWindow[] = [];
+  let cumulative = 0;
   for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]
-    const segDuration = seg.endTime - seg.startTime
-    const step = stepDurations[i] ?? 0
-    cumulative -= step
+    const seg = segments[i];
+    const segDuration = seg.endTime - seg.startTime;
+    const step = stepDurations[i] ?? 0;
+    cumulative -= step;
     windows.push({
       startTime: cumulative,
       endTime: cumulative + segDuration,
-      archetype: seg.archetype
-    })
-    cumulative += segDuration
+      archetype: seg.archetype,
+    });
+    cumulative += segDuration;
   }
-  return windows
+  return windows;
 }
 
 /**
@@ -954,13 +992,10 @@ function buildClipArchetypeWindows(
  * `t` (e.g. when `t` lands exactly on a boundary), or to 'talking-head' if
  * the window list is empty.
  */
-function archetypeAtTime(
-  windows: ArchetypeWindow[],
-  t: number
-): Archetype {
-  if (windows.length === 0) return 'talking-head'
-  const hit = windows.find((w) => t >= w.startTime && t <= w.endTime)
-  return hit?.archetype ?? windows[windows.length - 1].archetype
+function archetypeAtTime(windows: ArchetypeWindow[], t: number): Archetype {
+  if (windows.length === 0) return 'talking-head';
+  const hit = windows.find((w) => t >= w.startTime && t <= w.endTime);
+  return hit?.archetype ?? windows[windows.length - 1].archetype;
 }
 
 // ---------------------------------------------------------------------------
@@ -978,24 +1013,24 @@ function archetypeAtTime(
 export async function renderSegmentedClip(
   config: SegmentRenderConfig,
   outputPath: string,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
 ): Promise<string> {
-  const tempDir = tmpdir()
-  const tempFiles: string[] = []
-  const { width: tw, height: th } = config
+  const tempDir = tmpdir();
+  const tempFiles: string[] = [];
+  const { width: tw, height: th } = config;
 
   // Ensure fonts dir is resolved once before any ASS pass needs it.
-  await resolveFontsDir()
+  await resolveFontsDir();
 
   // Shift every segment boundary into the inter-word silence so the trailing
   // acoustic tail of each scene's last word stays under that scene's visual.
   // See `rebalanceSegmentBoundaries()` for the why + algorithm.
-  const balancedSegments = rebalanceSegmentBoundaries(config.segments, config.wordTimestamps)
+  const balancedSegments = rebalanceSegmentBoundaries(config.segments, config.wordTimestamps);
 
   // Transitions are indexed by segment; transitions[0] is for the first
   // segment (= ignored at concat time).
-  const transitions: TransitionType[] = balancedSegments.map((s) => s.transitionIn)
-  const needsXfade = transitions.slice(1).some((t) => t !== 'hard-cut' && t !== 'none')
+  const transitions: TransitionType[] = balancedSegments.map((s) => s.transitionIn);
+  const needsXfade = transitions.slice(1).some((t) => t !== 'hard-cut' && t !== 'none');
 
   // Per-transition xfade overlap durations. MUST match what the concat path
   // below actually emits, or captions / archetype windows drift forward of
@@ -1005,54 +1040,54 @@ export async function renderSegmentedClip(
     config.editStyle.transitionDuration ?? 0.3,
     config.fps,
     config.editStyle.flashColor,
-    needsXfade
-  )
+    needsXfade,
+  );
 
   // Archetype windows must reflect the shifted boundaries AND the xfade
   // overlap that the concat pass consumes between segments. Any pre-supplied
   // `config.archetypeWindows` is rebuilt from the rebalanced segments +
   // step durations here.
-  const balancedArchetypeWindows = buildClipArchetypeWindows(balancedSegments, stepDurations)
+  const balancedArchetypeWindows = buildClipArchetypeWindows(balancedSegments, stepDurations);
 
   // Progress allocation: 80% segment encode, 5% concat, 15% post-concat.
-  const segmentWeight = 80
-  const concatBase = segmentWeight
-  const postConcatBase = concatBase + 5
+  const segmentWeight = 80;
+  const concatBase = segmentWeight;
+  const postConcatBase = concatBase + 5;
 
-  const segmentOutputFiles: string[] = []
+  const segmentOutputFiles: string[] = [];
 
   try {
     // ── Phase 1: Encode each segment ────────────────────────────────────
     for (let i = 0; i < balancedSegments.length; i++) {
-      const seg = balancedSegments[i]
-      const segDuration = seg.endTime - seg.startTime
-      const tempPath = join(tempDir, `batchcontent-seg-${Date.now()}-${i}.mp4`)
-      tempFiles.push(tempPath)
-      segmentOutputFiles.push(tempPath)
+      const seg = balancedSegments[i];
+      const segDuration = seg.endTime - seg.startTime;
+      const tempPath = join(tempDir, `batchcontent-seg-${Date.now()}-${i}.mp4`);
+      tempFiles.push(tempPath);
+      segmentOutputFiles.push(tempPath);
 
       const segProgress = (percent: number): void => {
-        const weight = segmentWeight / balancedSegments.length
-        const base = weight * i
-        onProgress(Math.round(base + (percent * weight / 100)))
-      }
+        const weight = segmentWeight / balancedSegments.length;
+        const base = weight * i;
+        onProgress(Math.round(base + (percent * weight) / 100));
+      };
 
-      const segTempFiles = await encodeSegment(config, seg, i, segDuration, tempPath, segProgress)
-      tempFiles.push(...segTempFiles)
+      const segTempFiles = await encodeSegment(config, seg, i, segDuration, tempPath, segProgress);
+      tempFiles.push(...segTempFiles);
     }
 
-    onProgress(concatBase)
+    onProgress(concatBase);
 
     // ── Phase 2: Concatenate ────────────────────────────────────────────
-    const concatOutputPath = join(tempDir, `batchcontent-seg-concat-${Date.now()}.mp4`)
-    tempFiles.push(concatOutputPath)
+    const concatOutputPath = join(tempDir, `batchcontent-seg-concat-${Date.now()}.mp4`);
+    tempFiles.push(concatOutputPath);
 
     if (needsXfade) {
-      console.log(`[SegmentRender] Using xfade concat for ${balancedSegments.length} segments`)
+      console.log(`[SegmentRender] Using xfade concat for ${balancedSegments.length} segments`);
       // Pass the requested per-segment durations so xfade offset math uses
       // the encoder's promised stream length rather than ffprobe's container
       // duration (which can drift past the actual video stream end and make
       // xfade hold the last frame as a still image).
-      const requestedSegDurations = balancedSegments.map((s) => s.endTime - s.startTime)
+      const requestedSegDurations = balancedSegments.map((s) => s.endTime - s.startTime);
       await concatWithXfade(
         segmentOutputFiles,
         transitions,
@@ -1061,18 +1096,16 @@ export async function renderSegmentedClip(
         config.editStyle.flashColor,
         config.editStyle.transitionDuration,
         config.qualityParams,
-        requestedSegDurations
-      )
+        requestedSegDurations,
+      );
     } else {
-      console.log(`[SegmentRender] Using concat demuxer for ${balancedSegments.length} segments`)
-      await concatWithDemuxer(
-        segmentOutputFiles,
-        concatOutputPath,
-        () => onProgress(concatBase + 3)
-      )
+      console.log(`[SegmentRender] Using concat demuxer for ${balancedSegments.length} segments`);
+      await concatWithDemuxer(segmentOutputFiles, concatOutputPath, () =>
+        onProgress(concatBase + 3),
+      );
     }
 
-    onProgress(postConcatBase)
+    onProgress(postConcatBase);
 
     // ── Phase 3: Post-concat overlays ───────────────────────────────────
     //
@@ -1083,9 +1116,9 @@ export async function renderSegmentedClip(
     // collect every ASS filter into a single comma-joined -vf chain and run
     // a single post-concat encode. Result is visually identical at the
     // overlay layer but materially sharper at the source-video layer.
-    let currentPath = concatOutputPath
-    const assFilters: string[] = []
-    const overlayLabels: string[] = []
+    let currentPath = concatOutputPath;
+    const assFilters: string[] = [];
+    const overlayLabels: string[] = [];
 
     // 3a. Clip-level captions — single ASS for the whole concatenated clip.
     if (config.captionsEnabled && config.captionStyle) {
@@ -1093,15 +1126,15 @@ export async function renderSegmentedClip(
         balancedSegments,
         config.wordTimestamps,
         config.wordEmphasis,
-        stepDurations
-      )
+        stepDurations,
+      );
       if (clipWords.length > 0) {
         try {
-          const windows = balancedArchetypeWindows
+          const windows = balancedArchetypeWindows;
           const marginVOverride = config.templateLayout?.subtitles
             ? Math.round((1 - config.templateLayout.subtitles.y / 100) * th)
-            : undefined
-          const editStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID
+            : undefined;
+          const editStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID;
           const captionAssPath = await generateCaptions(
             clipWords,
             config.captionStyle,
@@ -1112,16 +1145,16 @@ export async function renderSegmentedClip(
             undefined,
             windows,
             undefined,
-            editStyleId
-          )
-          tempFiles.push(captionAssPath)
+            editStyleId,
+          );
+          tempFiles.push(captionAssPath);
           // Pass fontsDir so libass can find bundled faces (Inter, Bebas,
           // Instrument Serif Italic for fullscreen-quote, etc.) even when
           // the host system has no matching font installed.
-          assFilters.push(buildASSFilter(captionAssPath, resolveFontsDir()))
-          overlayLabels.push('captions')
+          assFilters.push(buildASSFilter(captionAssPath, resolveFontsDir()));
+          overlayLabels.push('captions');
         } catch (err) {
-          console.warn(`[SegmentRender] Caption ASS generation failed, skipping:`, err)
+          console.warn(`[SegmentRender] Caption ASS generation failed, skipping:`, err);
         }
       }
     }
@@ -1130,18 +1163,19 @@ export async function renderSegmentedClip(
     if (config.hookTitleText && config.hookTitleConfig?.enabled) {
       // Resolve the archetype that covers the hook's midpoint (the hook lives
       // in the first ~hookDuration seconds of the clip, clip-relative time).
-      const hookWindows = balancedArchetypeWindows
-      const hookMid = config.hookTitleConfig.displayDuration / 2
-      const hookArchetype = archetypeAtTime(hookWindows, hookMid)
-      const hookEditStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID
-      const hookTpl = resolveTemplate(hookArchetype, hookEditStyleId)
+      const hookWindows = balancedArchetypeWindows;
+      const hookMid = config.hookTitleConfig.displayDuration / 2;
+      const hookArchetype = archetypeAtTime(hookWindows, hookMid);
+      const hookEditStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID;
+      const hookTpl = resolveTemplate(hookArchetype, hookEditStyleId);
 
       // Speaker-fullscreen archetypes let the user's global template
       // editor move the pill; non-speaker layouts ignore it and use the
       // per-archetype default.
-      const yPositionPx = isSpeakerFullscreen(hookArchetype) && config.templateLayout?.titleText
-        ? Math.round((config.templateLayout.titleText.y / 100) * th)
-        : hookTpl.hookTitleY
+      const yPositionPx =
+        isSpeakerFullscreen(hookArchetype) && config.templateLayout?.titleText
+          ? Math.round((config.templateLayout.titleText.y / 100) * th)
+          : hookTpl.hookTitleY;
 
       try {
         const assPath = generateHookTitleASSFile(
@@ -1149,13 +1183,13 @@ export async function renderSegmentedClip(
           config.hookTitleConfig,
           tw,
           th,
-          yPositionPx
-        )
-        tempFiles.push(assPath)
-        assFilters.push(buildASSFilter(assPath))
-        overlayLabels.push('hook')
+          yPositionPx,
+        );
+        tempFiles.push(assPath);
+        assFilters.push(buildASSFilter(assPath));
+        overlayLabels.push('hook');
       } catch (err) {
-        console.warn(`[SegmentRender] Hook title ASS generation failed, skipping:`, err)
+        console.warn(`[SegmentRender] Hook title ASS generation failed, skipping:`, err);
       }
     }
 
@@ -1166,15 +1200,16 @@ export async function renderSegmentedClip(
       typeof config.rehookAppearTime === 'number'
     ) {
       // Resolve the archetype that covers the rehook's midpoint.
-      const rehookWindows = balancedArchetypeWindows
-      const rehookMid = config.rehookAppearTime + (config.rehookConfig.displayDuration / 2)
-      const rehookArchetype = archetypeAtTime(rehookWindows, rehookMid)
-      const rehookEditStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID
-      const rehookTpl = resolveTemplate(rehookArchetype, rehookEditStyleId)
+      const rehookWindows = balancedArchetypeWindows;
+      const rehookMid = config.rehookAppearTime + config.rehookConfig.displayDuration / 2;
+      const rehookArchetype = archetypeAtTime(rehookWindows, rehookMid);
+      const rehookEditStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID;
+      const rehookTpl = resolveTemplate(rehookArchetype, rehookEditStyleId);
 
-      const yPositionPx = isSpeakerFullscreen(rehookArchetype) && config.templateLayout?.rehookText
-        ? Math.round((config.templateLayout.rehookText.y / 100) * th)
-        : rehookTpl.rehookY
+      const yPositionPx =
+        isSpeakerFullscreen(rehookArchetype) && config.templateLayout?.rehookText
+          ? Math.round((config.templateLayout.rehookText.y / 100) * th)
+          : rehookTpl.rehookY;
       const visuals: OverlayVisualSettings =
         config.rehookVisuals ??
         (config.hookTitleConfig
@@ -1182,9 +1217,9 @@ export async function renderSegmentedClip(
               fontSize: config.hookTitleConfig.fontSize,
               textColor: config.hookTitleConfig.textColor,
               outlineColor: config.hookTitleConfig.outlineColor,
-              outlineWidth: config.hookTitleConfig.outlineWidth
+              outlineWidth: config.hookTitleConfig.outlineWidth,
             }
-          : { fontSize: 72, textColor: '#FFFFFF', outlineColor: '#000000', outlineWidth: 4 })
+          : { fontSize: 72, textColor: '#FFFFFF', outlineColor: '#000000', outlineWidth: 4 });
       try {
         const rehookAssPath = generateRehookASSFile(
           config.rehookText,
@@ -1193,13 +1228,13 @@ export async function renderSegmentedClip(
           config.rehookAppearTime,
           tw,
           th,
-          yPositionPx
-        )
-        tempFiles.push(rehookAssPath)
-        assFilters.push(buildASSFilter(rehookAssPath))
-        overlayLabels.push('rehook')
+          yPositionPx,
+        );
+        tempFiles.push(rehookAssPath);
+        assFilters.push(buildASSFilter(rehookAssPath));
+        overlayLabels.push('rehook');
       } catch (err) {
-        console.warn(`[SegmentRender] Rehook ASS generation failed, skipping:`, err)
+        console.warn(`[SegmentRender] Rehook ASS generation failed, skipping:`, err);
       }
     }
 
@@ -1210,37 +1245,45 @@ export async function renderSegmentedClip(
     if (assFilters.length > 0) {
       console.log(
         `[SegmentRender] Applying ${assFilters.length} overlay(s) in one pass: ` +
-        overlayLabels.join(', ')
-      )
-      const overlayTempPath = join(tempDir, `batchcontent-seg-overlays-${Date.now()}.mp4`)
-      tempFiles.push(overlayTempPath)
+          overlayLabels.join(', '),
+      );
+      const overlayTempPath = join(tempDir, `batchcontent-seg-overlays-${Date.now()}.mp4`);
+      tempFiles.push(overlayTempPath);
       try {
         await applyFilterPass(
           currentPath,
           overlayTempPath,
           assFilters.join(','),
-          config.qualityParams
-        )
-        currentPath = overlayTempPath
-        onProgress(postConcatBase + 14)
+          config.qualityParams,
+        );
+        currentPath = overlayTempPath;
+        onProgress(postConcatBase + 14);
       } catch (err) {
-        console.warn(`[SegmentRender] Combined overlay pass failed, skipping:`, err)
+        console.warn(`[SegmentRender] Combined overlay pass failed, skipping:`, err);
       }
     }
 
     // Move final result to output path.
     if (currentPath !== outputPath) {
       if (existsSync(outputPath)) {
-        try { unlinkSync(outputPath) } catch { /* ignore */ }
+        try {
+          unlinkSync(outputPath);
+        } catch {
+          /* ignore */
+        }
       }
-      renameSync(currentPath, outputPath)
+      renameSync(currentPath, outputPath);
     }
 
-    onProgress(100)
-    return outputPath
+    onProgress(100);
+    return outputPath;
   } finally {
     for (const tf of tempFiles) {
-      try { unlinkSync(tf) } catch { /* ignore */ }
+      try {
+        unlinkSync(tf);
+      } catch {
+        /* ignore */
+      }
     }
   }
 }

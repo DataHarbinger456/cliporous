@@ -1,4 +1,4 @@
-import { icons, HelpCircle, type LucideIcon } from 'lucide-react'
+import { HelpCircle, icons, type LucideIcon } from 'lucide-react';
 
 /**
  * Resolve a Lucide icon by its PascalCase name, with a safe fallback.
@@ -6,4 +6,4 @@ import { icons, HelpCircle, type LucideIcon } from 'lucide-react'
  * plain (JSON-serializable) string props.
  */
 export const resolveIcon = (name: string): LucideIcon =>
-  (icons as Record<string, LucideIcon>)[name] ?? HelpCircle
+  (icons as Record<string, LucideIcon>)[name] ?? HelpCircle;

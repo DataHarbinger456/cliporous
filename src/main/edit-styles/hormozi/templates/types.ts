@@ -1,4 +1,4 @@
-import type { LongformArchetype } from '@shared/types'
+import type { LongformArchetype } from '@shared/types';
 
 /**
  * Per-archetype tuning for the long-form (16:9) Hormozi pipeline.
@@ -7,9 +7,9 @@ import type { LongformArchetype } from '@shared/types'
  * `Archetype` union) so the short-form template system stays untouched.
  */
 export interface LongformArchetypeTemplate {
-  archetype: LongformArchetype
+  archetype: LongformArchetype;
   /** Zoom applied to speaker segments. */
-  zoomStyle?: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out'
+  zoomStyle?: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out';
   /** Zoom intensity multiplier (1.0 = no zoom). */
-  zoomIntensity?: number
+  zoomIntensity?: number;
 }

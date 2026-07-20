@@ -9,15 +9,16 @@
  * H.264 .mp4. Segment-render uses the ProRes/.mov path so the result composites
  * cleanly into the FFmpeg timeline.
  */
-import { bundle } from '@remotion/bundler'
-import { renderMedia, selectComposition } from '@remotion/renderer'
-import { app } from 'electron'
-import { join } from 'path'
-import { createWebpackOverride } from './webpack-override'
-import { tmpdir } from 'os'
-import { mkdtempSync, existsSync } from 'fs'
 
-let bundlePromise: Promise<string> | null = null
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { bundle } from '@remotion/bundler';
+import { renderMedia, selectComposition } from '@remotion/renderer';
+import { app } from 'electron';
+import { createWebpackOverride } from './webpack-override';
+
+let bundlePromise: Promise<string> | null = null;
 
 /**
  * Resolve the Remotion entry point.
@@ -33,17 +34,17 @@ let bundlePromise: Promise<string> | null = null
  * consistently relative to it.
  */
 function resolveRemotionEntry(): string {
-  const appPath = app.getAppPath()
+  const appPath = app.getAppPath();
   const candidates = [
     join(appPath, 'src', 'main', 'remotion', 'index.ts'),
-    join(appPath, 'src', 'main', 'remotion', 'index.tsx')
-  ]
+    join(appPath, 'src', 'main', 'remotion', 'index.tsx'),
+  ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate
+    if (existsSync(candidate)) return candidate;
   }
   // Fall back to the first candidate so the error surfaces a real, expected
   // path instead of a misleading compiled-output location.
-  return candidates[0]
+  return candidates[0];
 }
 
 /**
@@ -62,14 +63,13 @@ function resolveRemotionEntry(): string {
  *               `resources/fonts` → `<resourcesPath>/fonts`)
  */
 function resolveRemotionPublicDir(): string {
-  const candidates = [
-    join(app.getAppPath(), 'resources'),
-    process.resourcesPath
-  ].filter((p): p is string => Boolean(p))
+  const candidates = [join(app.getAppPath(), 'resources'), process.resourcesPath].filter(
+    (p): p is string => Boolean(p),
+  );
   for (const candidate of candidates) {
-    if (existsSync(join(candidate, 'fonts'))) return candidate
+    if (existsSync(join(candidate, 'fonts'))) return candidate;
   }
-  return candidates[0] ?? join(app.getAppPath(), 'resources')
+  return candidates[0] ?? join(app.getAppPath(), 'resources');
 }
 
 async function getBundle(): Promise<string> {
@@ -86,53 +86,51 @@ async function getBundle(): Promise<string> {
       // `resources/fonts/` are served and `staticFile('fonts/...')` resolves
       // during a headless render (not just in Studio).
       publicDir: resolveRemotionPublicDir(),
-      onProgress: () => undefined
-    })
+      onProgress: () => undefined,
+    });
   }
-  return bundlePromise
+  return bundlePromise;
 }
 
 export interface RenderRemotionOptions {
-  compositionId: string
-  inputProps: Record<string, unknown>
+  compositionId: string;
+  inputProps: Record<string, unknown>;
   /** Duration in seconds. Composition's durationInFrames is overridden. */
-  durationSec: number
-  fps: number
-  width: number
-  height: number
+  durationSec: number;
+  fps: number;
+  width: number;
+  height: number;
   /** When true, output is ProRes 4444 .mov with alpha. */
-  transparent?: boolean
+  transparent?: boolean;
   /**
    * Output file path. Extension drives format: .mov for transparent, .mp4
    * otherwise. If omitted, a temp path is generated.
    */
-  outputPath?: string
+  outputPath?: string;
   /**
    * Per-frame render progress callback (RF-006). Receives a 0–1 fraction from
    * Remotion's `renderMedia` so callers can advance a progress bar smoothly
    * during long block renders instead of freezing until the segment finishes.
    */
-  onProgress?: ((progress: number) => void) | undefined
+  onProgress?: ((progress: number) => void) | undefined;
 }
 
-export async function renderRemotionSegment(
-  opts: RenderRemotionOptions
-): Promise<string> {
-  const serveUrl = await getBundle()
+export async function renderRemotionSegment(opts: RenderRemotionOptions): Promise<string> {
+  const serveUrl = await getBundle();
 
   const composition = await selectComposition({
     serveUrl,
     id: opts.compositionId,
-    inputProps: opts.inputProps
-  })
+    inputProps: opts.inputProps,
+  });
 
-  const durationInFrames = Math.max(1, Math.round(opts.durationSec * opts.fps))
+  const durationInFrames = Math.max(1, Math.round(opts.durationSec * opts.fps));
   const outPath =
     opts.outputPath ??
     join(
       mkdtempSync(join(tmpdir(), 'remotion-seg-')),
-      `${opts.compositionId}.${opts.transparent ? 'mov' : 'mp4'}`
-    )
+      `${opts.compositionId}.${opts.transparent ? 'mov' : 'mp4'}`,
+    );
 
   await renderMedia({
     serveUrl,
@@ -141,7 +139,7 @@ export async function renderRemotionSegment(
       durationInFrames,
       fps: opts.fps,
       width: opts.width,
-      height: opts.height
+      height: opts.height,
     },
     codec: opts.transparent ? 'prores' : 'h264',
     proResProfile: opts.transparent ? '4444' : undefined,
@@ -158,8 +156,8 @@ export async function renderRemotionSegment(
     // the render bar smoothly rather than stalling for the whole encode. The
     // wrapper is always defined (no-ops via optional chaining when the caller
     // passed nothing) to stay clean under exactOptionalPropertyTypes.
-    onProgress: ({ progress }) => opts.onProgress?.(progress)
-  })
+    onProgress: ({ progress }) => opts.onProgress?.(progress),
+  });
 
-  return outPath
+  return outPath;
 }

@@ -11,41 +11,41 @@
 // id from a `(kind, skinId)` pair.
 // ---------------------------------------------------------------------------
 
-import { join } from 'path'
-import { tmpdir } from 'os'
-import type { BlockPlacement, LongformSkinId } from '@shared/types'
-import type { Palette } from '@shared/palettes'
-import { getPaletteById } from '@shared/palettes'
-import { resolveLongformBlockCompositionId } from '../../remotion/registry'
-import { muxRemotionVisualWithAudio } from '../longform-encode'
-import { extendEndTimeForLastPoint, type WordTimestamp } from '../point-coverage'
-import type { RenderFeature, PrepareResult } from './feature'
-import type { RenderClipJob, RenderBatchOptions } from '../types'
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Palette } from '@shared/palettes';
+import { getPaletteById } from '@shared/palettes';
+import type { BlockPlacement, LongformSkinId } from '@shared/types';
 import type {
   BarChartProps,
+  CalloutProps,
+  ChecklistProps,
   ComparisonProps,
   ComparisonTableProps,
-  StatGridProps,
-  IconStatGridProps,
-  IconRowProps,
-  NumberedListProps,
-  ChecklistProps,
-  StatHeroProps,
-  ProgressBarsProps,
-  KpiTickerProps,
-  QuoteCardProps,
-  PortraitQuoteProps,
-  TweetCardProps,
   DefinitionCardProps,
-  TimelineCardsProps,
-  FeatureGridProps,
-  LeaderboardProps,
   DonutProps,
+  FeatureGridProps,
   FunnelProps,
-  CalloutProps,
-  MapBlockProps
-} from '../../remotion/compositions/blocks/types'
-import type { TimelineProps } from '../../remotion/compositions/blocks/Timeline'
+  IconRowProps,
+  IconStatGridProps,
+  KpiTickerProps,
+  LeaderboardProps,
+  MapBlockProps,
+  NumberedListProps,
+  PortraitQuoteProps,
+  ProgressBarsProps,
+  QuoteCardProps,
+  StatGridProps,
+  StatHeroProps,
+  TimelineCardsProps,
+  TimelineProps,
+  TweetCardProps,
+} from '../../remotion/compositions/blocks/types';
+import { resolveLongformBlockCompositionId } from '../../remotion/registry';
+import { muxRemotionVisualWithAudio } from '../longform-encode';
+import { extendEndTimeForLastPoint, type WordTimestamp } from '../point-coverage';
+import type { RenderBatchOptions, RenderClipJob } from '../types';
+import type { PrepareResult, RenderFeature } from './feature';
 
 // ---------------------------------------------------------------------------
 // Placement → composition inputProps
@@ -66,17 +66,17 @@ import type { TimelineProps } from '../../remotion/compositions/blocks/Timeline'
 export function buildBlockInputProps(
   placement: BlockPlacement,
   skinId: LongformSkinId,
-  palette?: Palette
+  palette?: Palette,
 ): Record<string, unknown> {
-  const accentColor = placement.accentColor
-  const resolvedPalette = palette ?? placement.palette
+  const accentColor = placement.accentColor;
+  const resolvedPalette = palette ?? placement.palette;
   // `exactOptionalPropertyTypes` forbids `accentColor: undefined` /
   // `palette: undefined`, so only attach each key when it is actually present.
   const base = {
     skinId,
     ...(accentColor ? { accentColor } : {}),
-    ...(resolvedPalette ? { palette: resolvedPalette } : {})
-  }
+    ...(resolvedPalette ? { palette: resolvedPalette } : {}),
+  };
 
   switch (placement.kind) {
     case 'bar-chart':
@@ -84,8 +84,8 @@ export function buildBlockInputProps(
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        bars: placement.bars
-      } satisfies BarChartProps
+        bars: placement.bars,
+      } satisfies BarChartProps;
     case 'comparison':
       return {
         ...base,
@@ -94,8 +94,8 @@ export function buildBlockInputProps(
         leftTitle: placement.leftTitle,
         rightTitle: placement.rightTitle,
         leftItems: placement.leftItems,
-        rightItems: placement.rightItems
-      } satisfies ComparisonProps
+        rightItems: placement.rightItems,
+      } satisfies ComparisonProps;
     case 'comparison-table':
       return {
         ...base,
@@ -104,43 +104,43 @@ export function buildBlockInputProps(
         leftTitle: placement.leftTitle,
         rightTitle: placement.rightTitle,
         leftItems: placement.leftItems,
-        rightItems: placement.rightItems
-      } satisfies ComparisonTableProps
+        rightItems: placement.rightItems,
+      } satisfies ComparisonTableProps;
     case 'stat-grid':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        stats: placement.stats
-      } satisfies StatGridProps
+        stats: placement.stats,
+      } satisfies StatGridProps;
     case 'icon-stat-grid':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        items: placement.items
-      } satisfies IconStatGridProps
+        items: placement.items,
+      } satisfies IconStatGridProps;
     case 'icon-row':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        items: placement.items
-      } satisfies IconRowProps
+        items: placement.items,
+      } satisfies IconRowProps;
     case 'numbered-list':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        items: placement.items
-      } satisfies NumberedListProps
+        items: placement.items,
+      } satisfies NumberedListProps;
     case 'checklist':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        items: placement.items
-      } satisfies ChecklistProps
+        items: placement.items,
+      } satisfies ChecklistProps;
     case 'stat-hero':
       return {
         ...base,
@@ -152,22 +152,22 @@ export function buildBlockInputProps(
         suffix: placement.suffix,
         label: placement.label,
         trend: placement.trend,
-        delta: placement.delta
-      } satisfies StatHeroProps
+        delta: placement.delta,
+      } satisfies StatHeroProps;
     case 'progress-bars':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        bars: placement.bars
-      } satisfies ProgressBarsProps
+        bars: placement.bars,
+      } satisfies ProgressBarsProps;
     case 'kpi-ticker':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        items: placement.items
-      } satisfies KpiTickerProps
+        items: placement.items,
+      } satisfies KpiTickerProps;
     case 'quote-card':
       return {
         ...base,
@@ -176,8 +176,8 @@ export function buildBlockInputProps(
         quote: placement.quote,
         name: placement.name,
         role: placement.role,
-        avatarUrl: placement.avatarUrl
-      } satisfies QuoteCardProps
+        avatarUrl: placement.avatarUrl,
+      } satisfies QuoteCardProps;
     case 'portrait-quote':
       return {
         ...base,
@@ -186,8 +186,8 @@ export function buildBlockInputProps(
         quote: placement.quote,
         name: placement.name,
         ...(placement.role ? { role: placement.role } : {}),
-        ...(placement.imageUrl ? { imageUrl: placement.imageUrl } : {})
-      } satisfies PortraitQuoteProps
+        ...(placement.imageUrl ? { imageUrl: placement.imageUrl } : {}),
+      } satisfies PortraitQuoteProps;
     case 'tweet-card':
       return {
         ...base,
@@ -200,8 +200,8 @@ export function buildBlockInputProps(
         body: placement.body,
         replies: placement.replies,
         reposts: placement.reposts,
-        likes: placement.likes
-      } satisfies TweetCardProps
+        likes: placement.likes,
+      } satisfies TweetCardProps;
     case 'definition-card':
       return {
         ...base,
@@ -209,65 +209,65 @@ export function buildBlockInputProps(
         heading: placement.heading,
         term: placement.term,
         partOfSpeech: placement.partOfSpeech,
-        definition: placement.definition
-      } satisfies DefinitionCardProps
+        definition: placement.definition,
+      } satisfies DefinitionCardProps;
     case 'timeline':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        steps: placement.steps
-      } satisfies TimelineProps
+        steps: placement.steps,
+      } satisfies TimelineProps;
     case 'timeline-cards':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        steps: placement.steps
-      } satisfies TimelineCardsProps
+        steps: placement.steps,
+      } satisfies TimelineCardsProps;
     case 'feature-grid':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        items: placement.items
-      } satisfies FeatureGridProps
+        items: placement.items,
+      } satisfies FeatureGridProps;
     case 'leaderboard':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        rows: placement.rows
-      } satisfies LeaderboardProps
+        rows: placement.rows,
+      } satisfies LeaderboardProps;
     case 'donut':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        slices: placement.slices
-      } satisfies DonutProps
+        slices: placement.slices,
+      } satisfies DonutProps;
     case 'funnel':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        stages: placement.stages
-      } satisfies FunnelProps
+        stages: placement.stages,
+      } satisfies FunnelProps;
     case 'callout':
       return {
         ...base,
         kicker: placement.kicker,
         ...(placement.heading ? { heading: placement.heading } : {}),
         body: placement.body,
-        ...(placement.attribution ? { attribution: placement.attribution } : {})
-      } satisfies CalloutProps
+        ...(placement.attribution ? { attribution: placement.attribution } : {}),
+      } satisfies CalloutProps;
     case 'map':
       return {
         ...base,
         kicker: placement.kicker,
         heading: placement.heading,
-        pins: placement.pins
-      } satisfies MapBlockProps
+        pins: placement.pins,
+      } satisfies MapBlockProps;
   }
 }
 
@@ -290,31 +290,31 @@ const BLOCK_LIST_FIELDS = [
   'rows',
   'steps',
   'slices',
-  'stages'
-] as const
+  'stages',
+] as const;
 
 function blockItemToText(entry: unknown): string {
-  if (typeof entry === 'string') return entry
+  if (typeof entry === 'string') return entry;
   if (entry && typeof entry === 'object') {
-    const o = entry as Record<string, unknown>
-    const value = o.text ?? o.label ?? o.title ?? o.name ?? o.value
-    if (typeof value === 'string') return value
-    if (typeof value === 'number') return String(value)
+    const o = entry as Record<string, unknown>;
+    const value = o.text ?? o.label ?? o.title ?? o.name ?? o.value;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') return String(value);
   }
-  return ''
+  return '';
 }
 
 /** Pull the longest text list out of a block placement (its main content). */
 export function extractBlockItemTexts(placement: BlockPlacement): string[] {
-  const record = placement as unknown as Record<string, unknown>
-  let best: string[] = []
+  const record = placement as unknown as Record<string, unknown>;
+  let best: string[] = [];
   for (const field of BLOCK_LIST_FIELDS) {
-    const value = record[field]
-    if (!Array.isArray(value)) continue
-    const texts = value.map(blockItemToText).filter((t) => t.length > 0)
-    if (texts.length > best.length) best = texts
+    const value = record[field];
+    if (!Array.isArray(value)) continue;
+    const texts = value.map(blockItemToText).filter((t) => t.length > 0);
+    if (texts.length > best.length) best = texts;
   }
-  return best
+  return best;
 }
 
 /**
@@ -325,32 +325,32 @@ export function extractBlockItemTexts(placement: BlockPlacement): string[] {
 export function extendBlockPlacementEndTime(
   placement: BlockPlacement,
   words: WordTimestamp[] | undefined,
-  clipEnd: number
+  clipEnd: number,
 ): number {
   return extendEndTimeForLastPoint({
     items: extractBlockItemTexts(placement),
     currentEndTime: placement.endTime,
     clipEnd,
-    words
-  })
+    words,
+  });
 }
 
 export interface RenderBlockOptions {
-  placement: BlockPlacement
-  skinId: LongformSkinId
-  sourceVideoPath: string
-  width: number
-  height: number
-  fps: number
+  placement: BlockPlacement;
+  skinId: LongformSkinId;
+  sourceVideoPath: string;
+  width: number;
+  height: number;
+  fps: number;
   /** Resolved color palette to color the block with. Wins over `paletteId`. */
-  palette?: Palette
+  palette?: Palette;
   /** Palette id to resolve when a concrete `palette` is not supplied. */
-  paletteId?: string
+  paletteId?: string;
   /**
    * Per-segment progress callback (0–100), RF-006. The slow Remotion render
    * drives 0–95; the final audio mux completes the segment at 100.
    */
-  onProgress?: ((percent: number) => void) | undefined
+  onProgress?: ((percent: number) => void) | undefined;
 }
 
 /**
@@ -358,20 +358,20 @@ export interface RenderBlockOptions {
  * Returns the output path. Temp files are written under the OS temp dir.
  */
 export async function renderBlockSegment(opts: RenderBlockOptions): Promise<string> {
-  const { placement, skinId, sourceVideoPath, width, height, fps, onProgress } = opts
-  const duration = Math.max(0.5, placement.endTime - placement.startTime)
-  const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`
+  const { placement, skinId, sourceVideoPath, width, height, fps, onProgress } = opts;
+  const duration = Math.max(0.5, placement.endTime - placement.startTime);
+  const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
 
   // Default to the brand palette when no concrete palette / id is supplied.
-  const palette = opts.palette ?? getPaletteById(opts.paletteId)
-  const compositionId = resolveLongformBlockCompositionId(placement.kind, skinId)
-  const inputProps = buildBlockInputProps(placement, skinId, palette)
+  const palette = opts.palette ?? getPaletteById(opts.paletteId);
+  const compositionId = resolveLongformBlockCompositionId(placement.kind, skinId);
+  const inputProps = buildBlockInputProps(placement, skinId, palette);
 
   // Dynamic import keeps @remotion/bundler (esbuild) out of the static module
   // graph so importing the render pipeline in tests never loads it.
-  const { renderRemotionSegment } = await import('../../remotion/render')
+  const { renderRemotionSegment } = await import('../../remotion/render');
 
-  const visualPath = join(tmpdir(), `batchcontent-block-vis-${stamp}.mp4`)
+  const visualPath = join(tmpdir(), `batchcontent-block-vis-${stamp}.mp4`);
   await renderRemotionSegment({
     compositionId,
     inputProps,
@@ -383,10 +383,10 @@ export async function renderBlockSegment(opts: RenderBlockOptions): Promise<stri
     outputPath: visualPath,
     // Remotion render is the slow phase — map its 0..1 onto 0..95 of the
     // segment band; the trailing mux completes the last 5%.
-    onProgress: onProgress ? (p) => onProgress(Math.min(95, p * 100)) : undefined
-  })
+    onProgress: onProgress ? (p) => onProgress(Math.min(95, p * 100)) : undefined,
+  });
 
-  const outputPath = join(tmpdir(), `batchcontent-block-seg-${stamp}.mp4`)
+  const outputPath = join(tmpdir(), `batchcontent-block-seg-${stamp}.mp4`);
   await muxRemotionVisualWithAudio({
     visualPath,
     sourceVideoPath,
@@ -395,11 +395,11 @@ export async function renderBlockSegment(opts: RenderBlockOptions): Promise<stri
     duration,
     width,
     height,
-    fps
-  })
+    fps,
+  });
 
-  onProgress?.(100)
-  return outputPath
+  onProgress?.(100);
+  return outputPath;
 }
 
 /**
@@ -408,14 +408,11 @@ export async function renderBlockSegment(opts: RenderBlockOptions): Promise<stri
  */
 export const blocksFeature: RenderFeature = {
   name: 'blocks',
-  async prepare(
-    _job: RenderClipJob,
-    batchOptions: RenderBatchOptions
-  ): Promise<PrepareResult> {
+  async prepare(_job: RenderClipJob, batchOptions: RenderBatchOptions): Promise<PrepareResult> {
     // Long-form orchestration happens in longform-pipeline.ts, not here.
     if (batchOptions.outputProfile !== 'longform') {
-      return { tempFiles: [], modified: false }
+      return { tempFiles: [], modified: false };
     }
-    return { tempFiles: [], modified: false }
-  }
-}
+    return { tempFiles: [], modified: false };
+  },
+};

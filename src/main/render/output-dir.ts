@@ -11,8 +11,8 @@
  * creation is lazy and happens at write time.
  */
 
-import { join } from 'node:path'
-import { app } from 'electron'
+import { join } from 'node:path';
+import { app } from 'electron';
 
 /**
  * The default output directory used when the user has not picked one:
@@ -20,7 +20,7 @@ import { app } from 'electron'
  * `%USERPROFILE%\Videos\BatchClip` on Windows).
  */
 export function getDefaultOutputDirectory(): string {
-  return join(app.getPath('videos'), 'BatchClip')
+  return join(app.getPath('videos'), 'BatchClip');
 }
 
 /**
@@ -28,6 +28,6 @@ export function getDefaultOutputDirectory(): string {
  * app-wide default. Trims whitespace and treats empty strings as "unset".
  */
 export function resolveOutputDirectory(dir?: string | null): string {
-  const trimmed = (dir ?? '').trim()
-  return trimmed.length > 0 ? trimmed : getDefaultOutputDirectory()
+  const trimmed = (dir ?? '').trim();
+  return trimmed.length > 0 ? trimmed : getDefaultOutputDirectory();
 }

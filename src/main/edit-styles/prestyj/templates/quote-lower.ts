@@ -1,4 +1,4 @@
-import type { EditStyleTemplate } from '../../shared/types'
+import type { EditStyleTemplate } from '../../shared/types';
 
 export const quoteLower: EditStyleTemplate = {
   archetype: 'quote-lower',
@@ -6,5 +6,5 @@ export const quoteLower: EditStyleTemplate = {
   captionPosition: 'lower-third',
   captionMarginV: 230,
   hookTitleY: 220,
-  rehookY: 220
-}
+  rehookY: 220,
+};

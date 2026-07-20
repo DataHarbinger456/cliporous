@@ -6,8 +6,8 @@
  *   - `npx remotion studio`              → interactive preview/iteration
  *   - `@remotion/renderer` (server-side) → bundled and rendered headlessly
  */
-import { registerRoot } from 'remotion'
-import './styles.css'
-import { RemotionRoot } from './Root'
+import { registerRoot } from 'remotion';
+import './styles.css';
+import { RemotionRoot } from './Root';
 
-registerRoot(RemotionRoot)
+registerRoot(RemotionRoot);

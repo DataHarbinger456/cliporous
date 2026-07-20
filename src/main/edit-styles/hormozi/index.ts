@@ -1,15 +1,14 @@
-import { createEditStyle } from '../shared/base'
-import { T_PRESTYJ } from '../shared/transitions'
-import type { LongformArchetype } from '@shared/types'
-
-import type { LongformArchetypeTemplate } from './templates/types'
-import { speaker } from './templates/speaker'
+import type { LongformArchetype } from '@shared/types';
+import { createEditStyle } from '../shared/base';
+import { T_PRESTYJ } from '../shared/transitions';
+import { speaker } from './templates/speaker';
+import type { LongformArchetypeTemplate } from './templates/types';
 
 // Hormozi signature palette.
 /** Phrase emphasis + speaker accent — Hormozi's signature yellow. */
-export const HORMOZI_ACCENT = '#FFD600'
+export const HORMOZI_ACCENT = '#FFD600';
 /** Phrase / block primary text. */
-export const HORMOZI_CARD_FG = '#FFFFFF'
+export const HORMOZI_CARD_FG = '#FFFFFF';
 
 /**
  * HORMOZI long-form edit style.
@@ -46,7 +45,7 @@ export const hormoziEditStyle: EditStyle = createEditStyle({
     supersizeColor: HORMOZI_ACCENT,
     outlineColor: '#000000',
     outline: 4,
-    shadow: 0
+    shadow: 0,
   },
   textAnimation: 'scale-up',
   description:
@@ -57,16 +56,16 @@ export const hormoziEditStyle: EditStyle = createEditStyle({
     contrast: 1.08,
     saturation: 1.04,
     blackLift: 0.02,
-    highlightSoftness: 0.7
+    highlightSoftness: 0.7,
   },
   transitionMap: T_PRESTYJ,
-  vfxOverlays: []
-})
+  vfxOverlays: [],
+});
 
 /**
  * Long-form archetype tuning, keyed on `LongformArchetype`. Consumed by the
  * long-form render pipeline — NOT by the 9:16 template resolver.
  */
 export const hormoziLongformTemplates: Record<LongformArchetype, LongformArchetypeTemplate> = {
-  speaker
-}
+  speaker,
+};

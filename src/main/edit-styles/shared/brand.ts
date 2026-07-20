@@ -10,6 +10,6 @@
  *   BRAND_ACCENT #9f75ff  violet (caption emphasis, quote marks, headline accents)
  */
 
-export const BRAND_BG = '#23100c'
-export const BRAND_FG = '#f6ecd9'
-export const BRAND_ACCENT = '#9f75ff'
+export const BRAND_BG = '#23100c';
+export const BRAND_FG = '#f6ecd9';
+export const BRAND_ACCENT = '#9f75ff';

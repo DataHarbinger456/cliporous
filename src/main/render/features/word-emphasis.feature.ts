@@ -2,10 +2,10 @@
 // Word emphasis feature — computes emphasis data for downstream features
 // ---------------------------------------------------------------------------
 
-import type { RenderFeature, PrepareResult } from './feature'
-import type { RenderClipJob, RenderBatchOptions } from '../types'
-import { analyzeEmphasisHeuristic } from '../../word-emphasis'
-import { applyMinEmphasisDwell } from '../../emphasis-dwell'
+import { applyMinEmphasisDwell } from '../../emphasis-dwell';
+import { analyzeEmphasisHeuristic } from '../../word-emphasis';
+import type { RenderBatchOptions, RenderClipJob } from '../types';
+import type { PrepareResult, RenderFeature } from './feature';
 
 /**
  * Computes word emphasis levels and emphasis keyframes during prepare().
@@ -22,13 +22,26 @@ import { applyMinEmphasisDwell } from '../../emphasis-dwell'
 export const wordEmphasisFeature: RenderFeature = {
   name: 'word-emphasis',
 
-  async prepare(job: RenderClipJob, _batchOptions: RenderBatchOptions, _onProgress?: (message: string, percent: number) => void): Promise<PrepareResult> {
+  async prepare(
+    job: RenderClipJob,
+    batchOptions: RenderBatchOptions,
+    _onProgress?: (message: string, percent: number) => void,
+  ): Promise<PrepareResult> {
+    if (
+      batchOptions.wordEmphasisEnabled === false ||
+      job.clipOverrides?.enableWordEmphasis === false
+    ) {
+      job.wordEmphasis = undefined;
+      job.emphasisKeyframes = undefined;
+      return { tempFiles: [], modified: false };
+    }
+
     // Need word timestamps to compute emphasis
     const words = (job.wordTimestamps ?? []).filter(
-      (w) => w.start >= job.startTime && w.end <= job.endTime
-    )
+      (w) => w.start >= job.startTime && w.end <= job.endTime,
+    );
     if (words.length === 0) {
-      return { tempFiles: [], modified: false }
+      return { tempFiles: [], modified: false };
     }
 
     try {
@@ -36,70 +49,73 @@ export const wordEmphasisFeature: RenderFeature = {
       const localWords = words.map((w) => ({
         text: w.text,
         start: w.start - job.startTime,
-        end: w.end - job.startTime
-      }))
+        end: w.end - job.startTime,
+      }));
 
       // Resolve emphasis: prefer pre-computed > override > heuristic
       if (!job.wordEmphasis || job.wordEmphasis.length === 0) {
         if (job.wordEmphasisOverride && job.wordEmphasisOverride.length > 0) {
           job.wordEmphasis = localWords.map((w) => {
-            const override = job.wordEmphasisOverride!.find(
-              (ov) => Math.abs(ov.start - w.start) < 0.05
-            )
+            const override = job.wordEmphasisOverride?.find(
+              (ov) => Math.abs(ov.start - w.start) < 0.05,
+            );
             return {
               ...w,
-              emphasis: (override?.emphasis ?? 'normal') as 'normal' | 'emphasis' | 'supersize'
-            }
-          })
+              emphasis: (override?.emphasis ?? 'normal') as 'normal' | 'emphasis' | 'supersize',
+            };
+          });
         } else {
-          job.wordEmphasis = analyzeEmphasisHeuristic(localWords)
+          job.wordEmphasis = analyzeEmphasisHeuristic(localWords);
         }
       }
 
       // Compute emphasis keyframes for reactive zoom (if not already provided)
       if (!job.emphasisKeyframes || job.emphasisKeyframes.length === 0) {
         if (job.emphasisKeyframesInput && job.emphasisKeyframesInput.length > 0) {
-          job.emphasisKeyframes = job.emphasisKeyframesInput
+          job.emphasisKeyframes = job.emphasisKeyframesInput;
         } else {
           // Clip-relative duration — keyframes are 0-based so the clip end is
           // simply (endTime - startTime). Used to clamp the dwell extension.
-          const clipEnd = job.endTime - job.startTime
+          const clipEnd = job.endTime - job.startTime;
           const rawKeyframes = job.wordEmphasis
-            .filter((w) => w.emphasis === 'emphasis' || w.emphasis === 'supersize' || w.emphasis === 'box')
+            .filter(
+              (w) =>
+                w.emphasis === 'emphasis' || w.emphasis === 'supersize' || w.emphasis === 'box',
+            )
             .map((w) => ({
               time: w.start,
               start: w.start,
               end: w.end,
-              level: w.emphasis as 'emphasis' | 'supersize' | 'box'
-            }))
+              level: w.emphasis as 'emphasis' | 'supersize' | 'box',
+            }));
           // Enforce the minimum emphasis dwell so fast-speech emphases stay on
           // screen long enough to read. `applyMinEmphasisDwell` extends each
           // `end` to at least time + MIN_EMPHASIS_DWELL_SECONDS, clamped to the
           // clip end and to the next emphasised word's start.
           job.emphasisKeyframes = applyMinEmphasisDwell(rawKeyframes, clipEnd).map(
-            ({ time, end, level }) => ({ time, end, level })
-          )
+            ({ time, end, level }) => ({ time, end, level }),
+          );
         }
       }
 
-      const emphCount = job.wordEmphasis.filter((w) => w.emphasis === 'emphasis').length
-      const superCount = job.wordEmphasis.filter((w) => w.emphasis === 'supersize').length
+      const emphCount = job.wordEmphasis.filter((w) => w.emphasis === 'emphasis').length;
+      const superCount = job.wordEmphasis.filter((w) => w.emphasis === 'supersize').length;
 
       if (emphCount > 0 || superCount > 0) {
         console.log(
           `[WordEmphasis] Clip ${job.clipId}: ${emphCount} emphasis, ${superCount} supersize, ` +
-            `${job.emphasisKeyframes.length} keyframes`
-        )
+            `${job.emphasisKeyframes.length} keyframes`,
+        );
       }
 
-      return { tempFiles: [], modified: emphCount > 0 || superCount > 0 }
+      return { tempFiles: [], modified: emphCount > 0 || superCount > 0 };
     } catch (err) {
       console.error(
         `[WordEmphasis] Analysis failed for clip ${job.clipId}, falling back to no emphasis:`,
-        err
-      )
+        err,
+      );
       // Fall back: all words as "normal" — downstream features still work, just without emphasis
-      return { tempFiles: [], modified: false }
+      return { tempFiles: [], modified: false };
     }
-  }
-}
+  },
+};

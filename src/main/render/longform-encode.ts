@@ -13,17 +13,17 @@
 // ---------------------------------------------------------------------------
 
 import {
+  disableGpuEncoderForSession,
   ffmpeg,
   getEncoder,
   getSoftwareEncoder,
-  isGpuSessionError,
   isGpuEncoderDisabled,
-  disableGpuEncoderForSession,
-  type QualityParams
-} from '../ffmpeg'
-import { getIntermediateQuality } from './quality'
-import { toFFmpegPath } from './helpers'
-import type { SegmentLayoutResult } from '../layouts/segment-layouts'
+  isGpuSessionError,
+  type QualityParams,
+} from '../ffmpeg';
+import type { SegmentLayoutResult } from '../layouts/segment-layouts';
+import { toFFmpegPath } from './helpers';
+import { getIntermediateQuality } from './quality';
 
 // ---------------------------------------------------------------------------
 // Shared output options
@@ -32,26 +32,34 @@ import type { SegmentLayoutResult } from '../layouts/segment-layouts'
 /** Normalized intermediate sink options — keep every segment concat-compatible. */
 function intermediateSink(encoder: string, presetFlag: string[], fps: number): string[] {
   return [
-    '-c:v', encoder,
+    '-c:v',
+    encoder,
     ...presetFlag,
-    '-r', String(fps),
-    '-fps_mode', 'cfr',
-    '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac',
-    '-b:a', '192k',
-    '-ar', '48000',
-    '-movflags', '+faststart',
-    '-y'
-  ]
+    '-r',
+    String(fps),
+    '-fps_mode',
+    'cfr',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '192k',
+    '-ar',
+    '48000',
+    '-movflags',
+    '+faststart',
+    '-y',
+  ];
 }
 
 function pickEncoder(qp: QualityParams): { encoder: string; presetFlag: string[] } {
-  const detected = getEncoder(qp)
-  const useSwFallback = isGpuEncoderDisabled() && detected.encoder !== 'libx264'
-  const sw = useSwFallback ? getSoftwareEncoder(qp) : null
+  const detected = getEncoder(qp);
+  const useSwFallback = isGpuEncoderDisabled() && detected.encoder !== 'libx264';
+  const sw = useSwFallback ? getSoftwareEncoder(qp) : null;
   return sw
     ? { encoder: sw.encoder, presetFlag: sw.presetFlag }
-    : { encoder: detected.encoder, presetFlag: detected.presetFlag }
+    : { encoder: detected.encoder, presetFlag: detected.presetFlag };
 }
 
 // ---------------------------------------------------------------------------
@@ -59,27 +67,27 @@ function pickEncoder(qp: QualityParams): { encoder: string; presetFlag: string[]
 // ---------------------------------------------------------------------------
 
 export interface EncodeSpeakerSegmentOptions {
-  sourceVideoPath: string
-  outputPath: string
+  sourceVideoPath: string;
+  outputPath: string;
   /** Absolute source start time (seconds). */
-  startTime: number
+  startTime: number;
   /** Segment duration (seconds). */
-  duration: number
-  fps: number
+  duration: number;
+  fps: number;
   /** Layout filter_complex (ends in `[outv]`). */
-  layout: SegmentLayoutResult
+  layout: SegmentLayoutResult;
   /**
    * Extra filters chained after the layout's `[outv]`, in order (e.g. zoom,
    * color grade). Each entry is a bare filter string (no input/output labels).
    */
-  extraFilters?: string[]
+  extraFilters?: string[];
   /**
    * Per-encode progress callback. Receives 0–100 within THIS segment, derived
    * from FFmpeg's `time=` against the known `duration` (RF-006). Lets the
    * caller advance the bar smoothly mid-encode instead of jumping once per
    * segment.
    */
-  onProgress?: ((percent: number) => void) | undefined
+  onProgress?: ((percent: number) => void) | undefined;
 }
 
 /**
@@ -87,70 +95,83 @@ export interface EncodeSpeakerSegmentOptions {
  * landscape layout + optional zoom/grade, and write a normalized intermediate.
  */
 export function encodeSpeakerSegment(opts: EncodeSpeakerSegmentOptions): Promise<void> {
-  const { sourceVideoPath, outputPath, startTime, duration, fps, layout, extraFilters, onProgress } =
-    opts
+  const {
+    sourceVideoPath,
+    outputPath,
+    startTime,
+    duration,
+    fps,
+    layout,
+    extraFilters,
+    onProgress,
+  } = opts;
 
   // Chain extras after the layout's [outv] → [fx0] → [fx1] … → [finalv].
-  let currentLabel = 'outv'
-  const extras: string[] = []
-  ;(extraFilters ?? []).forEach((f, i) => {
-    if (!f) return
-    const next = `fx${i}`
-    extras.push(`[${currentLabel}]${f}[${next}]`)
-    currentLabel = next
-  })
+  let currentLabel = 'outv';
+  const extras: string[] = [];
+  (extraFilters ?? []).forEach((f, i) => {
+    if (!f) return;
+    const next = `fx${i}`;
+    extras.push(`[${currentLabel}]${f}[${next}]`);
+    currentLabel = next;
+  });
 
-  let fullFilterComplex = layout.filterComplex
+  let fullFilterComplex = layout.filterComplex;
   if (extras.length > 0) {
-    fullFilterComplex += ';' + extras.join(';')
-    fullFilterComplex += `;[${currentLabel}]format=yuv420p[finalv]`
-    currentLabel = 'finalv'
+    fullFilterComplex += `;${extras.join(';')}`;
+    fullFilterComplex += `;[${currentLabel}]format=yuv420p[finalv]`;
+    currentLabel = 'finalv';
   }
 
-  const qp = getIntermediateQuality()
+  const qp = getIntermediateQuality();
 
   return new Promise<void>((resolve, reject) => {
-    let fallbackAttempted = false
+    let fallbackAttempted = false;
 
     const run = (encoder: string, presetFlag: string[], useHwAccel: boolean): void => {
-      const cmd = ffmpeg(toFFmpegPath(sourceVideoPath))
-      let stderr = ''
-      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto'])
-      cmd.seekInput(startTime)
-      cmd.duration(duration)
+      const cmd = ffmpeg(toFFmpegPath(sourceVideoPath));
+      let stderr = '';
+      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto']);
+      cmd.seekInput(startTime);
+      cmd.duration(duration);
       cmd
         .outputOptions([
-          '-filter_complex', fullFilterComplex,
-          '-map', `[${currentLabel}]`,
-          '-map', '0:a',
-          ...intermediateSink(encoder, presetFlag, fps)
+          '-filter_complex',
+          fullFilterComplex,
+          '-map',
+          `[${currentLabel}]`,
+          '-map',
+          '0:a',
+          ...intermediateSink(encoder, presetFlag, fps),
         ])
-        .on('stderr', (line: string) => { stderr += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderr += `${line}\n`;
+        })
         // FFmpeg's percent here is meaningful because `cmd.duration(duration)`
         // above sets the segment length the wrapper divides `time=` by. Cap at
         // 99 so the band only reaches its ceiling on the `end` event.
         .on('progress', (p: { percent?: number }) => onProgress?.(Math.min(99, p.percent ?? 0)))
         .on('end', () => {
-          onProgress?.(100)
-          resolve()
+          onProgress?.(100);
+          resolve();
         })
         .on('error', (err: Error) => {
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderr)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const fb = getSoftwareEncoder(qp)
-            run(fb.encoder, fb.presetFlag, false)
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderr}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const fb = getSoftwareEncoder(qp);
+            run(fb.encoder, fb.presetFlag, false);
           } else {
-            const tail = stderr.split('\n').slice(-10).join('\n')
-            reject(new Error(`${err.message}\n[stderr tail] ${tail}`))
+            const tail = stderr.split('\n').slice(-10).join('\n');
+            reject(new Error(`${err.message}\n[stderr tail] ${tail}`));
           }
         })
-        .save(toFFmpegPath(outputPath))
-    }
+        .save(toFFmpegPath(outputPath));
+    };
 
-    const { encoder, presetFlag } = pickEncoder(qp)
-    run(encoder, presetFlag, true)
-  })
+    const { encoder, presetFlag } = pickEncoder(qp);
+    run(encoder, presetFlag, true);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -159,17 +180,17 @@ export function encodeSpeakerSegment(opts: EncodeSpeakerSegmentOptions): Promise
 
 export interface MuxRemotionVisualOptions {
   /** Pre-rendered Remotion clip (opaque mp4, no audio needed). */
-  visualPath: string
+  visualPath: string;
   /** Source video — supplies the narration audio under the card. */
-  sourceVideoPath: string
-  outputPath: string
+  sourceVideoPath: string;
+  outputPath: string;
   /** Absolute source start time (seconds) for the audio slice. */
-  startTime: number
+  startTime: number;
   /** Segment duration (seconds). */
-  duration: number
-  width: number
-  height: number
-  fps: number
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
 }
 
 /**
@@ -177,51 +198,56 @@ export interface MuxRemotionVisualOptions {
  * audio for the same time range, normalized for concat.
  */
 export function muxRemotionVisualWithAudio(opts: MuxRemotionVisualOptions): Promise<void> {
-  const { visualPath, sourceVideoPath, outputPath, startTime, duration, width, height, fps } = opts
-  const qp = getIntermediateQuality()
+  const { visualPath, sourceVideoPath, outputPath, startTime, duration, width, height, fps } = opts;
+  const qp = getIntermediateQuality();
 
   // Normalize the visual: lock fps/sar/size and pad/trim to the exact duration.
   const filter =
     `[0:v]scale=${width}:${height}:flags=lanczos+accurate_rnd,setsar=1,fps=${fps},` +
-    `format=yuv420p,trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS[v]`
+    `format=yuv420p,trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS[v]`;
 
   return new Promise<void>((resolve, reject) => {
-    let fallbackAttempted = false
+    let fallbackAttempted = false;
 
     const run = (encoder: string, presetFlag: string[], useHwAccel: boolean): void => {
-      const cmd = ffmpeg(toFFmpegPath(visualPath))
-      let stderr = ''
-      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto'])
+      const cmd = ffmpeg(toFFmpegPath(visualPath));
+      let stderr = '';
+      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto']);
       // Input 1: source audio slice.
-      cmd.input(toFFmpegPath(sourceVideoPath))
-      cmd.inputOptions(['-ss', String(startTime), '-t', String(duration)])
+      cmd.input(toFFmpegPath(sourceVideoPath));
+      cmd.inputOptions(['-ss', String(startTime), '-t', String(duration)]);
       cmd
         .outputOptions([
-          '-filter_complex', filter,
-          '-map', '[v]',
-          '-map', '1:a',
+          '-filter_complex',
+          filter,
+          '-map',
+          '[v]',
+          '-map',
+          '1:a',
           '-shortest',
-          ...intermediateSink(encoder, presetFlag, fps)
+          ...intermediateSink(encoder, presetFlag, fps),
         ])
-        .on('stderr', (line: string) => { stderr += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderr += `${line}\n`;
+        })
         .on('end', () => resolve())
         .on('error', (err: Error) => {
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderr)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const fb = getSoftwareEncoder(qp)
-            run(fb.encoder, fb.presetFlag, false)
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderr}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const fb = getSoftwareEncoder(qp);
+            run(fb.encoder, fb.presetFlag, false);
           } else {
-            const tail = stderr.split('\n').slice(-10).join('\n')
-            reject(new Error(`${err.message}\n[stderr tail] ${tail}`))
+            const tail = stderr.split('\n').slice(-10).join('\n');
+            reject(new Error(`${err.message}\n[stderr tail] ${tail}`));
           }
         })
-        .save(toFFmpegPath(outputPath))
-    }
+        .save(toFFmpegPath(outputPath));
+    };
 
-    const { encoder, presetFlag } = pickEncoder(qp)
-    run(encoder, presetFlag, true)
-  })
+    const { encoder, presetFlag } = pickEncoder(qp);
+    run(encoder, presetFlag, true);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -230,19 +256,19 @@ export function muxRemotionVisualWithAudio(opts: MuxRemotionVisualOptions): Prom
 
 export interface PhraseOverlayInput {
   /** Alpha ProRes (.mov) clip for this phrase. */
-  overlayPath: string
+  overlayPath: string;
   /** Absolute timeline start (seconds) on the concatenated video. */
-  startTime: number
+  startTime: number;
   /** Absolute timeline end (seconds). */
-  endTime: number
+  endTime: number;
 }
 
 export interface CompositePhraseOverlaysOptions {
-  inputPath: string
-  outputPath: string
-  overlays: PhraseOverlayInput[]
+  inputPath: string;
+  outputPath: string;
+  overlays: PhraseOverlayInput[];
   /** Final encode quality (the user's selected preset). */
-  qualityParams: QualityParams
+  qualityParams: QualityParams;
 }
 
 /**
@@ -251,73 +277,82 @@ export interface CompositePhraseOverlaysOptions {
  * lands at the phrase start, and gated with `enable='between(t,start,end)'`.
  */
 export function compositePhraseOverlays(opts: CompositePhraseOverlaysOptions): Promise<void> {
-  const { inputPath, outputPath, overlays, qualityParams } = opts
+  const { inputPath, outputPath, overlays, qualityParams } = opts;
 
   return new Promise<void>((resolve, reject) => {
-    let fallbackAttempted = false
+    let fallbackAttempted = false;
 
     const run = (encoder: string, presetFlag: string[], useHwAccel: boolean): void => {
-      const cmd = ffmpeg(toFFmpegPath(inputPath))
-      let stderr = ''
-      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto'])
+      const cmd = ffmpeg(toFFmpegPath(inputPath));
+      let stderr = '';
+      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto']);
 
       // Each overlay is an input shifted to its phrase start.
       for (const ov of overlays) {
-        cmd.input(toFFmpegPath(ov.overlayPath))
-        cmd.inputOptions(['-itsoffset', ov.startTime.toFixed(3)])
+        cmd.input(toFFmpegPath(ov.overlayPath));
+        cmd.inputOptions(['-itsoffset', ov.startTime.toFixed(3)]);
       }
 
       // Build the overlay chain: [0:v][1:v]overlay…[v1];[v1][2:v]overlay…[v2]…
-      const steps: string[] = []
-      let prev = '0:v'
+      const steps: string[] = [];
+      let prev = '0:v';
       overlays.forEach((ov, i) => {
-        const inIdx = i + 1
-        const outLabel = `v${i + 1}`
-        const enable = `between(t\\,${ov.startTime.toFixed(3)}\\,${ov.endTime.toFixed(3)})`
+        const inIdx = i + 1;
+        const outLabel = `v${i + 1}`;
+        const enable = `between(t\\,${ov.startTime.toFixed(3)}\\,${ov.endTime.toFixed(3)})`;
         steps.push(
-          `[${prev}][${inIdx}:v]overlay=(W-w)/2:(H-h)/2:eof_action=pass:enable='${enable}'[${outLabel}]`
-        )
-        prev = outLabel
-      })
+          `[${prev}][${inIdx}:v]overlay=(W-w)/2:(H-h)/2:eof_action=pass:enable='${enable}'[${outLabel}]`,
+        );
+        prev = outLabel;
+      });
       // Normalize pixel format on a separate node — appending a filter after a
       // labelled pad ([outv]) is invalid filtergraph syntax.
-      steps.push(`[${prev}]format=yuv420p[outv]`)
-      const filterComplex = steps.join(';')
+      steps.push(`[${prev}]format=yuv420p[outv]`);
+      const filterComplex = steps.join(';');
 
       cmd
         .outputOptions([
-          '-filter_complex', filterComplex,
-          '-map', '[outv]',
-          '-map', '0:a',
-          '-c:v', encoder,
+          '-filter_complex',
+          filterComplex,
+          '-map',
+          '[outv]',
+          '-map',
+          '0:a',
+          '-c:v',
+          encoder,
           ...presetFlag,
-          '-pix_fmt', 'yuv420p',
-          '-c:a', 'copy',
-          '-movflags', '+faststart',
-          '-y'
+          '-pix_fmt',
+          'yuv420p',
+          '-c:a',
+          'copy',
+          '-movflags',
+          '+faststart',
+          '-y',
         ])
-        .on('stderr', (line: string) => { stderr += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderr += `${line}\n`;
+        })
         .on('end', () => resolve())
         .on('error', (err: Error) => {
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderr)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const fb = getSoftwareEncoder(qualityParams)
-            run(fb.encoder, fb.presetFlag, false)
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderr}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const fb = getSoftwareEncoder(qualityParams);
+            run(fb.encoder, fb.presetFlag, false);
           } else {
-            const tail = stderr.split('\n').slice(-10).join('\n')
-            reject(new Error(`${err.message}\n[stderr tail] ${tail}`))
+            const tail = stderr.split('\n').slice(-10).join('\n');
+            reject(new Error(`${err.message}\n[stderr tail] ${tail}`));
           }
         })
-        .save(toFFmpegPath(outputPath))
-    }
+        .save(toFFmpegPath(outputPath));
+    };
 
-    const gpuDisabled = isGpuEncoderDisabled()
+    const gpuDisabled = isGpuEncoderDisabled();
     const { encoder, presetFlag } = gpuDisabled
       ? getSoftwareEncoder(qualityParams)
-      : getEncoder(qualityParams)
-    run(encoder, presetFlag, true)
-  })
+      : getEncoder(qualityParams);
+    run(encoder, presetFlag, true);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -326,30 +361,30 @@ export function compositePhraseOverlays(opts: CompositePhraseOverlaysOptions): P
 
 export interface DelosCardOverlayInput {
   /** Alpha ProRes (.mov) clip for this card (authored portrait, card-centered). */
-  overlayPath: string
+  overlayPath: string;
   /** Absolute timeline start (seconds) on the concatenated video. */
-  startTime: number
+  startTime: number;
   /** Absolute timeline end (seconds). */
-  endTime: number
+  endTime: number;
 }
 
 export interface CompositeDelosCardsOptions {
-  inputPath: string
-  outputPath: string
-  overlays: DelosCardOverlayInput[]
+  inputPath: string;
+  outputPath: string;
+  overlays: DelosCardOverlayInput[];
   /** Output frame width (landscape, e.g. 1920). */
-  width: number
+  width: number;
   /** Output frame height (landscape, e.g. 1080). */
-  height: number
+  height: number;
   /** Final encode quality (the user's selected preset). */
-  qualityParams: QualityParams
+  qualityParams: QualityParams;
 }
 
 /**
  * Horizontal nudge (pixels) applied to the otherwise-centered card so it drifts
  * slightly right of dead-center — a softer, less symmetrical look.
  */
-const CARD_RIGHT_DRIFT_PX = 70
+const CARD_RIGHT_DRIFT_PX = 70;
 
 /**
  * Composite N alpha Delos cards onto the base video in a single encode.
@@ -362,78 +397,87 @@ const CARD_RIGHT_DRIFT_PX = 70
  * Each input is time-shifted with `-itsoffset` and gated with `enable=between`.
  */
 export function compositeDelosCards(opts: CompositeDelosCardsOptions): Promise<void> {
-  const { inputPath, outputPath, overlays, width, height, qualityParams } = opts
+  const { inputPath, outputPath, overlays, width, height, qualityParams } = opts;
 
   // Center the scaled overlay horizontally, then nudge right. The overlay width
   // (`w`) is unknown until scale runs, so compute x in-filter via (W-w)/2.
-  const overlayX = `(W-w)/2+${CARD_RIGHT_DRIFT_PX}`
+  const overlayX = `(W-w)/2+${CARD_RIGHT_DRIFT_PX}`;
 
   return new Promise<void>((resolve, reject) => {
-    let fallbackAttempted = false
+    let fallbackAttempted = false;
 
     const run = (encoder: string, presetFlag: string[], useHwAccel: boolean): void => {
-      const cmd = ffmpeg(toFFmpegPath(inputPath))
-      let stderr = ''
-      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto'])
+      const cmd = ffmpeg(toFFmpegPath(inputPath));
+      let stderr = '';
+      if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto']);
 
       for (const ov of overlays) {
-        cmd.input(toFFmpegPath(ov.overlayPath))
-        cmd.inputOptions(['-itsoffset', ov.startTime.toFixed(3)])
+        cmd.input(toFFmpegPath(ov.overlayPath));
+        cmd.inputOptions(['-itsoffset', ov.startTime.toFixed(3)]);
       }
 
       // Scale each card canvas to the frame height, then overlay lower-center.
-      const steps: string[] = []
-      let prev = '0:v'
+      const steps: string[] = [];
+      let prev = '0:v';
       overlays.forEach((ov, i) => {
-        const inIdx = i + 1
-        const scaled = `c${i}`
-        const outLabel = `v${i + 1}`
-        const enable = `between(t\\,${ov.startTime.toFixed(3)}\\,${ov.endTime.toFixed(3)})`
-        steps.push(`[${inIdx}:v]scale=-2:${height}[${scaled}]`)
+        const inIdx = i + 1;
+        const scaled = `c${i}`;
+        const outLabel = `v${i + 1}`;
+        const enable = `between(t\\,${ov.startTime.toFixed(3)}\\,${ov.endTime.toFixed(3)})`;
+        steps.push(`[${inIdx}:v]scale=-2:${height}[${scaled}]`);
         steps.push(
-          `[${prev}][${scaled}]overlay=${overlayX}:0:eof_action=pass:enable='${enable}'[${outLabel}]`
-        )
-        prev = outLabel
-      })
-      steps.push(`[${prev}]format=yuv420p[outv]`)
-      const filterComplex = steps.join(';')
+          `[${prev}][${scaled}]overlay=${overlayX}:0:eof_action=pass:enable='${enable}'[${outLabel}]`,
+        );
+        prev = outLabel;
+      });
+      steps.push(`[${prev}]format=yuv420p[outv]`);
+      const filterComplex = steps.join(';');
 
       cmd
         .outputOptions([
-          '-filter_complex', filterComplex,
-          '-map', '[outv]',
-          '-map', '0:a',
-          '-c:v', encoder,
+          '-filter_complex',
+          filterComplex,
+          '-map',
+          '[outv]',
+          '-map',
+          '0:a',
+          '-c:v',
+          encoder,
           ...presetFlag,
-          '-pix_fmt', 'yuv420p',
-          '-c:a', 'copy',
-          '-movflags', '+faststart',
-          '-y'
+          '-pix_fmt',
+          'yuv420p',
+          '-c:a',
+          'copy',
+          '-movflags',
+          '+faststart',
+          '-y',
         ])
-        .on('stderr', (line: string) => { stderr += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderr += `${line}\n`;
+        })
         .on('end', () => resolve())
         .on('error', (err: Error) => {
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderr)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const fb = getSoftwareEncoder(qualityParams)
-            run(fb.encoder, fb.presetFlag, false)
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderr}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const fb = getSoftwareEncoder(qualityParams);
+            run(fb.encoder, fb.presetFlag, false);
           } else {
-            const tail = stderr.split('\n').slice(-10).join('\n')
-            reject(new Error(`${err.message}\n[stderr tail] ${tail}`))
+            const tail = stderr.split('\n').slice(-10).join('\n');
+            reject(new Error(`${err.message}\n[stderr tail] ${tail}`));
           }
         })
-        .save(toFFmpegPath(outputPath))
-    }
+        .save(toFFmpegPath(outputPath));
+    };
 
     // Mark `width` as intentionally part of the contract even though the
     // horizontal position is computed in-filter from the main input width.
-    void width
+    void width;
 
-    const gpuDisabled = isGpuEncoderDisabled()
+    const gpuDisabled = isGpuEncoderDisabled();
     const { encoder, presetFlag } = gpuDisabled
       ? getSoftwareEncoder(qualityParams)
-      : getEncoder(qualityParams)
-    run(encoder, presetFlag, true)
-  })
+      : getEncoder(qualityParams);
+    run(encoder, presetFlag, true);
+  });
 }

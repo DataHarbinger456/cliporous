@@ -2,15 +2,16 @@
 // Shared render types — extracted from render-pipeline.ts
 // ---------------------------------------------------------------------------
 
-import type { SoundDesignOptions, EditEvent } from '../sound-design'
-import type { ZoomSettings, EmphasisKeyframe } from '../auto-zoom'
-import type { OutputAspectRatio } from '../aspect-ratios'
-import type { HookTitleConfig } from '../hook-title'
-import type { RehookConfig, OverlayVisualSettings } from '../overlays/rehook'
-import type { ClipDescription } from '../ai/description-generator'
-import type { BRollPlacement, BRollDisplayMode, BRollTransition } from '../broll-placement'
-import type { FillerDetectionSettings } from '../filler-detection'
-import type { CaptionStyleInput } from '../captions'
+import type { Palette } from '@shared/palettes';
+import type { ClipDescription } from '../ai/description-generator';
+import type { OutputAspectRatio } from '../aspect-ratios';
+import type { EmphasisKeyframe, ZoomSettings } from '../auto-zoom';
+import type { BRollDisplayMode, BRollPlacement, BRollTransition } from '../broll-placement';
+import type { CaptionStyleInput } from '../captions';
+import type { FillerDetectionSettings } from '../filler-detection';
+import type { HookTitleConfig } from '../hook-title';
+import type { OverlayVisualSettings, RehookConfig } from '../overlays/rehook';
+import type { EditEvent, SoundDesignOptions } from '../sound-design';
 // SegmentRole — inlined from the legacy clip-stitcher module (feature dropped
 // in this build but the type is still referenced by the stitched-render path).
 export type SegmentRole =
@@ -23,64 +24,65 @@ export type SegmentRole =
   | 'mini-payoff'
   | 'main-payoff'
   | 'bonus-payoff'
-  | 'bridge'
+  | 'bridge';
+
 import type {
-  EmphasizedWord,
-  ShotStyleConfig,
   ColorGradeConfig,
-  ShotTransitionConfig,
-  OutputProfile,
+  EmphasizedWord,
   LongformEditPlan,
-  LongformSkinId
-} from '@shared/types'
+  LongformSkinId,
+  OutputProfile,
+  ShotStyleConfig,
+  ShotTransitionConfig,
+} from '@shared/types';
 
 // Re-export pass-through types so consumers can import from one place
 export type {
-  SoundDesignOptions,
-  EditEvent,
-  ZoomSettings,
-  EmphasisKeyframe,
-  HookTitleConfig,
-  RehookConfig,
-  OverlayVisualSettings,
-  ClipDescription,
-  BRollPlacement,
   BRollDisplayMode,
+  BRollPlacement,
   BRollTransition,
-  FillerDetectionSettings,
   CaptionStyleInput,
-  OutputAspectRatio,
-  EmphasizedWord,
-  ShotStyleConfig,
+  ClipDescription,
   ColorGradeConfig,
-  ShotTransitionConfig
-}
+  EditEvent,
+  EmphasisKeyframe,
+  EmphasizedWord,
+  FillerDetectionSettings,
+  HookTitleConfig,
+  OutputAspectRatio,
+  OverlayVisualSettings,
+  RehookConfig,
+  ShotStyleConfig,
+  ShotTransitionConfig,
+  SoundDesignOptions,
+  ZoomSettings,
+};
 
 export interface RenderClipJob {
-  clipId: string
-  sourceVideoPath: string
-  startTime: number
-  endTime: number
+  clipId: string;
+  sourceVideoPath: string;
+  startTime: number;
+  endTime: number;
   cropRegion?: {
-    x: number
-    y: number
-    width: number
-    height: number
-  }
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   /**
    * Per-scene crop timeline in source-video absolute seconds. When >1 entry
    * is present, the render pipeline emits an expression-based crop filter
    * that switches rectangles at scene boundaries.
    */
   cropTimeline?: Array<{
-    startTime: number
-    endTime: number
-    x: number
-    y: number
-    width: number
-    height: number
-    faceDetected: boolean
-  }>
+    startTime: number;
+    endTime: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    faceDetected: boolean;
+  }>;
   /**
    * Frame-accurate face-tracking timeline in clip-relative seconds. When >=2
    * entries are present the render pipeline emits an animated crop filter
@@ -88,73 +90,73 @@ export interface RenderClipJob {
    */
   faceTimeline?: Array<{
     /** Time in clip-relative seconds. */
-    t: number
+    t: number;
     /** Face bounding box in source pixels. */
-    x: number
-    y: number
-    w: number
-    h: number
-  }>
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }>;
   /** Path to a pre-generated .ass subtitle file to burn in */
-  assFilePath?: string
+  assFilePath?: string;
   /** Optional override for the output filename (without extension) */
-  outputFileName?: string
+  outputFileName?: string;
   /** Word timestamps for sound design (relative to source video, not clip) */
-  wordTimestamps?: { text: string; start: number; end: number }[]
+  wordTimestamps?: { text: string; start: number; end: number }[];
   /**
    * Hook title text to overlay in the first few seconds. Populated by the IPC
    * handler from ClipCandidate.hookText when hook title overlay is enabled.
    */
-  hookTitleText?: string
+  hookTitleText?: string;
   /**
    * Hook title display config injected from global RenderBatchOptions.hookTitleOverlay.
    * Set by startBatchRender when hookTitleOverlay.enabled is true.
    */
-  hookTitleConfig?: HookTitleConfig
+  hookTitleConfig?: HookTitleConfig;
   /**
    * Pre-generated re-hook / pattern interrupt text for the mid-clip overlay.
    * If omitted, startBatchRender picks a deterministic default phrase.
    */
-  rehookText?: string
+  rehookText?: string;
   /**
    * Re-hook overlay display config injected from global RenderBatchOptions.rehookOverlay.
    * Set by startBatchRender when rehookOverlay.enabled is true.
    */
-  rehookConfig?: RehookConfig
+  rehookConfig?: RehookConfig;
   /**
    * Appear time for the re-hook overlay in seconds relative to clip start (0-based).
    * Computed by startBatchRender via identifyRehookPoint.
    */
-  rehookAppearTime?: number
+  rehookAppearTime?: number;
   /**
    * Pre-generated description for this clip. When set, a .txt file is written
    * alongside the rendered .mp4 with platform-ready descriptions and hashtags.
    */
-  description?: ClipDescription
+  description?: ClipDescription;
   /**
    * B-Roll placement data for inserting stock footage overlays.
    * Pre-computed by the IPC handler using broll-placement.ts.
    * Applied as a post-processing pass after the main clip is rendered.
    */
-  brollPlacements?: BRollPlacement[]
+  brollPlacements?: BRollPlacement[];
   /**
    * Emphasis keyframes computed during the captions prepare phase (or by the
    * auto-zoom feature as a fallback when captions are disabled). Times are
    * clip-relative (0-based, in seconds). Consumed by reactive zoom mode to
    * drive the keyframe-driven push-in zoom filter.
    */
-  emphasisKeyframes?: EmphasisKeyframe[]
+  emphasisKeyframes?: EmphasisKeyframe[];
   /**
    * Loop optimization strategy applied to this clip. When set to 'crossfade'
    * and crossfadeDuration is provided, the render pipeline applies an audio
    * crossfade at the loop boundary to create a seamless loop.
    */
-  loopStrategy?: string
+  loopStrategy?: string;
   /**
    * Duration of the audio crossfade in seconds for loop optimization.
    * Only used when loopStrategy === 'crossfade'.
    */
-  crossfadeDuration?: number
+  crossfadeDuration?: number;
   /**
    * Per-clip overrides for global render settings. Each key controls whether
    * a specific global feature is enabled or disabled for this clip only.
@@ -166,31 +168,40 @@ export interface RenderClipJob {
    * a blurred copy of the source filling the background.
    */
   clipOverrides?: {
-    enableCaptions?: boolean
-    enableHookTitle?: boolean
-    enableAutoZoom?: boolean
-    enableSoundDesign?: boolean
-    enableBrandKit?: boolean
-    layout?: 'default' | 'blur-background'
+    enableFillerRemoval?: boolean;
+    enableCaptions?: boolean;
+    enableHookTitle?: boolean;
+    /** Per-clip control for the mid-clip re-hook, independent of the opening hook. */
+    enableRehook?: boolean;
+    /** Creator-approved re-hook copy. Empty/absent uses the deterministic fallback. */
+    rehookText?: string;
+    enableAutoZoom?: boolean;
+    enableBroll?: boolean;
+    enableWordEmphasis?: boolean;
+    enableShotTransitions?: boolean;
+    enableHyperframes?: boolean;
+    enableSoundDesign?: boolean;
+    enableBrandKit?: boolean;
+    layout?: 'default' | 'blur-background';
     /** Per-clip accent color — overrides highlight colors across all visual elements */
-    accentColor?: string
+    accentColor?: string;
     /**
      * Per-clip caption mode — forces one of the three V2 caption modes for
      * this clip only, overriding the mode resolved from the global
      * `captionStyle`. When absent, the global style's mode applies.
      */
-    captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight'
-  }
+    captionMode?: 'standard' | 'emphasis' | 'emphasis_highlight';
+  };
   /**
    * Metadata used when generating the export manifest (manifest.json / manifest.csv).
    * Populated by the IPC handler from ClipCandidate data before calling startBatchRender.
    */
   manifestMeta?: {
-    score: number
-    reasoning: string
-    transcriptText: string
-    loopScore?: number
-  }
+    score: number;
+    reasoning: string;
+    transcriptText: string;
+    loopScore?: number;
+  };
   /**
    * When present, this job represents a stitched (multi-segment) clip.
    * The pipeline assembles the segments into a single MP4 (per-segment
@@ -200,21 +211,21 @@ export interface RenderClipJob {
    * sound design, etc. Source-time wordTimestamps/wordEmphasis are remapped
    * to the concatenated timeline during assembly.
    */
-  stitchedSegments?: RenderStitchedClipSegment[]
+  stitchedSegments?: RenderStitchedClipSegment[];
   /**
    * AI Edit Plan word emphasis override.
    * When present, the captions feature uses this instead of running
    * the heuristic emphasis analysis, providing AI-quality word tagging.
    * Times are clip-relative (0-based, in seconds).
    */
-  wordEmphasisOverride?: EmphasizedWord[]
+  wordEmphasisOverride?: EmphasizedWord[];
   /**
    * AI Edit Plan SFX suggestions.
    * When present and sound design is enabled, these are injected as
    * additional edit events into the sound design placement engine.
    * Times are clip-relative (0-based, in seconds).
    */
-  aiSfxSuggestions?: Array<{ timestamp: number; type: string }>
+  aiSfxSuggestions?: Array<{ timestamp: number; type: string }>;
   /**
    * AI Edit Plan B-Roll suggestions.
    * When present and B-Roll is enabled, the IPC handler uses these to
@@ -224,14 +235,14 @@ export interface RenderClipJob {
    * Times are clip-relative (0-based, in seconds).
    */
   brollSuggestions?: Array<{
-    timestamp: number
-    duration: number
-    keyword: string
-    displayMode: BRollDisplayMode
-    transition: BRollTransition
+    timestamp: number;
+    duration: number;
+    keyword: string;
+    displayMode: BRollDisplayMode;
+    transition: BRollTransition;
     /** Suggested source for this B-Roll moment (from AI edit plan) */
-    suggestedSource?: 'stock' | 'ai-generated'
-  }>
+    suggestedSource?: 'stock' | 'ai-generated';
+  }>;
   /**
    * Pre-computed emphasis data for this clip.
    *
@@ -244,7 +255,7 @@ export interface RenderClipJob {
    * If absent, emphasis is derived from wordEmphasisOverride (AI edit plan)
    * or the heuristic fallback — no behavioural change for existing clips.
    */
-  wordEmphasis?: EmphasizedWord[]
+  wordEmphasis?: EmphasizedWord[];
   /**
    * Pre-computed emphasis keyframes for reactive zoom.
    *
@@ -255,7 +266,7 @@ export interface RenderClipJob {
    * Times are clip-relative (0-based, in seconds).
    * If absent, auto-zoom computes keyframes normally — no behavioural change.
    */
-  emphasisKeyframesInput?: EmphasisKeyframe[]
+  emphasisKeyframesInput?: EmphasisKeyframe[];
   /**
    * Pre-computed edit events for sound design synchronisation.
    *
@@ -267,7 +278,7 @@ export interface RenderClipJob {
    * Times should be clip-relative (0-based, in seconds).
    * If absent, sound design uses only its internally derived edit events.
    */
-  editEvents?: EditEvent[]
+  editEvents?: EditEvent[];
   /**
    * ID of the active edit style preset when the job was created.
    *
@@ -277,7 +288,7 @@ export interface RenderClipJob {
    *
    * If absent, no style preset was active (user used manual settings).
    */
-  stylePresetId?: string
+  stylePresetId?: string;
   /**
    * Resolved per-shot style configurations for piecewise rendering.
    *
@@ -293,35 +304,37 @@ export interface RenderClipJob {
    * Built by `resolveShotStyles()` at IPC time from `ShotStyleAssignment[]`
    * on the clip + preset definitions from the store.
    */
-  shotStyleConfigs?: ShotStyleConfig[]
+  shotStyleConfigs?: ShotStyleConfig[];
+  /** Internal render marker used to keep shot styling while forcing hard cuts. */
+  shotTransitionsDisabled?: boolean;
   /**
    * Raw per-shot style assignments from the renderer (preset IDs).
    * Resolved to `shotStyleConfigs` by the IPC handler using `resolveShotStyles()`.
    * Not consumed directly by render features — they read `shotStyleConfigs`.
    */
-  shotStyles?: Array<{ shotIndex: number; presetId: string }>
+  shotStyles?: Array<{ shotIndex: number; presetId: string }>;
   /**
    * Shot segmentation for this clip. Used by the IPC handler to resolve
    * per-shot style assignments into concrete time-ranged configs.
    * When absent, per-shot style assignments have no effect.
    */
-  shots?: Array<{ startTime: number; endTime: number }>
+  shots?: Array<{ startTime: number; endTime: number }>;
   /**
    * Pre-computed filler segments (user-curated, with restored ones already excluded).
    * When present, the filler-removal feature uses these instead of running detection.
    */
   precomputedFillerSegments?: Array<{
-    start: number
-    end: number
-    type: 'filler' | 'silence' | 'repeat'
-    label: string
-  }>
+    start: number;
+    end: number;
+    type: 'filler' | 'silence' | 'repeat';
+    label: string;
+  }>;
   /**
    * When present, this job represents a segmented clip with per-segment visual
    * treatment. The render pipeline routes these to renderSegmentedClip() instead
    * of the normal single-segment or stitched render paths.
    */
-  segmentedSegments?: SegmentedSegment[]
+  segmentedSegments?: SegmentedSegment[];
 }
 
 /**
@@ -331,117 +344,145 @@ export interface RenderClipJob {
 export interface SegmentedSegment {
   /** Stable segment id (matches VideoSegment.id on the renderer). Used as the
    *  cache key for inline image generation in the segmented render path. */
-  id?: string
+  id?: string;
   /** Spoken caption text for this segment. Used as the seed for Gemini search
    *  queries when generating images for image-archetype segments. */
-  captionText?: string
+  captionText?: string;
   /** Segment time range in source video (absolute seconds) */
-  startTime: number
-  endTime: number
+  startTime: number;
+  endTime: number;
   /** Archetype key — resolved against the active edit style's template set at render time. */
-  archetype: import('@shared/types').Archetype
+  archetype: import('@shared/types').Archetype;
   /** Zoom style for this segment */
-  zoomStyle: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out'
+  zoomStyle: 'none' | 'drift' | 'snap' | 'word-pulse' | 'zoom-out';
   /** Zoom intensity multiplier (1.0 = no zoom) */
-  zoomIntensity: number
+  zoomIntensity: number;
   /** Transition INTO this segment (hard-cut on first segment is ignored) */
-  transitionIn: TransitionType
+  transitionIn: TransitionType;
   /** Path to a contextual image (for image-based layouts) */
-  imagePath?: string
+  imagePath?: string;
   /** Path to a contextual b-roll video (for split-image / fullscreen-image layouts). */
-  videoPath?: string
+  videoPath?: string;
   /** Per-segment face crop override */
-  cropRect?: { x: number; y: number; width: number; height: number }
+  cropRect?: { x: number; y: number; width: number; height: number };
 }
 
 export interface RenderStitchedClipSegment {
-  startTime: number
-  endTime: number
-  role?: SegmentRole
+  startTime: number;
+  endTime: number;
+  role?: SegmentRole;
   /** Optional contextual image path for image-based layouts. */
-  imagePath?: string
+  imagePath?: string;
   /** Per-segment face crop override. */
-  cropRect?: { x: number; y: number; width: number; height: number }
+  cropRect?: { x: number; y: number; width: number; height: number };
 }
 
 export interface RenderStitchedClipJob {
-  clipId: string
-  sourceVideoPath: string
-  segments: RenderStitchedClipSegment[]
-  cropRegion?: { x: number; y: number; width: number; height: number }
+  clipId: string;
+  sourceVideoPath: string;
+  segments: RenderStitchedClipSegment[];
+  cropRegion?: { x: number; y: number; width: number; height: number };
   cropTimeline?: Array<{
-    startTime: number
-    endTime: number
-    x: number
-    y: number
-    width: number
-    height: number
-    faceDetected: boolean
-  }>
-  outputFileName?: string
-  hookTitleText?: string
+    startTime: number;
+    endTime: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    faceDetected: boolean;
+  }>;
+  outputFileName?: string;
+  hookTitleText?: string;
   /** Hook title overlay config from batch options. */
-  hookTitleConfig?: HookTitleConfig
+  hookTitleConfig?: HookTitleConfig;
   /** Re-hook overlay config from batch options. */
-  rehookConfig?: RehookConfig
+  rehookConfig?: RehookConfig;
   /** Re-hook text content (AI-generated or default phrase). */
-  rehookText?: string
+  rehookText?: string;
   /** Appear time for the re-hook overlay in seconds (absolute, relative to stitched clip start). */
-  rehookAppearTime?: number
+  rehookAppearTime?: number;
   /** Caption style for generating per-segment captions. */
-  captionStyle?: CaptionStyleInput
+  captionStyle?: CaptionStyleInput;
   /** Whether captions are enabled. */
-  captionsEnabled?: boolean
+  captionsEnabled?: boolean;
   /** Word timestamps from the source video transcription (absolute times). */
-  wordTimestamps?: { text: string; start: number; end: number }[]
+  wordTimestamps?: { text: string; start: number; end: number }[];
   /** Pre-computed word emphasis data (from AI edit plan or heuristic). */
-  wordEmphasis?: EmphasizedWord[]
+  wordEmphasis?: EmphasizedWord[];
   /** AI Edit Plan word emphasis override. */
-  wordEmphasisOverride?: EmphasizedWord[]
+  wordEmphasisOverride?: EmphasizedWord[];
   /** Template layout positions for on-screen text elements (percentage-based). */
-  templateLayout?: { titleText: { x: number; y: number }; subtitles: { x: number; y: number }; rehookText: { x: number; y: number } }
+  templateLayout?: {
+    titleText: { x: number; y: number };
+    subtitles: { x: number; y: number };
+    rehookText: { x: number; y: number };
+  };
   /**
    * Active edit style id — used by the stitched render path to look up
    * text animation / color grade defaults when building per-segment
    * filter_complex via buildSegmentLayout().
    */
-  stylePresetId?: string
+  stylePresetId?: string;
 }
 
 export interface RenderBatchOptions {
-  jobs: RenderClipJob[]
-  outputDirectory: string
+  jobs: RenderClipJob[];
+  outputDirectory: string;
   /**
    * Output profile. `undefined` or `'vertical'` runs the locked 1080×1920
    * short-form pipeline (default — every existing code path is unchanged).
    * `'longform'` routes to the 1920×1080 Hormozi long-form pipeline.
    */
-  outputProfile?: OutputProfile
+  outputProfile?: OutputProfile;
   /**
    * AI-generated long-form edit plan. Required when `outputProfile` is
    * `'longform'`; ignored otherwise. Drives phrase overlays, concept cards,
    * and section headers.
    */
-  longformEditPlan?: LongformEditPlan
+  longformEditPlan?: LongformEditPlan;
   /**
    * Visual skin applied to every long-form content block. Defaults to
    * `DEFAULT_LONGFORM_BLOCK_SKIN` when omitted. Ignored outside `'longform'`.
    */
-  longformSkin?: LongformSkinId
+  longformSkin?: LongformSkinId;
+  /**
+   * User-chosen visual skin for long-form content blocks. Takes precedence
+   * over `longformSkin`; both fall back to `DEFAULT_LONGFORM_BLOCK_SKIN`.
+   * Ignored outside `'longform'`.
+   */
+  longformSkinId?: LongformSkinId;
+  /**
+   * User-chosen color palette id (background / foreground / accent axis) for
+   * long-form content blocks. Resolved via `getPaletteById`, searching
+   * `customPalettes` then built-ins, falling back to the brand palette.
+   * Ignored outside `'longform'`.
+   */
+  longformPaletteId?: string;
+  /**
+   * User-created custom palettes, searched first when resolving
+   * `longformPaletteId`. Ignored outside `'longform'`.
+   */
+  customPalettes?: Palette[];
   /** Global sound design settings — used by IPC handler to compute placements */
-  soundDesign?: SoundDesignOptions
+  soundDesign?: SoundDesignOptions;
+  /** Whether the registered word-emphasis feature contributes caption/zoom keyframes. */
+  wordEmphasisEnabled?: boolean;
+  /** Whether per-shot and segmented transitions are applied instead of hard cuts. */
+  shotTransitionsEnabled?: boolean;
+  /** Whether queued HyperFrames overlays are composited. */
+  hyperframesEnabled?: boolean;
   /** Ken Burns auto-zoom settings applied to every rendered clip */
-  autoZoom?: ZoomSettings
+  autoZoom?: ZoomSettings;
   /** Hook title overlay settings — draws AI-generated hook text in first few seconds */
-  hookTitleOverlay?: HookTitleConfig
+  hookTitleOverlay?: HookTitleConfig;
   /** Re-hook / pattern interrupt overlay — draws mid-clip attention-reset text */
-  rehookOverlay?: RehookConfig
+  rehookOverlay?: RehookConfig;
   /** Filler & silence removal settings — detects and removes fillers/silences/repeats */
-  fillerRemoval?: FillerDetectionSettings & { enabled: boolean }
+  fillerRemoval?: FillerDetectionSettings & { enabled: boolean };
   /** Caption style for re-generating captions after filler removal */
-  captionStyle?: CaptionStyleInput
+  captionStyle?: CaptionStyleInput;
   /** Whether captions are enabled (needed to know whether to re-sync captions) */
-  captionsEnabled?: boolean
+  captionsEnabled?: boolean;
   /**
    * B-Roll overlay settings. When enabled, the IPC handler generates B-Roll
    * placements for each clip (using AI edit plan suggestions or keyword
@@ -449,41 +490,41 @@ export interface RenderBatchOptions {
    * for the broll feature's postProcess phase.
    */
   broll?: {
-    enabled: boolean
-    pexelsApiKey: string
-    intervalSeconds: number
-    clipDuration: number
-    displayMode: BRollDisplayMode
-    transition: BRollTransition
-    pipSize: number
-    pipPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    enabled: boolean;
+    pexelsApiKey: string;
+    intervalSeconds: number;
+    clipDuration: number;
+    displayMode: BRollDisplayMode;
+    transition: BRollTransition;
+    pipSize: number;
+    pipPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
     /** B-Roll source preference: 'stock' (Pexels), 'ai-generated' (Gemini), or 'auto' (per-moment). Default: 'auto' */
-    sourceMode?: 'stock' | 'ai-generated' | 'auto'
-  }
+    sourceMode?: 'stock' | 'ai-generated' | 'auto';
+  };
   /** Gemini API key — used for AI-generated B-Roll images and other AI features */
-  geminiApiKey?: string
+  geminiApiKey?: string;
   /** Pexels API key — used by the segmented render path to fetch stock images
    *  for image-archetype segments (split-image / fullscreen-image). Distinct
    *  from `broll.pexelsApiKey` so segment images work even when B-roll is off. */
-  pexelsApiKey?: string
+  pexelsApiKey?: string;
   /** Style category hint for AI image generation (e.g. 'custom', 'cinematic', 'anime') */
-  styleCategory?: string
+  styleCategory?: string;
   /**
    * Source video metadata for the export manifest. When provided, the render
    * pipeline writes manifest.json + manifest.csv to the output directory at
    * the end of each completed batch.
    */
   sourceMeta?: {
-    name: string
-    path: string
-    duration: number
-  }
+    name: string;
+    path: string;
+    duration: number;
+  };
   /**
    * When true, every FFmpeg command string is captured and sent back in
    * render:clipError events (always) and also logged to the error log via
    * the renderer (developer mode). Defaults to false.
    */
-  developerMode?: boolean
+  developerMode?: boolean;
   /**
    * Number of clips to render concurrently (1–4). For GPU encoders (NVENC/QSV)
    * the pipeline enforces a cap of 2 to avoid exhausting hardware session limits.
@@ -491,35 +532,35 @@ export interface RenderBatchOptions {
    * per-process thread count reduced proportionally to avoid CPU oversubscription.
    * Defaults to 1 (sequential).
    */
-  renderConcurrency?: number
+  renderConcurrency?: number;
   /**
    * Render quality and encoding-format settings. Output resolution is locked
    * to 1080×1920 (9:16) at 30fps; only CRF/preset/container are configurable.
    * When omitted, defaults to normal quality (CRF 20, medium preset, MP4).
    */
   renderQuality?: {
-    preset: 'draft' | 'normal' | 'high' | 'custom'
-    customCrf: number
+    preset: 'draft' | 'normal' | 'high' | 'custom';
+    customCrf: number;
     /** Locked to 1080×1920 — value is accepted for backward compat but ignored. */
-    outputResolution: '1080x1920'
-    outputFormat: 'mp4' | 'webm'
-    encodingPreset: 'ultrafast' | 'veryfast' | 'medium' | 'slow'
-  }
+    outputResolution: '1080x1920';
+    outputFormat: 'mp4' | 'webm';
+    encodingPreset: 'ultrafast' | 'veryfast' | 'medium' | 'slow';
+  };
   /**
    * Output aspect ratio is locked to 9:16 vertical (1080×1920 @ 30fps).
    * Field retained for backward compatibility; value is ignored.
    */
-  outputAspectRatio?: OutputAspectRatio
+  outputAspectRatio?: OutputAspectRatio;
   /**
    * Template layout positions for on-screen text elements.
    * Controls where hook title, re-hook text, and subtitles are placed
    * on the canvas. Values are percentages (0–100) from the top-left corner.
    */
   templateLayout?: {
-    titleText: { x: number; y: number }
-    subtitles: { x: number; y: number }
-    rehookText: { x: number; y: number }
-  }
+    titleText: { x: number; y: number };
+    subtitles: { x: number; y: number };
+    rehookText: { x: number; y: number };
+  };
   /**
    * Filename template for rendered clips. Supports these variables:
    *   {source}   — source video name without extension
@@ -534,7 +575,7 @@ export interface RenderBatchOptions {
    *
    * Default (when omitted): '{source}_clip{index}_{score}'
    */
-  filenameTemplate?: string
+  filenameTemplate?: string;
   /**
    * Style presets available for per-shot style resolution.
    * When clips have `shotStyles` assignments, the IPC handler uses these presets
@@ -543,34 +584,57 @@ export interface RenderBatchOptions {
    * When omitted, per-shot style assignments on jobs have no effect.
    */
   stylePresets?: Array<{
-    id: string
+    id: string;
     captions: {
-      enabled: boolean
+      enabled: boolean;
       style: {
-        animation: import('@shared/types').CaptionAnimation
-        primaryColor: string
-        highlightColor: string
-        outlineColor: string
-        emphasisColor?: string
-        supersizeColor?: string
-        fontSize: number
-        outline: number
-        shadow: number
-        borderStyle: number
-        wordsPerLine: number
-        fontName: string
-        backColor: string
-      }
-    }
+        animation: import('@shared/types').CaptionAnimation;
+        primaryColor: string;
+        highlightColor: string;
+        outlineColor: string;
+        emphasisColor?: string;
+        supersizeColor?: string;
+        fontSize: number;
+        outline: number;
+        shadow: number;
+        borderStyle: number;
+        wordsPerLine: number;
+        fontName: string;
+        backColor: string;
+      };
+    };
     zoom: {
-      enabled: boolean
-      mode: import('@shared/types').ZoomMode
-      intensity: import('@shared/types').ZoomIntensity
-      intervalSeconds: number
-    }
-    colorGrade?: import('@shared/types').ColorGradeConfig
-    transitionIn?: import('@shared/types').ShotTransitionConfig
-    transitionOut?: import('@shared/types').ShotTransitionConfig
-    brollMode?: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip'
-  }>
+      enabled: boolean;
+      mode: import('@shared/types').ZoomMode;
+      intensity: import('@shared/types').ZoomIntensity;
+      intervalSeconds: number;
+    };
+    colorGrade?: import('@shared/types').ColorGradeConfig;
+    transitionIn?: import('@shared/types').ShotTransitionConfig;
+    transitionOut?: import('@shared/types').ShotTransitionConfig;
+    brollMode?: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip';
+  }>;
+  /**
+   * Promo Mode — talking-head "evidence pop-up" mode. When enabled, the IPC
+   * handler ignores Pexels B-Roll and instead injects Media Master / Skool
+   * evidence pops (animated templates + real captures) triggered by natural
+   * language in the transcript, plus a forced Skool CTA on every clip's end.
+   * Mutually exclusive with stock B-Roll (promo takes precedence).
+   */
+  promo?: {
+    enabled: boolean;
+    /** Accent color for evidence templates. Defaults to PRESTYJ violet. */
+    accentColor?: string;
+    /** Force the selected CTA capture onto every clip's end. Default: true. */
+    forceCta?: boolean;
+    /** Stable Creator Profile captures merged into the disk Brand Pack for this render. */
+    brandAssets?: Array<{
+      id: string;
+      category: 'app-ui' | 'community-proof' | 'growth-stat' | 'cta';
+      mediaPath: string;
+      tags?: string[];
+    }>;
+    /** Runtime asset id designated as the forced visual CTA. */
+    ctaAssetId?: string;
+  };
 }

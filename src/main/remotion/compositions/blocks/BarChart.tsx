@@ -5,41 +5,60 @@
  * `BlockSkin` (via `skinId`) for its look so the same block renders in every
  * skin. All motion is driven by the frame clock through spring()/interpolate().
  */
-import React from 'react'
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, spring } from 'remotion'
-import { BRAND_BG, BRAND_FG } from '../../../edit-styles/shared/brand'
-import { PrestyjFonts } from '../../shared/fonts'
-import { Kicker, Heading, SKINS } from '../../shared/skins'
-import type { BarChartProps } from './types'
 
-const CHART_HEIGHT = 380
+import type { Palette } from '@shared/palettes';
+import type React from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { BRAND_ACCENT, BRAND_BG, BRAND_FG } from '../../../edit-styles/shared/brand';
+import { useBlockMotion } from '../../shared/block-motion';
+import { CHAR_WIDTH_RATIO, FitText } from '../../shared/fit-text';
+import { PrestyjFonts } from '../../shared/fonts';
+import { Heading, Kicker, SKIN_CONTENT_WIDTH, SKINS } from '../../shared/skins';
+import type { BarChartProps } from './types';
+
+const CHART_HEIGHT = 380;
 
 export const BarChart: React.FC<BarChartProps> = ({
   skinId,
   kicker,
   heading,
   bars,
-  accentColor
+  accentColor,
+  palette,
 }) => {
-  const frame = useCurrentFrame()
-  const { fps } = useVideoConfig()
-  const skin = SKINS[skinId]
-  const accent = accentColor ?? skin.accent
-  const cardIn = spring({ frame, fps, config: { damping: 20, stiffness: 90, mass: 0.9 } })
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const skin = SKINS[skinId];
+  const pal: Palette = palette ?? {
+    id: 'brand',
+    name: 'Brand Default',
+    background: BRAND_BG,
+    foreground: BRAND_FG,
+    accent: BRAND_ACCENT,
+    builtin: true,
+  };
+  const accent = accentColor ?? palette?.accent ?? skin.accent;
+  const motion = useBlockMotion();
+  const cw = SKIN_CONTENT_WIDTH[skinId];
 
   return (
-    <AbsoluteFill style={{ backgroundColor: BRAND_BG, justifyContent: 'center', alignItems: 'center' }}>
+    <AbsoluteFill
+      style={{ backgroundColor: pal.background, justifyContent: 'center', alignItems: 'center' }}
+    >
       <PrestyjFonts />
-      <skin.Background accent={accent} />
+      <skin.Background accent={accent} bg={pal.background} fg={pal.foreground} />
       <div
         style={{
-          opacity: cardIn,
-          transform: `translateY(${interpolate(cardIn, [0, 1], [50, 0])}px)`
+          ...motion,
         }}
       >
-        <skin.Surface accent={accent}>
-          <Kicker accent={accent}>{kicker}</Kicker>
-          <Heading>{heading}</Heading>
+        <skin.Surface accent={accent} bg={pal.background} fg={pal.foreground}>
+          <Kicker accent={accent} maxWidth={cw}>
+            {kicker}
+          </Kicker>
+          <Heading fg={pal.foreground} maxWidth={cw}>
+            {heading}
+          </Heading>
 
           <div
             style={{
@@ -50,17 +69,17 @@ export const BarChart: React.FC<BarChartProps> = ({
               marginTop: 64,
               height: CHART_HEIGHT,
               borderBottom: `2px solid ${accent}3a`,
-              paddingBottom: 0
+              paddingBottom: 0,
             }}
           >
             {bars.map((bar, i) => {
               const grow = spring({
                 frame: frame - 16 - i * 6,
                 fps,
-                config: { damping: 18, stiffness: 110, mass: 0.8 }
-              })
-              const value = Math.max(0, Math.min(1, bar.value))
-              const barHeight = value * (CHART_HEIGHT - 64) * grow
+                config: { damping: 18, stiffness: 110, mass: 0.8 },
+              });
+              const value = Math.max(0, Math.min(1, bar.value));
+              const barHeight = value * (CHART_HEIGHT - 64) * grow;
               return (
                 <div
                   key={i}
@@ -70,23 +89,28 @@ export const BarChart: React.FC<BarChartProps> = ({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'flex-end',
-                    height: '100%'
+                    height: '100%',
                   }}
                 >
                   {/* Value label */}
-                  <div
+                  <FitText
+                    maxWidth={160}
+                    maxFontSize={46}
+                    minFontSize={26}
+                    maxLines={1}
+                    charWidthRatio={CHAR_WIDTH_RATIO.bebas}
                     style={{
                       fontFamily: 'Bebas Neue',
-                      fontSize: 46,
                       lineHeight: 1,
-                      color: BRAND_FG,
+                      color: pal.foreground,
                       marginBottom: 14,
+                      textAlign: 'center',
                       opacity: grow,
-                      transform: `translateY(${interpolate(grow, [0, 1], [12, 0])}px)`
+                      transform: `translateY(${interpolate(grow, [0, 1], [12, 0])}px)`,
                     }}
                   >
                     {bar.valueLabel}
-                  </div>
+                  </FitText>
                   {/* Bar */}
                   <div
                     style={{
@@ -95,29 +119,33 @@ export const BarChart: React.FC<BarChartProps> = ({
                       height: barHeight,
                       borderRadius: '14px 14px 0 0',
                       background: `linear-gradient(180deg, ${accent} 0%, ${accent}aa 100%)`,
-                      boxShadow: `0 0 28px ${accent}44, inset 0 1px 0 ${BRAND_FG}33`
+                      boxShadow: `0 0 28px ${accent}44, inset 0 1px 0 ${pal.foreground}33`,
                     }}
                   />
                   {/* Category label */}
-                  <div
+                  <FitText
+                    maxWidth={160}
+                    maxFontSize={26}
+                    minFontSize={16}
+                    maxLines={2}
+                    charWidthRatio={CHAR_WIDTH_RATIO.geist}
                     style={{
                       fontFamily: 'Geist',
                       fontWeight: 700,
-                      fontSize: 26,
-                      color: `${BRAND_FG}cc`,
+                      color: `${pal.foreground}cc`,
                       marginTop: 20,
                       textAlign: 'center',
-                      opacity: grow
+                      opacity: grow,
                     }}
                   >
                     {bar.label}
-                  </div>
+                  </FitText>
                 </div>
-              )
+              );
             })}
           </div>
         </skin.Surface>
       </div>
     </AbsoluteFill>
-  )
-}
+  );
+};

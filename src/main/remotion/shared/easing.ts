@@ -1,4 +1,4 @@
-import { Easing } from 'remotion'
+import { Easing } from 'remotion';
 
 /**
  * Cinematic easing curves. Premium motion uses asymmetric curves — slow in,
@@ -12,5 +12,5 @@ export const EASE = {
   /** out-quart: softer than expo. Good for image scale. */
   outQuart: Easing.bezier(0.25, 1, 0.5, 1),
   /** in-out-quart: symmetric, for hold-to-hold motion. */
-  inOutQuart: Easing.bezier(0.76, 0, 0.24, 1)
-} as const
+  inOutQuart: Easing.bezier(0.76, 0, 0.24, 1),
+} as const;

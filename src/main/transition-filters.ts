@@ -18,19 +18,19 @@
 
 export interface TransitionFilterParams {
   /** Transition duration in seconds */
-  duration: number
+  duration: number;
   /** Hex color for flash/wash (e.g. '#FF6B35') */
-  color: string
+  color: string;
   /** 0.0–1.0 peak opacity for color wash */
-  opacity?: number
+  opacity?: number;
   /** Time in seconds where the transition occurs */
-  offsetTime: number
+  offsetTime: number;
   /** Video fps for frame calculations */
-  fps: number
+  fps: number;
   /** Output width — locked to 1080 (9:16 vertical) */
-  width: number
+  width: number;
   /** Output height — locked to 1920 (9:16 vertical) */
-  height: number
+  height: number;
 }
 
 /**
@@ -41,10 +41,10 @@ export interface TransitionFilterParams {
  * - `inputs`:       any additional inputs required (e.g. color source for flash)
  */
 export interface TransitionFilterResult {
-  videoFilter: string
-  audioFilter: string | null
+  videoFilter: string;
+  audioFilter: string | null;
   /** Additional FFmpeg input arguments (e.g. ['-f', 'lavfi', '-i', 'color=...']) */
-  inputs: string[]
+  inputs: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -56,23 +56,23 @@ export interface TransitionFilterResult {
  * Accepts '#RRGGBB', '#RGB', or bare 'RRGGBB'.
  */
 function hexToFFmpeg(hex: string): string {
-  let h = hex.replace(/^#/, '')
+  let h = hex.replace(/^#/, '');
   if (h.length === 3) {
-    h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+    h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
   }
-  return `0x${h.toUpperCase()}`
+  return `0x${h.toUpperCase()}`;
 }
 
 /**
  * Convert hex colour to FFmpeg alpha-aware format: 0xRRGGBB@opacity
  */
 function hexToFFmpegAlpha(hex: string, opacity: number): string {
-  return `${hexToFFmpeg(hex)}@${opacity.toFixed(2)}`
+  return `${hexToFFmpeg(hex)}@${opacity.toFixed(2)}`;
 }
 
 /** Round to 3 decimal places for FFmpeg time expressions */
 function t(seconds: number): string {
-  return seconds.toFixed(3)
+  return seconds.toFixed(3);
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ function t(seconds: number): string {
  * transition filter. Used by: ember, align, growth, pulse, recess.
  */
 export function buildHardCut(): null {
-  return null
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,21 +120,19 @@ export function buildCrossfade(
   audioALabel = '[0:a]',
   audioBLabel = '[1:a]',
   outputVideo = '[vout]',
-  outputAudio = '[aout]'
+  outputAudio = '[aout]',
 ): TransitionFilterResult {
-  const dur = Math.max(0.1, Math.min(1.0, params.duration))
+  const dur = Math.max(0.1, Math.min(1.0, params.duration));
 
-  const videoFilter =
-    `${segALabel}${segBLabel}xfade=transition=fade:duration=${t(dur)}:offset=${t(params.offsetTime)}${outputVideo}`
+  const videoFilter = `${segALabel}${segBLabel}xfade=transition=fade:duration=${t(dur)}:offset=${t(params.offsetTime)}${outputVideo}`;
 
-  const audioFilter =
-    `${audioALabel}${audioBLabel}acrossfade=d=${t(dur)}:c1=tri:c2=tri${outputAudio}`
+  const audioFilter = `${audioALabel}${audioBLabel}acrossfade=d=${t(dur)}:c1=tri:c2=tri${outputAudio}`;
 
   return {
     videoFilter,
     audioFilter,
-    inputs: []
-  }
+    inputs: [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -170,49 +168,48 @@ export function buildFlashCut(
   audioBLabel = '[1:a]',
   flashInputLabel = '[flash]',
   outputVideo = '[vout]',
-  outputAudio = '[aout]'
+  outputAudio = '[aout]',
 ): TransitionFilterResult {
   // Clamp flash duration to 2–3 frames
-  const minFrames = 2
-  const maxFrames = 3
-  const frameDuration = 1 / params.fps
+  const minFrames = 2;
+  const maxFrames = 3;
+  const frameDuration = 1 / params.fps;
   const flashDur = Math.max(
     minFrames * frameDuration,
-    Math.min(maxFrames * frameDuration, params.duration)
-  )
+    Math.min(maxFrames * frameDuration, params.duration),
+  );
 
-  const ffmpegColor = hexToFFmpeg(params.color)
+  const ffmpegColor = hexToFFmpeg(params.color);
 
   // The lavfi colour source input — generates a solid-colour video
   const colorInput = [
-    '-f', 'lavfi',
-    '-i', `color=c=${ffmpegColor}:s=${params.width}x${params.height}:r=${params.fps}:d=${t(flashDur)}`
-  ]
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=${ffmpegColor}:s=${params.width}x${params.height}:r=${params.fps}:d=${t(flashDur)}`,
+  ];
 
   // Scale the flash to match output dimensions and set pixel format
-  const flashPrep = `${flashInputLabel}scale=${params.width}:${params.height},setsar=1,format=yuv420p[flashready]`
+  const flashPrep = `${flashInputLabel}scale=${params.width}:${params.height},setsar=1,format=yuv420p[flashready]`;
 
   // Two-stage xfade: segA → flash (fade), then flash → segB (fade)
   // Half the flash duration for each fade
-  const halfFlash = flashDur / 2
+  const halfFlash = flashDur / 2;
 
-  const xfade1 =
-    `${segALabel}[flashready]xfade=transition=fade:duration=${t(halfFlash)}:offset=${t(params.offsetTime)}[mid]`
+  const xfade1 = `${segALabel}[flashready]xfade=transition=fade:duration=${t(halfFlash)}:offset=${t(params.offsetTime)}[mid]`;
 
-  const xfade2 =
-    `[mid]${segBLabel}xfade=transition=fade:duration=${t(halfFlash)}:offset=${t(params.offsetTime + halfFlash)}${outputVideo}`
+  const xfade2 = `[mid]${segBLabel}xfade=transition=fade:duration=${t(halfFlash)}:offset=${t(params.offsetTime + halfFlash)}${outputVideo}`;
 
-  const videoFilter = [flashPrep, xfade1, xfade2].join(';')
+  const videoFilter = [flashPrep, xfade1, xfade2].join(';');
 
   // Audio: simple concat (flash has no audio — just join A and B)
-  const audioFilter =
-    `${audioALabel}${audioBLabel}concat=v=0:a=1${outputAudio}`
+  const audioFilter = `${audioALabel}${audioBLabel}concat=v=0:a=1${outputAudio}`;
 
   return {
     videoFilter,
     audioFilter,
-    inputs: colorInput
-  }
+    inputs: colorInput,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -249,60 +246,59 @@ export function buildColorWash(
   audioBLabel = '[1:a]',
   colorInputLabel = '[wash]',
   outputVideo = '[vout]',
-  outputAudio = '[aout]'
+  outputAudio = '[aout]',
 ): TransitionFilterResult {
-  const dur = Math.max(0.2, Math.min(1.0, params.duration))
-  const peakOpacity = Math.max(0.1, Math.min(1.0, params.opacity ?? 0.7))
+  const dur = Math.max(0.2, Math.min(1.0, params.duration));
+  const peakOpacity = Math.max(0.1, Math.min(1.0, params.opacity ?? 0.7));
 
-  const halfDur = dur / 2
-  const washStart = params.offsetTime - halfDur
-  const washEnd = params.offsetTime + halfDur
-  const ffmpegColor = hexToFFmpeg(params.color)
+  const halfDur = dur / 2;
+  const washStart = params.offsetTime - halfDur;
+  const washEnd = params.offsetTime + halfDur;
+  const ffmpegColor = hexToFFmpeg(params.color);
 
   // Lavfi colour source input — solid colour video for the wash overlay
   const colorInput = [
-    '-f', 'lavfi',
-    '-i', `color=c=${ffmpegColor}:s=${params.width}x${params.height}:r=${params.fps}:d=${t(dur)}`
-  ]
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=${ffmpegColor}:s=${params.width}x${params.height}:r=${params.fps}:d=${t(dur)}`,
+  ];
 
   // First, xfade segment A and B with a standard crossfade as the base
-  const baseFade =
-    `${segALabel}${segBLabel}xfade=transition=fade:duration=${t(dur)}:offset=${t(washStart > 0 ? washStart : 0)}[basevid]`
+  const baseFade = `${segALabel}${segBLabel}xfade=transition=fade:duration=${t(dur)}:offset=${t(washStart > 0 ? washStart : 0)}[basevid]`;
 
   // Prepare the colour overlay: set pixel format and scale
   const washPrep =
     `${colorInputLabel}scale=${params.width}:${params.height},setsar=1,format=yuva420p,` +
-    `colorchannelmixer=aa=${peakOpacity.toFixed(2)}[washready]`
+    `colorchannelmixer=aa=${peakOpacity.toFixed(2)}[washready]`;
 
   // Build the alpha ramp expression: triangle envelope from 0→peak→0
   // The overlay is enabled only during the wash window
   // Alpha ramps: linear in for first half, linear out for second half
   //   alpha = peak * (1 - abs(2*(t - midpoint) / dur))
-  const midpoint = (washStart + washEnd) / 2
+  const midpoint = (washStart + washEnd) / 2;
   const alphaExpr =
     `if(between(t\\,${t(Math.max(0, washStart))}\\,${t(washEnd)})\\,` +
-    `${peakOpacity.toFixed(2)}*(1-abs(2*(t-${t(midpoint)})/${t(dur)}))\\,0)`
+    `${peakOpacity.toFixed(2)}*(1-abs(2*(t-${t(midpoint)})/${t(dur)}))\\,0)`;
 
   // Overlay the colour wash on top of the base video with time-limited alpha
   // We use geq on the wash to modulate its alpha per-frame
   const washAlpha =
     `[washready]geq=lum='lum(X\\,Y)':cb='cb(X\\,Y)':cr='cr(X\\,Y)':` +
-    `a='${alphaExpr}*alpha(X\\,Y)':enable='between(t\\,${t(Math.max(0, washStart))}\\,${t(washEnd)})'[washalpha]`
+    `a='${alphaExpr}*alpha(X\\,Y)':enable='between(t\\,${t(Math.max(0, washStart))}\\,${t(washEnd)})'[washalpha]`;
 
-  const overlay =
-    `[basevid][washalpha]overlay=0:0:enable='between(t\\,${t(Math.max(0, washStart))}\\,${t(washEnd)})'${outputVideo}`
+  const overlay = `[basevid][washalpha]overlay=0:0:enable='between(t\\,${t(Math.max(0, washStart))}\\,${t(washEnd)})'${outputVideo}`;
 
-  const videoFilter = [baseFade, washPrep, washAlpha, overlay].join(';')
+  const videoFilter = [baseFade, washPrep, washAlpha, overlay].join(';');
 
   // Audio: standard crossfade to match the video dissolve
-  const audioFilter =
-    `${audioALabel}${audioBLabel}acrossfade=d=${t(dur)}:c1=tri:c2=tri${outputAudio}`
+  const audioFilter = `${audioALabel}${audioBLabel}acrossfade=d=${t(dur)}:c1=tri:c2=tri${outputAudio}`;
 
   return {
     videoFilter,
     audioFilter,
-    inputs: colorInput
-  }
+    inputs: colorInput,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -320,20 +316,20 @@ export function buildColorWash(
  * @param params Transition parameters (offsetTime = centre of flash)
  */
 export function buildInlineFlashCut(params: TransitionFilterParams): string {
-  const frameDuration = 1 / params.fps
-  const flashDur = Math.max(2 * frameDuration, Math.min(3 * frameDuration, params.duration))
+  const frameDuration = 1 / params.fps;
+  const flashDur = Math.max(2 * frameDuration, Math.min(3 * frameDuration, params.duration));
 
-  const halfFlash = flashDur / 2
-  const start = params.offsetTime - halfFlash
-  const end = params.offsetTime + halfFlash
-  const ffmpegColor = hexToFFmpegAlpha(params.color, 1.0)
+  const halfFlash = flashDur / 2;
+  const start = params.offsetTime - halfFlash;
+  const end = params.offsetTime + halfFlash;
+  const ffmpegColor = hexToFFmpegAlpha(params.color, 1.0);
 
   // drawbox covering the full frame with the flash colour
   return (
     `drawbox=x=0:y=0:w=${params.width}:h=${params.height}:` +
     `color=${ffmpegColor}:t=fill:` +
     `enable='between(t\\,${t(Math.max(0, start))}\\,${t(end)})'`
-  )
+  );
 }
 
 /**
@@ -347,24 +343,23 @@ export function buildInlineFlashCut(params: TransitionFilterParams): string {
  * @param params Transition parameters (offsetTime = centre of wash)
  */
 export function buildInlineColorWash(params: TransitionFilterParams): string {
-  const dur = Math.max(0.2, Math.min(1.0, params.duration))
-  const peakOpacity = Math.max(0.1, Math.min(1.0, params.opacity ?? 0.7))
+  const dur = Math.max(0.2, Math.min(1.0, params.duration));
+  const peakOpacity = Math.max(0.1, Math.min(1.0, params.opacity ?? 0.7));
 
-  const halfDur = dur / 2
-  const start = params.offsetTime - halfDur
-  const end = params.offsetTime + halfDur
-  const midpoint = params.offsetTime
+  const halfDur = dur / 2;
+  const start = params.offsetTime - halfDur;
+  const end = params.offsetTime + halfDur;
+  const midpoint = params.offsetTime;
 
   // Triangle alpha envelope: ramps 0→peak→0
-  const alphaExpr =
-    `${peakOpacity.toFixed(2)}*(1-abs(2*(t-${t(midpoint)})/${t(dur)}))`
+  const _alphaExpr = `${peakOpacity.toFixed(2)}*(1-abs(2*(t-${t(midpoint)})/${t(dur)}))`;
 
-  const ffmpegColor = hexToFFmpegAlpha(params.color, peakOpacity)
+  const ffmpegColor = hexToFFmpegAlpha(params.color, peakOpacity);
 
   // drawbox with time-limited enable
   return (
     `drawbox=x=0:y=0:w=${params.width}:h=${params.height}:` +
     `color=${ffmpegColor}:t=fill:` +
     `enable='between(t\\,${t(Math.max(0, start))}\\,${t(end)})'`
-  )
+  );
 }

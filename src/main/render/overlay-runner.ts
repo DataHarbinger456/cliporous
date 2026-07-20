@@ -7,13 +7,20 @@
 // combined filter strings and keeps each pass independently debuggable.
 // ---------------------------------------------------------------------------
 
-import { join } from 'path'
-import { tmpdir } from 'os'
-import { unlinkSync, renameSync } from 'fs'
-import type { FfmpegCommand, QualityParams } from '../ffmpeg'
-import { ffmpeg, getEncoder, getSoftwareEncoder, isGpuSessionError, isGpuEncoderDisabled, disableGpuEncoderForSession } from '../ffmpeg'
-import { toFFmpegPath } from './helpers'
-import type { OverlayPassResult } from './features/feature'
+import { renameSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { FfmpegCommand, QualityParams } from '../ffmpeg';
+import {
+  disableGpuEncoderForSession,
+  ffmpeg,
+  getEncoder,
+  getSoftwareEncoder,
+  isGpuEncoderDisabled,
+  isGpuSessionError,
+} from '../ffmpeg';
+import type { OverlayPassResult } from './features/feature';
+import { toFFmpegPath } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Active command tracking (for cancellation)
@@ -23,7 +30,7 @@ import type { OverlayPassResult } from './features/feature'
  * Set of all currently running FFmpeg commands across the render pipeline.
  * Used by cancelRender() to kill active processes.
  */
-export const activeCommands = new Set<FfmpegCommand>()
+export const activeCommands = new Set<FfmpegCommand>();
 
 // ---------------------------------------------------------------------------
 // Single filter pass
@@ -34,7 +41,7 @@ export const activeCommands = new Set<FfmpegCommand>()
 // the `ultrafast` preset — it disables CABAC, deblock, B-frames and motion
 // search on libx264, causing visible blocking that compounds across passes.
 // `medium` is the smallest preset that keeps all the coding tools enabled.
-const OVERLAY_QUALITY: QualityParams = { crf: 18, preset: 'medium' }
+const OVERLAY_QUALITY: QualityParams = { crf: 18, preset: 'medium' };
 
 /**
  * Resolve the effective quality for an overlay pass. We always want the
@@ -44,10 +51,10 @@ const OVERLAY_QUALITY: QualityParams = { crf: 18, preset: 'medium' }
  * lower CRF = higher quality.
  */
 function resolveOverlayQuality(override?: QualityParams): QualityParams {
-  if (!override) return OVERLAY_QUALITY
-  const overrideCrf = override.crf ?? OVERLAY_QUALITY.crf!
-  const crf = Math.min(overrideCrf, OVERLAY_QUALITY.crf!)
-  return { crf, preset: override.preset ?? OVERLAY_QUALITY.preset }
+  if (!override) return OVERLAY_QUALITY;
+  const overrideCrf = override.crf ?? OVERLAY_QUALITY.crf!;
+  const crf = Math.min(overrideCrf, OVERLAY_QUALITY.crf!);
+  return { crf, preset: override.preset ?? OVERLAY_QUALITY.preset };
 }
 
 /**
@@ -63,69 +70,62 @@ export function applyFilterPass(
   inputPath: string,
   outputPath: string,
   videoFilter: string,
-  qualityOverride?: QualityParams
+  qualityOverride?: QualityParams,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const quality = resolveOverlayQuality(qualityOverride)
-    const gpuDisabled = isGpuEncoderDisabled()
-    const { encoder, presetFlag } = gpuDisabled ? getSoftwareEncoder(quality) : getEncoder(quality)
-    let fallbackAttempted = false
+    const quality = resolveOverlayQuality(qualityOverride);
+    const gpuDisabled = isGpuEncoderDisabled();
+    const { encoder, presetFlag } = gpuDisabled ? getSoftwareEncoder(quality) : getEncoder(quality);
+    let fallbackAttempted = false;
 
     // Ensure the final output is yuv420p — subtitles/drawtext can leave the
     // chain in a different pix_fmt depending on the input.
     const filterWithPixFmt = /,format=yuv420p$/.test(videoFilter)
       ? videoFilter
-      : `${videoFilter},format=yuv420p`
+      : `${videoFilter},format=yuv420p`;
 
     function runPass(enc: string, flags: string[], useHwAccel = true): void {
-      const cmd = ffmpeg(toFFmpegPath(inputPath))
-      let stderrOutput = ''
+      const cmd = ffmpeg(toFFmpegPath(inputPath));
+      let stderrOutput = '';
 
       // Enable hardware-accelerated decoding (NVDEC, DXVA2, VAAPI, etc.)
       // Skipped on software fallback — broken GPU drivers can cause -hwaccel auto to crash
       if (useHwAccel) {
-        cmd.inputOptions(['-hwaccel', 'auto'])
+        cmd.inputOptions(['-hwaccel', 'auto']);
       }
 
       cmd
         .videoFilters(filterWithPixFmt)
-        .outputOptions([
-          '-c:v',
-          enc,
-          ...flags,
-          '-c:a',
-          'copy',
-          '-movflags',
-          '+faststart',
-          '-y'
-        ])
+        .outputOptions(['-c:v', enc, ...flags, '-c:a', 'copy', '-movflags', '+faststart', '-y'])
         .on('start', (cmdLine: string) => {
-          console.log(`[Overlay] FFmpeg command: ${cmdLine}`)
+          console.log(`[Overlay] FFmpeg command: ${cmdLine}`);
         })
-        .on('stderr', (line: string) => { stderrOutput += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderrOutput += `${line}\n`;
+        })
         .on('end', () => resolve())
         .on('error', (err: Error) => {
-          console.error(`[Overlay] FFmpeg stderr:\n${stderrOutput}`)
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderrOutput)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const sw = getSoftwareEncoder(quality)
-            runPass(sw.encoder, sw.presetFlag, false)
+          console.error(`[Overlay] FFmpeg stderr:\n${stderrOutput}`);
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderrOutput}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const sw = getSoftwareEncoder(quality);
+            runPass(sw.encoder, sw.presetFlag, false);
           } else {
-            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n')
-            const enhanced = new Error(`${err.message}\n[stderr tail] ${stderrTail}`)
-            reject(enhanced)
+            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n');
+            const enhanced = new Error(`${err.message}\n[stderr tail] ${stderrTail}`);
+            reject(enhanced);
           }
         })
-        .save(toFFmpegPath(outputPath))
+        .save(toFFmpegPath(outputPath));
 
-      activeCommands.add(cmd)
-      cmd.on('end', () => activeCommands.delete(cmd))
-      cmd.on('error', () => activeCommands.delete(cmd))
+      activeCommands.add(cmd);
+      cmd.on('end', () => activeCommands.delete(cmd));
+      cmd.on('error', () => activeCommands.delete(cmd));
     }
 
-    runPass(encoder, presetFlag)
-  })
+    runPass(encoder, presetFlag);
+  });
 }
 
 /**
@@ -140,62 +140,72 @@ export function applyFilterComplexPass(
   inputPath: string,
   outputPath: string,
   filterComplex: string,
-  qualityOverride?: QualityParams
+  qualityOverride?: QualityParams,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const quality = resolveOverlayQuality(qualityOverride)
-    const gpuDisabled2 = isGpuEncoderDisabled()
-    const { encoder, presetFlag } = gpuDisabled2 ? getSoftwareEncoder(quality) : getEncoder(quality)
-    let fallbackAttempted = false
+    const quality = resolveOverlayQuality(qualityOverride);
+    const gpuDisabled2 = isGpuEncoderDisabled();
+    const { encoder, presetFlag } = gpuDisabled2
+      ? getSoftwareEncoder(quality)
+      : getEncoder(quality);
+    let fallbackAttempted = false;
 
     function runPass(enc: string, flags: string[], useHwAccel = true): void {
-      const cmd = ffmpeg(toFFmpegPath(inputPath))
-      let stderrOutput = ''
+      const cmd = ffmpeg(toFFmpegPath(inputPath));
+      let stderrOutput = '';
 
       // Enable hardware-accelerated decoding (NVDEC, DXVA2, VAAPI, etc.)
       // Skipped on software fallback — broken GPU drivers can cause -hwaccel auto to crash
       if (useHwAccel) {
-        cmd.inputOptions(['-hwaccel', 'auto'])
+        cmd.inputOptions(['-hwaccel', 'auto']);
       }
 
       cmd
         .outputOptions([
-          '-filter_complex', filterComplex,
-          '-map', '[outv]',
-          '-map', '0:a',
-          '-c:v', enc,
+          '-filter_complex',
+          filterComplex,
+          '-map',
+          '[outv]',
+          '-map',
+          '0:a',
+          '-c:v',
+          enc,
           ...flags,
-          '-c:a', 'copy',
-          '-movflags', '+faststart',
-          '-y'
+          '-c:a',
+          'copy',
+          '-movflags',
+          '+faststart',
+          '-y',
         ])
         .on('start', (cmdLine: string) => {
-          console.log(`[Overlay] FFmpeg filter_complex command: ${cmdLine}`)
+          console.log(`[Overlay] FFmpeg filter_complex command: ${cmdLine}`);
         })
-        .on('stderr', (line: string) => { stderrOutput += line + '\n' })
+        .on('stderr', (line: string) => {
+          stderrOutput += `${line}\n`;
+        })
         .on('end', () => resolve())
         .on('error', (err: Error) => {
-          console.error(`[Overlay] FFmpeg filter_complex stderr:\n${stderrOutput}`)
-          if (!fallbackAttempted && isGpuSessionError(err.message + '\n' + stderrOutput)) {
-            fallbackAttempted = true
-            disableGpuEncoderForSession()
-            const sw = getSoftwareEncoder(quality)
-            runPass(sw.encoder, sw.presetFlag, false)
+          console.error(`[Overlay] FFmpeg filter_complex stderr:\n${stderrOutput}`);
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderrOutput}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const sw = getSoftwareEncoder(quality);
+            runPass(sw.encoder, sw.presetFlag, false);
           } else {
-            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n')
-            const enhanced = new Error(`${err.message}\n[stderr tail] ${stderrTail}`)
-            reject(enhanced)
+            const stderrTail = stderrOutput.split('\n').slice(-10).join('\n');
+            const enhanced = new Error(`${err.message}\n[stderr tail] ${stderrTail}`);
+            reject(enhanced);
           }
         })
-        .save(toFFmpegPath(outputPath))
+        .save(toFFmpegPath(outputPath));
 
-      activeCommands.add(cmd)
-      cmd.on('end', () => activeCommands.delete(cmd))
-      cmd.on('error', () => activeCommands.delete(cmd))
+      activeCommands.add(cmd);
+      cmd.on('end', () => activeCommands.delete(cmd));
+      cmd.on('error', () => activeCommands.delete(cmd));
     }
 
-    runPass(encoder, presetFlag)
-  })
+    runPass(encoder, presetFlag);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -204,9 +214,9 @@ export function applyFilterComplexPass(
 
 export interface OverlayRunnerOptions {
   /** Called after each pass with cumulative progress (0–100 scale of the overlay phase) */
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void;
   /** Return true to abort between passes */
-  cancelCheck?: () => boolean
+  cancelCheck?: () => boolean;
 }
 
 /**
@@ -216,19 +226,21 @@ export interface OverlayRunnerOptions {
  * need filter_complex (e.g. animated progress bar, B-roll overlay) stay as
  * their own batch since they can't be composed by simple filter concatenation.
  */
-function batchSteps(steps: OverlayPassResult[]): Array<{ names: string[]; filter: string; filterComplex: boolean }> {
-  const batches: Array<{ names: string[]; filter: string; filterComplex: boolean }> = []
+function batchSteps(
+  steps: OverlayPassResult[],
+): Array<{ names: string[]; filter: string; filterComplex: boolean }> {
+  const batches: Array<{ names: string[]; filter: string; filterComplex: boolean }> = [];
   for (const step of steps) {
-    const last = batches[batches.length - 1]
-    const isComplex = step.filterComplex === true
+    const last = batches[batches.length - 1];
+    const isComplex = step.filterComplex === true;
     if (!isComplex && last && !last.filterComplex) {
-      last.names.push(step.name)
-      last.filter = `${last.filter},${step.filter}`
+      last.names.push(step.name);
+      last.filter = `${last.filter},${step.filter}`;
     } else {
-      batches.push({ names: [step.name], filter: step.filter, filterComplex: isComplex })
+      batches.push({ names: [step.name], filter: step.filter, filterComplex: isComplex });
     }
   }
-  return batches
+  return batches;
 }
 
 /**
@@ -248,41 +260,43 @@ export async function runOverlayPasses(
   inputPath: string,
   steps: OverlayPassResult[],
   finalPath: string,
-  options: OverlayRunnerOptions = {}
+  options: OverlayRunnerOptions = {},
 ): Promise<string> {
-  const { onProgress, cancelCheck } = options
+  const { onProgress, cancelCheck } = options;
 
   if (steps.length === 0) {
-    return inputPath
+    return inputPath;
   }
 
-  const batches = batchSteps(steps)
-  let currentPath = inputPath
-  const tempsToClean: string[] = []
+  const batches = batchSteps(steps);
+  let currentPath = inputPath;
+  const tempsToClean: string[] = [];
 
   try {
     for (let b = 0; b < batches.length; b++) {
-      if (cancelCheck?.()) return currentPath
+      if (cancelCheck?.()) return currentPath;
 
-      const batch = batches[b]
-      const batchName = batch.names.join('+')
-      const tempOut = join(tmpdir(), `batchcontent-${batch.names[0]}-${Date.now()}-${b}.mp4`)
-      console.log(`[Overlay] Applying pass ${batchName} (${batch.names.length} step${batch.names.length > 1 ? 's' : ''} merged)`)
+      const batch = batches[b];
+      const batchName = batch.names.join('+');
+      const tempOut = join(tmpdir(), `batchcontent-${batch.names[0]}-${Date.now()}-${b}.mp4`);
+      console.log(
+        `[Overlay] Applying pass ${batchName} (${batch.names.length} step${batch.names.length > 1 ? 's' : ''} merged)`,
+      );
 
       if (batch.filterComplex) {
-        await applyFilterComplexPass(currentPath, tempOut, batch.filter)
+        await applyFilterComplexPass(currentPath, tempOut, batch.filter);
       } else {
-        await applyFilterPass(currentPath, tempOut, batch.filter)
+        await applyFilterPass(currentPath, tempOut, batch.filter);
       }
 
       // Queue previous intermediate for cleanup (but not the original input)
       if (currentPath !== inputPath) {
-        tempsToClean.push(currentPath)
+        tempsToClean.push(currentPath);
       }
-      currentPath = tempOut
+      currentPath = tempOut;
 
       if (onProgress) {
-        onProgress(Math.round(((b + 1) / batches.length) * 100))
+        onProgress(Math.round(((b + 1) / batches.length) * 100));
       }
     }
 
@@ -291,20 +305,20 @@ export async function runOverlayPasses(
       // If finalPath === inputPath, remove it first so rename succeeds
       if (finalPath === inputPath) {
         try {
-          unlinkSync(finalPath)
+          unlinkSync(finalPath);
         } catch {
           /* ignore */
         }
       }
-      renameSync(currentPath, finalPath)
+      renameSync(currentPath, finalPath);
     }
 
-    return finalPath
+    return finalPath;
   } finally {
     // Clean up intermediate temp files
     for (const tmp of tempsToClean) {
       try {
-        unlinkSync(tmp)
+        unlinkSync(tmp);
       } catch {
         /* ignore cleanup errors */
       }

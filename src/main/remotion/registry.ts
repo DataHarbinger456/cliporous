@@ -5,21 +5,21 @@
  * Currently only PRESTYJ ships Remotion versions — the resolver is keyed on
  * (editStyleId, archetype) so other styles can opt in incrementally.
  */
-import type { Archetype } from '../edit-styles/shared/archetypes'
-import type { LongformBlockKind, LongformSkinId } from '@shared/types'
-import type { SkinId } from './shared/skins'
+
+import type { LongformBlockKind, LongformSkinId } from '@shared/types';
+import type { Archetype } from '../edit-styles/shared/archetypes';
 
 export interface RemotionCompositionRef {
   /** Composition id registered in Root.tsx. */
-  compositionId: string
+  compositionId: string;
   /** Whether this composition needs an `imagePath` prop. */
-  needsImage: boolean
+  needsImage: boolean;
 }
 
 const PRESTYJ_MAP: Partial<Record<Archetype, RemotionCompositionRef>> = {
   'fullscreen-quote': {
     compositionId: 'FullscreenQuote',
-    needsImage: false
+    needsImage: false,
   },
   // 'fullscreen-quote-plus-broll' is not in the canonical Archetype list yet.
   // When we add it as a new archetype, plug it here. For now,
@@ -27,21 +27,21 @@ const PRESTYJ_MAP: Partial<Record<Archetype, RemotionCompositionRef>> = {
   // (e.g. for the curiosity-gap or hook moments).
   'split-image': {
     compositionId: 'FullscreenQuotePlusBroll',
-    needsImage: true
-  }
-}
+    needsImage: true,
+  },
+};
 
 const STYLE_MAPS: Record<string, Partial<Record<Archetype, RemotionCompositionRef>>> = {
-  prestyj: PRESTYJ_MAP
-}
+  prestyj: PRESTYJ_MAP,
+};
 
 export function resolveRemotionComposition(
   editStyleId: string | undefined,
-  archetype: Archetype | undefined
+  archetype: Archetype | undefined,
 ): RemotionCompositionRef | null {
-  if (!editStyleId || !archetype) return null
-  const map = STYLE_MAPS[editStyleId]
-  return map?.[archetype] ?? null
+  if (!editStyleId || !archetype) return null;
+  const map = STYLE_MAPS[editStyleId];
+  return map?.[archetype] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,17 +54,13 @@ export function resolveRemotionComposition(
 // ---------------------------------------------------------------------------
 
 /**
- * Compile-time guard: the shared `LongformSkinId` union must stay identical to
- * the main-side `SkinId` (keys of `SKINS`). If a skin is added/removed on
- * either side and the two diverge, one of these assignments stops compiling.
+ * Maps each block kind to its PascalCase base composition name.
+ *
+ * Exported so verification harnesses (scripts/verify-blocks) can enumerate the
+ * full block set without re-declaring it — keeping the QA grid in sync as
+ * blocks are added or removed here.
  */
-const _skinIdForward: SkinId = '' as LongformSkinId
-const _skinIdBack: LongformSkinId = '' as SkinId
-void _skinIdForward
-void _skinIdBack
-
-/** Maps each block kind to its PascalCase base composition name. */
-const LONGFORM_BLOCK_BASE: Record<LongformBlockKind, string> = {
+export const LONGFORM_BLOCK_BASE: Record<LongformBlockKind, string> = {
   'bar-chart': 'BarChart',
   comparison: 'Comparison',
   'comparison-table': 'ComparisonTable',
@@ -77,19 +73,25 @@ const LONGFORM_BLOCK_BASE: Record<LongformBlockKind, string> = {
   'progress-bars': 'ProgressBars',
   'kpi-ticker': 'KpiTicker',
   'quote-card': 'QuoteCard',
+  'portrait-quote': 'PortraitQuote',
   'tweet-card': 'TweetCard',
   'definition-card': 'DefinitionCard',
   timeline: 'Timeline',
   'timeline-cards': 'TimelineCards',
-  'feature-grid': 'FeatureGrid'
-}
+  'feature-grid': 'FeatureGrid',
+  leaderboard: 'Leaderboard',
+  donut: 'Donut',
+  funnel: 'Funnel',
+  callout: 'Callout',
+  map: 'MapBlock',
+};
 
 /**
  * Default skin for long-form blocks — one skin per video keeps the edit
  * visually coherent and the AI contract small. Editorial is chosen for
  * legibility; this can be promoted to a user setting later.
  */
-export const DEFAULT_LONGFORM_BLOCK_SKIN: LongformSkinId = 'editorial'
+export const DEFAULT_LONGFORM_BLOCK_SKIN: LongformSkinId = 'editorial';
 
 /**
  * Resolve a `(kind, skinId)` pair to the registered Remotion composition id
@@ -97,7 +99,7 @@ export const DEFAULT_LONGFORM_BLOCK_SKIN: LongformSkinId = 'editorial'
  */
 export function resolveLongformBlockCompositionId(
   kind: LongformBlockKind,
-  skinId: LongformSkinId
+  skinId: LongformSkinId,
 ): string {
-  return `${LONGFORM_BLOCK_BASE[kind]}-${skinId}`
+  return `${LONGFORM_BLOCK_BASE[kind]}-${skinId}`;
 }

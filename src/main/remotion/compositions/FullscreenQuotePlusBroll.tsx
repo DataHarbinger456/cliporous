@@ -1,37 +1,37 @@
-import React from 'react'
+import type React from 'react';
 import {
   AbsoluteFill,
-  useCurrentFrame,
-  useVideoConfig,
+  Img,
   interpolate,
   spring,
-  Img,
-  staticFile
-} from 'remotion'
-import { PrestyjBackground } from '../shared/PrestyjBackground'
-import { PrestyjFonts } from '../shared/fonts'
-import { EASE } from '../shared/easing'
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from 'remotion';
+import { EASE } from '../shared/easing';
+import { PrestyjFonts } from '../shared/fonts';
+import { PrestyjBackground } from '../shared/PrestyjBackground';
 
 export interface FullscreenQuotePlusBrollProps {
   /** The quote body — anchored to the upper-left card. */
-  quote: string
+  quote: string;
   /** Optional attribution rendered below the quote in script font. */
-  attribution?: string
+  attribution?: string;
   /**
    * Either an absolute filesystem path (production caller) or a relative
    * path resolvable via staticFile() (Studio preview). Empty string skips
    * the image — the composition degrades to a quote-only layout.
    */
-  imagePath: string
-  accentColor: string
-  primaryColor: string
-  bodyFont: string
-  scriptFont: string
+  imagePath: string;
+  accentColor: string;
+  primaryColor: string;
+  bodyFont: string;
+  scriptFont: string;
 }
 
-const WORD_STAGGER_FRAMES = 3
-const WORD_REVEAL_FRAMES = 18
-const IMAGE_ENTER_DELAY = 8
+const WORD_STAGGER_FRAMES = 3;
+const WORD_REVEAL_FRAMES = 18;
+const IMAGE_ENTER_DELAY = 8;
 
 export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> = ({
   quote,
@@ -40,49 +40,47 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
   accentColor,
   primaryColor,
   bodyFont,
-  scriptFont
+  scriptFont,
 }) => {
-  const frame = useCurrentFrame()
-  const { fps, durationInFrames } = useVideoConfig()
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
 
-  const words = quote.split(/\s+/).filter(Boolean)
+  const words = quote.split(/\s+/).filter(Boolean);
   const fontSize =
-    words.length <= 8 ? 144 : words.length <= 16 ? 117 : words.length <= 24 ? 96 : 84
+    words.length <= 8 ? 144 : words.length <= 16 ? 117 : words.length <= 24 ? 96 : 84;
 
   // Image entry: scale-from-0.94 + fade, slightly delayed so quote starts
   // first and the eye lands on text before the image enters.
   const imgEnter = spring({
     frame: frame - IMAGE_ENTER_DELAY,
     fps,
-    config: { damping: 22, stiffness: 90, mass: 0.9 }
-  })
-  const imgScale = 0.94 + 0.06 * imgEnter
-  const imgOpacity = interpolate(imgEnter, [0, 1], [0, 1])
+    config: { damping: 22, stiffness: 90, mass: 0.9 },
+  });
+  const imgScale = 0.94 + 0.06 * imgEnter;
+  const imgOpacity = interpolate(imgEnter, [0, 1], [0, 1]);
 
   // Card-edge accent corner — small geometric tell that reads "designed".
   const cornerProgress = interpolate(frame, [10, 35], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
+    easing: EASE.outExpo,
+  });
 
   // Late micro-release for cohesion with FullscreenQuote.
-  const exitStart = durationInFrames - fps * 0.6
-  const releaseOpacity = interpolate(
-    frame,
-    [exitStart, durationInFrames],
-    [1, 0.85],
-    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
-  )
+  const exitStart = durationInFrames - fps * 0.6;
+  const releaseOpacity = interpolate(frame, [exitStart, durationInFrames], [1, 0.85], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
 
-  const lastWordEnter = (words.length - 1) * WORD_STAGGER_FRAMES + WORD_REVEAL_FRAMES
-  const attributionStart = lastWordEnter + 14
+  const lastWordEnter = (words.length - 1) * WORD_STAGGER_FRAMES + WORD_REVEAL_FRAMES;
+  const attributionStart = lastWordEnter + 14;
 
   const resolvedImage = imagePath
     ? imagePath.startsWith('/') || imagePath.startsWith('file://')
       ? `file://${imagePath.replace(/^file:\/\//, '')}`
       : staticFile(imagePath)
-    : null
+    : null;
 
   return (
     <AbsoluteFill style={{ opacity: releaseOpacity }}>
@@ -94,7 +92,7 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
         style={{
           flexDirection: 'column',
           padding: '160px 90px',
-          gap: 70
+          gap: 70,
         }}
       >
         {/* Image card — rounded, border, drop-shadow, corner accent shape. */}
@@ -105,7 +103,7 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
               flex: '0 0 56%',
               transform: `scale(${imgScale})`,
               opacity: imgOpacity,
-              transformOrigin: 'center'
+              transformOrigin: 'center',
             }}
           >
             <div
@@ -115,7 +113,7 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
                 borderRadius: 32,
                 overflow: 'hidden',
                 border: `1px solid ${accentColor}55`,
-                boxShadow: `0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px ${accentColor}22`
+                boxShadow: `0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px ${accentColor}22`,
               }}
             >
               <Img
@@ -123,7 +121,7 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover'
+                  objectFit: 'cover',
                 }}
               />
               {/* Subtle gradient overlay on image — unifies it with bg. */}
@@ -131,21 +129,13 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  background: `linear-gradient(180deg, transparent 60%, ${accentColor}22 100%)`
+                  background: `linear-gradient(180deg, transparent 60%, ${accentColor}22 100%)`,
                 }}
               />
             </div>
             {/* Corner accent bracket — top-left. Small, deliberate. */}
-            <CornerBracket
-              progress={cornerProgress}
-              color={accentColor}
-              corner="top-left"
-            />
-            <CornerBracket
-              progress={cornerProgress}
-              color={accentColor}
-              corner="bottom-right"
-            />
+            <CornerBracket progress={cornerProgress} color={accentColor} corner="top-left" />
+            <CornerBracket progress={cornerProgress} color={accentColor} corner="bottom-right" />
           </div>
         ) : null}
 
@@ -157,7 +147,7 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
             flexDirection: 'column',
             justifyContent: 'flex-start',
             alignItems: 'center',
-            textAlign: 'center'
+            textAlign: 'center',
           }}
         >
           <p
@@ -169,7 +159,7 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
               lineHeight: 1.1,
               letterSpacing: '-0.025em',
               margin: 0,
-              wordSpacing: '0.05em'
+              wordSpacing: '0.05em',
             }}
           >
             {words.map((word, i) => (
@@ -190,26 +180,22 @@ export const FullscreenQuotePlusBroll: React.FC<FullscreenQuotePlusBrollProps> =
         </div>
       </AbsoluteFill>
     </AbsoluteFill>
-  )
-}
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Sub-components — Word + Attribution mirror FullscreenQuote intentionally so
 // motion language stays consistent across compositions.
 // ---------------------------------------------------------------------------
 
-const Word: React.FC<{ word: string; index: number; frame: number }> = ({
-  word,
-  index,
-  frame
-}) => {
-  const localFrame = frame - index * WORD_STAGGER_FRAMES
+const Word: React.FC<{ word: string; index: number; frame: number }> = ({ word, index, frame }) => {
+  const localFrame = frame - index * WORD_STAGGER_FRAMES;
   const progress = interpolate(localFrame, [0, WORD_REVEAL_FRAMES], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
-    easing: EASE.outExpo
-  })
-  const ty = (1 - progress) * 20
+    easing: EASE.outExpo,
+  });
+  const ty = (1 - progress) * 20;
   return (
     <span
       style={{
@@ -217,28 +203,28 @@ const Word: React.FC<{ word: string; index: number; frame: number }> = ({
         opacity: progress,
         transform: `translateY(${ty}px)`,
         marginRight: '0.28em',
-        filter: progress < 1 ? `blur(${(1 - progress) * 2}px)` : undefined
+        filter: progress < 1 ? `blur(${(1 - progress) * 2}px)` : undefined,
       }}
     >
       {word}
     </span>
-  )
-}
+  );
+};
 
 const Attribution: React.FC<{
-  text: string
-  font: string
-  color: string
-  startFrame: number
-  frame: number
-  fps: number
+  text: string;
+  font: string;
+  color: string;
+  startFrame: number;
+  frame: number;
+  fps: number;
 }> = ({ text, font, color, startFrame, frame, fps }) => {
-  const localFrame = frame - startFrame
+  const localFrame = frame - startFrame;
   const enter = spring({
     frame: localFrame,
     fps,
-    config: { damping: 18, stiffness: 110, mass: 0.7 }
-  })
+    config: { damping: 18, stiffness: 110, mass: 0.7 },
+  });
   return (
     <p
       style={{
@@ -249,23 +235,23 @@ const Attribution: React.FC<{
         color,
         opacity: enter,
         transform: `translateY(${(1 - enter) * 20}px)`,
-        textShadow: `0 0 24px ${color}44`
+        textShadow: `0 0 24px ${color}44`,
       }}
     >
       {text}
     </p>
-  )
-}
+  );
+};
 
 const CornerBracket: React.FC<{
-  progress: number
-  color: string
-  corner: 'top-left' | 'bottom-right'
+  progress: number;
+  color: string;
+  corner: 'top-left' | 'bottom-right';
 }> = ({ progress, color, corner }) => {
-  const len = 36 * progress
-  const thickness = 3
-  const offset = -8
-  const isTopLeft = corner === 'top-left'
+  const len = 36 * progress;
+  const thickness = 3;
+  const offset = -8;
+  const isTopLeft = corner === 'top-left';
   return (
     <>
       <div
@@ -277,7 +263,7 @@ const CornerBracket: React.FC<{
           height: thickness,
           background: color,
           opacity: progress,
-          boxShadow: `0 0 14px ${color}88`
+          boxShadow: `0 0 14px ${color}88`,
         }}
       />
       <div
@@ -289,9 +275,9 @@ const CornerBracket: React.FC<{
           height: len,
           background: color,
           opacity: progress,
-          boxShadow: `0 0 14px ${color}88`
+          boxShadow: `0 0 14px ${color}88`,
         }}
       />
     </>
-  )
-}
+  );
+};

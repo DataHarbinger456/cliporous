@@ -8,16 +8,16 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  CaptionAnimation,
+  ColorGradeConfig,
+  MusicTrack,
+  ShotSegment,
   ShotStyleAssignment,
   ShotStyleConfig,
-  ShotSegment,
-  CaptionAnimation,
-  ZoomMode,
-  ZoomIntensity,
-  ColorGradeConfig,
   ShotTransitionConfig,
-  MusicTrack
-} from '@shared/types'
+  ZoomIntensity,
+  ZoomMode,
+} from '@shared/types';
 
 // ---------------------------------------------------------------------------
 // Preset shape (matches EditStylePreset from store/types.ts)
@@ -27,45 +27,45 @@ import type {
 // ---------------------------------------------------------------------------
 
 interface PresetCaptions {
-  enabled: boolean
+  enabled: boolean;
   style: {
-    animation: CaptionAnimation
-    primaryColor: string
-    highlightColor: string
-    outlineColor: string
-    emphasisColor?: string
-    supersizeColor?: string
-    fontSize: number
-    outline: number
-    shadow: number
-    borderStyle: number
-    wordsPerLine: number
-    fontName: string
-    backColor: string
-  }
+    animation: CaptionAnimation;
+    primaryColor: string;
+    highlightColor: string;
+    outlineColor: string;
+    emphasisColor?: string;
+    supersizeColor?: string;
+    fontSize: number;
+    outline: number;
+    shadow: number;
+    borderStyle: number;
+    wordsPerLine: number;
+    fontName: string;
+    backColor: string;
+  };
 }
 
 interface PresetZoom {
-  enabled: boolean
-  mode: ZoomMode
-  intensity: ZoomIntensity
-  intervalSeconds: number
+  enabled: boolean;
+  mode: ZoomMode;
+  intensity: ZoomIntensity;
+  intervalSeconds: number;
 }
 
 interface PresetSound {
-  backgroundMusicTrack?: MusicTrack
+  backgroundMusicTrack?: MusicTrack;
 }
 
 /** Minimal preset shape needed for shot-style resolution. */
 export interface StylePresetForResolution {
-  id: string
-  captions: PresetCaptions
-  zoom: PresetZoom
-  sound?: PresetSound
-  colorGrade?: ColorGradeConfig
-  transitionIn?: ShotTransitionConfig
-  transitionOut?: ShotTransitionConfig
-  brollMode?: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip'
+  id: string;
+  captions: PresetCaptions;
+  zoom: PresetZoom;
+  sound?: PresetSound;
+  colorGrade?: ColorGradeConfig;
+  transitionIn?: ShotTransitionConfig;
+  transitionOut?: ShotTransitionConfig;
+  brollMode?: 'fullscreen' | 'split-top' | 'split-bottom' | 'pip';
 }
 
 /**
@@ -79,64 +79,68 @@ export interface StylePresetForResolution {
 export function resolveShotStyles(
   assignments: ShotStyleAssignment[],
   shots: ShotSegment[],
-  presets: Map<string, StylePresetForResolution>
+  presets: Map<string, StylePresetForResolution>,
 ): ShotStyleConfig[] {
-  if (!assignments.length || !shots.length) return []
+  if (!assignments.length || !shots.length) return [];
 
-  const configs: ShotStyleConfig[] = []
+  const configs: ShotStyleConfig[] = [];
 
   for (const assignment of assignments) {
-    const shot = shots[assignment.shotIndex]
+    const shot = shots[assignment.shotIndex];
     if (!shot) {
       console.warn(
         `[ShotStyleResolver] Shot index ${assignment.shotIndex} out of range ` +
-        `(clip has ${shots.length} shots). Skipping.`
-      )
-      continue
+          `(clip has ${shots.length} shots). Skipping.`,
+      );
+      continue;
     }
 
-    const preset = presets.get(assignment.presetId)
+    const preset = presets.get(assignment.presetId);
     if (!preset) {
       console.warn(
         `[ShotStyleResolver] Preset "${assignment.presetId}" not found ` +
-        `for shot ${assignment.shotIndex}. Falling back to global style.`
-      )
-      continue
+          `for shot ${assignment.shotIndex}. Falling back to global style.`,
+      );
+      continue;
     }
 
     configs.push({
       shotIndex: assignment.shotIndex,
       startTime: shot.startTime,
       endTime: shot.endTime,
-      captionStyle: preset.captions.enabled ? {
-        animation: preset.captions.style.animation,
-        primaryColor: preset.captions.style.primaryColor,
-        highlightColor: preset.captions.style.highlightColor,
-        outlineColor: preset.captions.style.outlineColor,
-        emphasisColor: preset.captions.style.emphasisColor,
-        supersizeColor: preset.captions.style.supersizeColor,
-        fontSize: preset.captions.style.fontSize,
-        outline: preset.captions.style.outline,
-        shadow: preset.captions.style.shadow,
-        borderStyle: preset.captions.style.borderStyle,
-        wordsPerLine: preset.captions.style.wordsPerLine,
-        fontName: preset.captions.style.fontName,
-        backColor: preset.captions.style.backColor
-      } : null,
-      zoom: preset.zoom.enabled ? {
-        mode: preset.zoom.mode,
-        intensity: preset.zoom.intensity,
-        intervalSeconds: preset.zoom.intervalSeconds
-      } : null,
+      captionStyle: preset.captions.enabled
+        ? {
+            animation: preset.captions.style.animation,
+            primaryColor: preset.captions.style.primaryColor,
+            highlightColor: preset.captions.style.highlightColor,
+            outlineColor: preset.captions.style.outlineColor,
+            emphasisColor: preset.captions.style.emphasisColor,
+            supersizeColor: preset.captions.style.supersizeColor,
+            fontSize: preset.captions.style.fontSize,
+            outline: preset.captions.style.outline,
+            shadow: preset.captions.style.shadow,
+            borderStyle: preset.captions.style.borderStyle,
+            wordsPerLine: preset.captions.style.wordsPerLine,
+            fontName: preset.captions.style.fontName,
+            backColor: preset.captions.style.backColor,
+          }
+        : null,
+      zoom: preset.zoom.enabled
+        ? {
+            mode: preset.zoom.mode,
+            intensity: preset.zoom.intensity,
+            intervalSeconds: preset.zoom.intervalSeconds,
+          }
+        : null,
       colorGrade: preset.colorGrade ?? null,
       transitionIn: preset.transitionIn ?? null,
       transitionOut: preset.transitionOut ?? null,
       brollMode: preset.brollMode ?? null,
-      musicTrack: preset.sound?.backgroundMusicTrack ?? null
-    })
+      musicTrack: preset.sound?.backgroundMusicTrack ?? null,
+    });
   }
 
-  return configs
+  return configs;
 }
 
 /**
@@ -144,11 +148,11 @@ export function resolveShotStyles(
  * Used by the IPC handler to pass presets into resolveShotStyles().
  */
 export function buildPresetLookup(
-  presets: StylePresetForResolution[]
+  presets: StylePresetForResolution[],
 ): Map<string, StylePresetForResolution> {
-  const map = new Map<string, StylePresetForResolution>()
+  const map = new Map<string, StylePresetForResolution>();
   for (const preset of presets) {
-    map.set(preset.id, preset)
+    map.set(preset.id, preset);
   }
-  return map
+  return map;
 }
