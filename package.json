@@ -13,10 +13,12 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
-    "build:mac": "npm run build && electron-builder --mac",
-    "build:linux": "npm run build && electron-builder --linux",
+    "build:unpack": "npm run audit:third-party -- --release && npm run build && electron-builder --dir",
+    "build:win": "npm run release:win",
+    "release:win": "bash scripts/release-windows.sh",
+    "build:mac": "npm run release:mac",
+    "release:mac": "bash scripts/release-macos.sh",
+    "build:linux": "npm run audit:third-party -- --release && npm run build && electron-builder --linux",
     "test": "vitest run --config vitest.config.main.ts && vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.main.ts",
     "test:main": "vitest run --config vitest.config.main.ts",
@@ -30,7 +32,9 @@
     "check:fix": "biome check --write .",
     "shellcheck": "shellcheck scripts/*.sh scripts/**/*.sh",
     "verify": "npm run check && npm run typecheck && npm test",
+    "audit:third-party": "node scripts/audit-third-party-assets.mjs",
     "setup:python": "bash scripts/setup-python.sh",
+    "verify:blocks": "bash scripts/verify-blocks/run.sh",
     "deploy": "bash scripts/deploy-windows.sh",
     "deploy:fast": "bash scripts/deploy-windows.sh --fast --yes",
     "deploy:mac": "bash scripts/deploy-mac.sh",
@@ -69,6 +73,7 @@
     "@remotion/tailwind": "^4.0.457",
     "@remotion/transitions": "^4.0.448",
     "better-sqlite3": "^12.9.0",
+    "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.2.0",
     "framer-motion": "^12.0.0",
     "hyperframes": "^0.6.73",
@@ -111,10 +116,35 @@
   "build": {
     "appId": "com.batchclip.app",
     "productName": "BatchClip",
+    "artifactName": "BatchClip-${version}-${os}-${arch}.${ext}",
+    "beforePack": "scripts/electron-builder-license-gate.mjs",
+    "forceCodeSigning": false,
+    "electronUpdaterCompatibility": ">=2.16",
+    "generateUpdatesFilesForAllChannels": true,
+    "publish": {
+      "provider": "github",
+      "owner": "Gahroot",
+      "repo": "cliporous",
+      "releaseType": "release"
+    },
+    "fileAssociations": [
+      {
+        "ext": "batchclip",
+        "name": "BatchClip Project",
+        "description": "BatchClip creator project",
+        "mimeType": "application/x-batchclip",
+        "role": "Editor"
+      }
+    ],
     "asar": true,
     "asarUnpack": [
+      "node_modules/better-sqlite3/**",
       "node_modules/ffmpeg-static/**",
-      "node_modules/@ffprobe-installer/**"
+      "node_modules/@ffprobe-installer/**",
+      "node_modules/@remotion/compositor-*/**",
+      "node_modules/@rspack/binding-*/**",
+      "node_modules/@esbuild/**",
+      "node_modules/esbuild/**"
     ],
     "extraResources": [
       {
@@ -136,24 +166,31 @@
         "to": "python",
         "filter": [
           "**/*.py",
-          "requirements.txt"
+          "requirements.txt",
+          "pyproject.toml"
         ]
       },
       {
         "from": "resources/sfx",
         "to": "sfx",
         "filter": [
-          "**/*.mp3",
-          "**/*.wav"
+          "**/*"
         ]
       },
       {
         "from": "resources/music",
         "to": "music",
         "filter": [
-          "**/*.mp3",
-          "**/*.wav"
+          "**/*"
         ]
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
       }
     ],
     "directories": {
@@ -162,16 +199,74 @@
     "files": [
       "out/**/*",
       "package.json",
+      "tailwind.config.js",
+      "src/main/remotion/**/*",
+      "src/shared/**/*",
+      "src/renderer/src/components/ui/**/*",
+      "src/renderer/src/lib/utils.ts",
+      {
+        "from": "src/main/hyperframes/catalog",
+        "to": "out/main/catalog",
+        "filter": [
+          "**/*"
+        ]
+      },
       "node_modules/**/*"
     ],
     "win": {
       "target": [
-        "nsis"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "packElevateHelper": false,
+      "createDesktopShortcut": "always"
     },
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "identity": null,
+      "notarize": false,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "minimumSystemVersion": "11.0"
+    },
+    "dmg": {
+      "background": "build/dmg-background.png",
+      "icon": "build/icon.icns",
+      "sign": false,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 130,
+          "y": 255,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 255,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "linux": {

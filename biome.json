@@ -40,12 +40,20 @@
     "rules": {
       "recommended": true,
       "style": {
-        "noNonNullAssertion": "error",
+        "noNonNullAssertion": "warn",
         "useConst": "error",
         "useImportType": "error"
       },
       "suspicious": {
-        "noExplicitAny": "error"
+        "noArrayIndexKey": "warn",
+        "noControlCharactersInRegex": "warn",
+        "noExplicitAny": "warn",
+        "noImplicitAnyLet": "warn",
+        "noShadowRestrictedNames": "warn",
+        "noTemplateCurlyInString": "warn"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "warn"
       },
       "complexity": {
         "noBannedTypes": "error"

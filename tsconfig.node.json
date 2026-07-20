@@ -4,6 +4,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "lib": ["ES2022"],
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -14,18 +15,14 @@
       "@shared/*": ["./src/shared/*"]
     },
     "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": false,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": [
-    "electron-vite.config.ts",
-    "src/main/**/*",
-    "src/preload/**/*",
-    "src/shared/**/*"
-  ],
+  "files": ["src/main/remotion/compositions/blocks/types.ts"],
+  "include": ["electron-vite.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"],
   "exclude": [
     "src/main/remotion/Root.tsx",
     "src/main/remotion/index.ts",

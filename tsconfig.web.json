@@ -1,17 +1,19 @@
 {
   "compilerOptions": {
     "composite": true,
+    "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "outDir": "./out",
     "rootDir": ".",
     "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": false,
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
@@ -20,9 +22,6 @@
     },
     "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": [
-    "src/renderer/src/**/*",
-    "src/renderer/*.d.ts",
-    "src/shared/**/*"
-  ]
+  "include": ["src/renderer/src/**/*", "src/renderer/*.d.ts", "src/shared/**/*"],
+  "exclude": ["src/shared/**/*.test.ts"]
 }

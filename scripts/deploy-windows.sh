@@ -7,15 +7,16 @@
 #
 # Prerequisites:
 #   - WSL2 with /mnt/c mounted (Windows desktop reachable at TARGET below).
-#   - dist/win-unpacked/ exists. If it doesn't, run `npm run build:win` once.
+#   - dist/release/windows-x64/win-unpacked/ exists. If it doesn't, run
+#     `npm run build:win` to produce the verified Windows x64 release.
 #
 # Behavior:
 #   1. (default) npx electron-vite build
-#   2. Pack a fresh app.asar from out/ into dist/win-unpacked/resources/app.asar
-#   3. Refresh python/*.py + requirements.txt in dist/win-unpacked/resources/python/
+#   2. Pack a fresh app.asar from out/ into the Windows x64 unpacked app
+#   3. Refresh python/*.py + requirements.txt in the unpacked resources/python/
 #      (the venv is Windows-specific and is NEVER touched).
 #   4. rm -rf the BatchContent folder on the Windows desktop and copy
-#      dist/win-unpacked there.
+#      dist/release/windows-x64/win-unpacked there.
 #
 # Step 4 is destructive (rm -rf on the Windows folder). Pass --yes / -y to
 # skip the confirmation prompt.
@@ -23,7 +24,7 @@
 set -euo pipefail
 
 TARGET="/mnt/c/Users/Groot/Desktop/BatchContent"
-UNPACKED="dist/win-unpacked"
+UNPACKED="dist/release/windows-x64/win-unpacked"
 
 FAST=0
 ASSUME_YES=0
@@ -54,7 +55,7 @@ fail() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 # --- Preflight -------------------------------------------------------------
 
 if [ ! -d "$UNPACKED" ]; then
-  fail "$UNPACKED not found. Run 'npm run build:win' once to create the Electron shell."
+  fail "$UNPACKED not found. Run 'npm run build:win' to create the verified Windows x64 release."
 fi
 
 if [ ! -d "$(dirname "$TARGET")" ]; then

@@ -4,7 +4,15 @@ node_modules/
 # Build outputs
 out/
 dist/
-build/
+build/*
+!build/icon.png
+!build/icon.icns
+!build/icon.ico
+!build/icons/
+!build/icons/*.png
+!build/installerHeader.bmp
+!build/installerSidebar.bmp
+!build/dmg-background.png
 
 # Logs
 *.log
@@ -40,10 +48,19 @@ python/__pycache__/
 .ezcoder/plans/renders/
 scripts/verify-archetypes/*.bundle.cjs
 
-# Agent scratch
+# Block contact-sheet QA artifacts (regenerable via scripts/verify-blocks/run.sh)
+.gg/
+scripts/verify-blocks/*.bundle.cjs
+
+# Agent scratch and generated visual evidence
 .ezcoder/commands/
+.ezcoder/generated/
 .ezcoder/plans/*.md
+.ezcoder/screenshots/
 .ezcoder/tmp/
+.ezcoder/uploads/
+.ezcoder/*-harness.html
+.ezcoder/vite.*.config.mjs
 Screenshot*.png
 
 # E2E smoke validation artifacts (regenerable via scripts/e2e-smoke/run.sh)
@@ -57,3 +74,4 @@ scripts/test-hyperframes/*.bundle.cjs
 demo-*.mov
 demo-*.mp4
 catalog-demo.mp4
+showreel-delos.mp4

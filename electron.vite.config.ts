@@ -1,43 +1,39 @@
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
-import { defineConfig } from 'electron-vite'
-import react from '@vitejs/plugin-react'
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'electron-vite';
 
-const __dirname_esm = dirname(fileURLToPath(import.meta.url))
+const __dirname_esm = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   main: {
     resolve: {
-      alias: [
-        { find: '@shared', replacement: resolve(__dirname_esm, 'src/shared') }
-      ]
+      alias: [{ find: '@shared', replacement: resolve(__dirname_esm, 'src/shared') }],
     },
     build: {
       externalizeDeps: {
-        exclude: ['uuid']
-      }
-    }
+        exclude: ['uuid'],
+      },
+    },
   },
   preload: {
     resolve: {
-      alias: [
-        { find: '@shared', replacement: resolve(__dirname_esm, 'src/shared') }
-      ]
+      alias: [{ find: '@shared', replacement: resolve(__dirname_esm, 'src/shared') }],
     },
     build: {
-      externalizeDeps: true
-    }
+      externalizeDeps: true,
+    },
   },
   renderer: {
     worker: {
-      format: 'es'
+      format: 'es',
     },
     resolve: {
       alias: [
         { find: '@shared', replacement: resolve(__dirname_esm, 'src/shared') },
-        { find: '@', replacement: resolve(__dirname_esm, 'src/renderer/src') }
-      ]
+        { find: '@', replacement: resolve(__dirname_esm, 'src/renderer/src') },
+      ],
     },
-    plugins: [react()]
-  }
-})
+    plugins: [react()],
+  },
+});

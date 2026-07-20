@@ -2,6 +2,14 @@
 
 Electron desktop app: long-form video → AI-scored 9:16 vertical clips with PRESTYJ-style captions. Hybrid render pipeline: Remotion (alpha-channel compositions) + FFmpeg (encode, overlay, concat).
 
+## Beta launch materials
+
+**0.1.0 is planned, not approved for distribution.** The release gate still blocks installers and DMGs.
+
+- [0.1.0 beta launch kit](./docs/release/README.md) — release notes, 60-second guide, warnings, limitations, privacy, support template, and synthetic demo.
+- [Planned release description](./docs/release/PLANNED_RELEASE_DESCRIPTION.md) — draft release-page copy; publish only after the release checklist passes.
+- [Detailed installation guide](./docs/BATCHCLIP_0.1.0_BETA_GUIDE.md) — Windows and macOS setup instructions.
+
 For architecture, conventions, and deploy details see [`CLAUDE.md`](./CLAUDE.md).
 
 ## Stack
@@ -45,6 +53,12 @@ npm run typecheck  # tsc --noEmit across all tsconfigs
 ```
 
 No ESLint/Prettier — **Biome** is the formatter + linter and **TypeScript strict mode** is the quality gate.
+
+## Project privacy
+
+Gemini, Pexels, and fal.ai credentials are app-scoped and stored through Electron `safeStorage`. Version 2 `.batchclip` project files and recovery snapshots contain only project-scoped settings; opening a legacy file ignores any embedded credentials instead of importing them.
+
+To clean a file created by an older release, open **Settings → Advanced → Legacy project privacy → Clean project…**. BatchClip writes a separate `.clean.batchclip` copy and leaves the original untouched.
 
 ## Build & deploy
 

@@ -8,12 +8,12 @@
 #
 # Prerequisites:
 #   - macOS host (this script targets ~/Desktop/BatchClip.app).
-#   - dist/mac-arm64/BatchClip.app exists. If it doesn't, run `npm run build:mac`
-#     once to create the Electron shell + bundled node_modules.
+#   - dist/release/macos-arm64/mac-arm64/BatchClip.app exists. If it doesn't,
+#     run `npm run build:mac` once to create the Electron shell + bundled modules.
 #
 # Behavior:
 #   1. (default) npx electron-vite build
-#   2. Extract dist/mac-arm64/BatchClip.app/Contents/Resources/app.asar into a
+#   2. Extract dist/release/macos-arm64/mac-arm64/BatchClip.app/Contents/Resources/app.asar into a
 #      staging dir, overlay the fresh out/ + package.json, repack into the
 #      .app on the desktop. (Mac packs node_modules INSIDE the asar — we must
 #      preserve them, unlike Windows which keeps them in app.asar.unpacked.)
@@ -28,12 +28,12 @@
 #      Launch Services notices the change.
 #
 # If ~/Desktop/BatchClip.app is missing, the script copies the freshly-built
-# dist/mac-arm64/BatchClip.app over to the desktop instead of repacking.
+# dist/release/macos-arm64/mac-arm64/BatchClip.app to the desktop instead of repacking.
 
 set -euo pipefail
 
 TARGET="$HOME/Desktop/BatchClip.app"
-UNPACKED="dist/mac-arm64/BatchClip.app"
+UNPACKED="dist/release/macos-arm64/mac-arm64/BatchClip.app"
 
 FAST=0
 ASSUME_YES=0
@@ -124,7 +124,7 @@ step "Repacking app.asar (preserving bundled node_modules)"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-# Extract the known-good asar from dist/mac-arm64 (has all production deps).
+# Extract the known-good asar from the arm64 release output (has all production deps).
 npx --yes asar extract "$SOURCE_ASAR" "$STAGE"
 
 # Overlay fresh build output + package.json.
