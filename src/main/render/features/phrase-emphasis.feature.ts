@@ -53,10 +53,15 @@ export async function applyPhraseOverlays(
     return { outputPath: inputPath, tempFiles: [], stats: { rendered: 0, dropped: 0 } };
   }
 
-  // Dynamic import keeps @remotion/bundler (esbuild) out of the static module
-  // graph so importing the render pipeline in tests never loads it.
-  const { renderRemotionSegment } = await import('../../remotion/render');
+  console.warn('[longform] Phrase overlays are unavailable in this distribution build.');
+  return {
+    outputPath: inputPath,
+    tempFiles: [],
+    stats: { rendered: 0, dropped: phrases.length },
+  };
 
+  /*
+  const { renderRemotionSegment } = await import('../../remotion/render');
   const tempFiles: string[] = [];
   const overlays: PhraseOverlayInput[] = [];
 
@@ -112,6 +117,7 @@ export async function applyPhraseOverlays(
     tempFiles,
     stats: { rendered: overlays.length, dropped: phrases.length - overlays.length },
   };
+  */
 }
 
 /** Best-effort cleanup of overlay temp files. */

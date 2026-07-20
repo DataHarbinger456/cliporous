@@ -36,13 +36,12 @@
 
     /* Agent reply — Sparkles avatar + white card, tail on bottom-left. */
     .mm-agent-row { display: flex; align-items: flex-end; gap: 14px; will-change: transform, opacity; }
-    /* Agent PFP = the real Media Master app icon. */
     .mm-avatar {
       flex: none; width: 56px; height: 56px; border-radius: 16px;
-      overflow: hidden; background: var(--mm-indigo);
+      display: grid; place-items: center; background: var(--mm-indigo); color: var(--mm-white);
+      font-family: var(--mm-font); font-size: 20px; font-weight: 700;
       box-shadow: 0 6px 16px -6px rgba(15,29,52,0.5);
     }
-    .mm-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }
     .mm-agent {
       flex: 1; padding: 22px 26px;
       border-radius: 26px 26px 26px 10px;
@@ -84,9 +83,7 @@
       <div class="mm-user-meta">You · just now</div>
     </div>
     <div class="mm-agent-row" id="agentRow">
-      <div class="mm-avatar" id="avatar">
-        <img src="shared/mm-logo.png" alt="Media Master">
-      </div>
+      <div class="mm-avatar" id="avatar" aria-hidden="true">BC</div>
       <div class="mm-agent">
         <div class="mm-agent-label" id="appName"></div>
         <div class="mm-typing" id="typing"><span></span><span></span><span></span></div>

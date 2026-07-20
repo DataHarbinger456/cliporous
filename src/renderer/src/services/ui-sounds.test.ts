@@ -21,11 +21,11 @@ describe('studio sound cues', () => {
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('plays a finite best-effort cue after opt-in', () => {
+  it('stays silent after opt-in while cleared replacement cues are unavailable', () => {
     setDisplayPreferences({ soundEnabled: true });
     expect(() => playStudioSound('batch-success')).not.toThrow();
-    expect(AudioMock).toHaveBeenCalledTimes(1);
-    expect(cloneNode).toHaveBeenCalledWith(true);
-    expect(play).toHaveBeenCalledTimes(1);
+    expect(AudioMock).not.toHaveBeenCalled();
+    expect(cloneNode).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
   });
 });

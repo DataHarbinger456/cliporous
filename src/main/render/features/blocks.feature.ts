@@ -357,7 +357,10 @@ export interface RenderBlockOptions {
  * Render one content block to a normalized, concat-ready mp4 segment.
  * Returns the output path. Temp files are written under the OS temp dir.
  */
-export async function renderBlockSegment(opts: RenderBlockOptions): Promise<string> {
+export async function renderBlockSegment(_opts: RenderBlockOptions): Promise<string> {
+  throw new Error('Animated content blocks are unavailable in this distribution build.');
+  /*
+  const opts = _opts;
   const { placement, skinId, sourceVideoPath, width, height, fps, onProgress } = opts;
   const duration = Math.max(0.5, placement.endTime - placement.startTime);
   const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
@@ -400,6 +403,7 @@ export async function renderBlockSegment(opts: RenderBlockOptions): Promise<stri
 
   onProgress?.(100);
   return outputPath;
+  */
 }
 
 /**

@@ -42,7 +42,6 @@ import type {
 // Feature imports
 import { createFillerRemovalFeature, runFillerRemoval } from './features/filler-removal.feature';
 import { createHookTitleFeature } from './features/hook-title.feature';
-import { hyperframesOverlayFeature } from './features/hyperframes-overlay.feature';
 import { createRehookFeature } from './features/rehook.feature';
 import { shotTransitionFeature } from './features/shot-transition.feature';
 import { wordEmphasisFeature } from './features/word-emphasis.feature';
@@ -273,7 +272,6 @@ export async function startBatchRender(
     autoZoomFeature,
     brollFeature,
     shotTransitionFeature,
-    hyperframesOverlayFeature,
   ];
 
   // ── Resolve batch-level config ────────────────────────────────────────────

@@ -31,89 +31,10 @@ function resolveBinaryPath(name: string): string | null {
       console.log(`[FFmpeg] Found ${name} at: ${resourceBin}`);
       return resourceBin;
     }
-
-    // Also check asar-unpacked node_modules
-    const unpackedCandidates: string[] =
-      name === 'ffmpeg'
-        ? [
-            join(
-              process.resourcesPath,
-              'app.asar.unpacked',
-              'node_modules',
-              'ffmpeg-static',
-              binary,
-            ),
-          ]
-        : [
-            // @ffprobe-installer ships the binary in a platform-specific package
-            join(
-              process.resourcesPath,
-              'app.asar.unpacked',
-              'node_modules',
-              '@ffprobe-installer',
-              `${process.platform}-${process.arch}`,
-              binary,
-            ),
-          ];
-    for (const unpackedPath of unpackedCandidates) {
-      searchedPaths.push(`unpacked: ${unpackedPath} (exists: ${existsSync(unpackedPath)})`);
-      if (existsSync(unpackedPath)) {
-        // Some installers can lose the executable bit when bundled — restore it.
-        if (process.platform !== 'win32') {
-          try {
-            const { chmodSync, statSync } = require('node:fs') as typeof import('node:fs');
-            const mode = statSync(unpackedPath).mode;
-            if ((mode & 0o111) === 0) {
-              chmodSync(unpackedPath, mode | 0o755);
-              console.log(`[FFmpeg] Restored executable bit on ${unpackedPath}`);
-            }
-          } catch (chmodErr) {
-            console.warn(`[FFmpeg] chmod failed on ${unpackedPath}:`, chmodErr);
-          }
-        }
-        console.log(`[FFmpeg] Found ${name} at: ${unpackedPath}`);
-        return unpackedPath;
-      }
-    }
   }
 
-  // Dev: use npm packages
-  try {
-    if (name === 'ffmpeg') {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const p = require('ffmpeg-static') as string | null;
-      searchedPaths.push(`npm ffmpeg-static: ${p} (exists: ${p ? existsSync(p) : false})`);
-      if (p && existsSync(p)) {
-        console.log(`[FFmpeg] Found ${name} via npm at: ${p}`);
-        return p;
-      }
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const ffprobeInstaller = require('@ffprobe-installer/ffprobe') as {
-        path: string;
-        version: string;
-        url: string;
-      };
-      const p = ffprobeInstaller.path;
-      searchedPaths.push(
-        `npm @ffprobe-installer: ${p} (version: ${ffprobeInstaller.version}, exists: ${existsSync(p)})`,
-      );
-      if (p && existsSync(p)) {
-        console.log(`[FFmpeg] Found ${name} via npm at: ${p}`);
-        return p;
-      }
-    }
-  } catch (err) {
-    console.log(
-      `[FFmpeg] npm require failed for ${name}:`,
-      err instanceof Error ? err.message : String(err),
-    );
-    if (err instanceof Error) {
-      console.log(`[FFmpeg] Error stack:`, err.stack);
-    }
-  }
-
-  // Last resort: system PATH (e.g. /usr/bin/ffmpeg, /usr/bin/ffprobe)
+  // Development uses the operator-installed FFmpeg toolchain on PATH.
+  // Release builds bundle an audited matching ffmpeg/ffprobe pair in resources/bin.
   const systemPath = findOnSystemPath(name);
   searchedPaths.push(`system PATH: ${systemPath ?? 'not found'}`);
   if (systemPath) {

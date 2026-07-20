@@ -64,6 +64,14 @@ target_windows_x64() {
     "$@"
 }
 
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    sha256sum "$1" | awk '{print $1}'
+  fi
+}
+
 assert_pe_x64() {
   node - "$1" <<'NODE'
 const fs = require('node:fs')
@@ -103,8 +111,8 @@ assert_release_contents() {
   local unpacked="$STAGE_OUTPUT/win-unpacked"
   local resources="$unpacked/resources"
   local installer="$STAGE_OUTPUT/BatchClip-$VERSION-win-x64.exe"
-  local ffmpeg="$resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg.exe"
-  local ffprobe="$resources/app.asar.unpacked/node_modules/@ffprobe-installer/win32-x64/ffprobe.exe"
+  local ffmpeg="$resources/bin/ffmpeg.exe"
+  local ffprobe="$resources/bin/ffprobe.exe"
   local sqlite="$resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
 
   [ -f "$installer" ] || fail "Missing installer: $installer"
@@ -115,6 +123,8 @@ assert_release_contents() {
   [ -f "$unpacked/LICENSES.chromium.html" ] || fail "Missing Chromium third-party notices"
   [ -f "$ffmpeg" ] || fail "Missing packaged Windows x64 FFmpeg"
   [ -f "$ffprobe" ] || fail "Missing packaged Windows x64 ffprobe"
+  [ -f "$resources/bin/FFMPEG-GPL-3.0.txt" ] || fail "Missing FFmpeg GPL license"
+  [ -f "$resources/bin/FFMPEG-BUILDS-MIT.txt" ] || fail "Missing FFmpeg-Builds license"
   [ -f "$sqlite" ] || fail "Missing packaged better-sqlite3 native module"
 
   "$STAGE/node_modules/.bin/asar" list "$resources/app.asar" > "$STAGE/asar-contents.txt"
@@ -124,6 +134,10 @@ assert_release_contents() {
   assert_pe_x64 "$ffmpeg"
   assert_pe_x64 "$ffprobe"
   assert_pe_x64 "$sqlite"
+  [ "$(sha256_file "$ffmpeg")" = "9959487dde724f9b3b997a2353517f43c12e1d96b6225029d0f0453242b4a370" ] \
+    || fail "FFmpeg does not match the audited GPL build"
+  [ "$(sha256_file "$ffprobe")" = "39b64ebddfc338436f2c1d9e5f691a3d82565f37a092349cbd07ea5397bb2651" ] \
+    || fail "ffprobe does not match the audited GPL build"
   assert_unsigned_pe "$installer"
 
   grep -q "BatchClip-$VERSION-win-x64.exe" "$STAGE_OUTPUT/latest.yml" \
@@ -155,15 +169,17 @@ cd "$STAGE"
 
 step "Installing locked Windows x64 dependencies"
 target_windows_x64 npm ci --ignore-scripts --include=optional
-[ -d node_modules/@ffprobe-installer/win32-x64 ] \
-  || fail "npm did not install @ffprobe-installer/win32-x64"
+# Cross-target installs omit the host Rollup binary needed for the build step.
+ROLLUP_VERSION="$(node -p "require('./node_modules/rollup/package.json').version")"
+
+npm install --no-save --ignore-scripts "@rollup/rollup-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/')@$ROLLUP_VERSION"
+
 target_windows_x64 ./node_modules/.bin/electron-builder install-app-deps --platform=win32 --arch=x64
-rm -f node_modules/ffmpeg-static/ffmpeg node_modules/ffmpeg-static/ffmpeg.exe
-target_windows_x64 node node_modules/ffmpeg-static/install.js
-assert_pe_x64 node_modules/ffmpeg-static/ffmpeg.exe
-assert_pe_x64 node_modules/@ffprobe-installer/win32-x64/ffprobe.exe
+
+assert_pe_x64 resources/bin/ffmpeg.exe
+assert_pe_x64 resources/bin/ffprobe.exe
 assert_pe_x64 node_modules/better-sqlite3/build/Release/better_sqlite3.node
-ok "FFmpeg, ffprobe, and native modules target Windows x64"
+ok "Bundled FFmpeg, ffprobe, and native modules target Windows x64"
 
 step "Building the Electron application"
 npm run build

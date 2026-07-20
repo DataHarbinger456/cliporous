@@ -24,6 +24,8 @@
   "files": ["src/main/remotion/compositions/blocks/types.ts"],
   "include": ["electron-vite.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"],
   "exclude": [
+    "src/main/remotion/render.ts",
+    "src/main/remotion/webpack-override.ts",
     "src/main/remotion/Root.tsx",
     "src/main/remotion/index.ts",
     "src/main/remotion/compositions/**",

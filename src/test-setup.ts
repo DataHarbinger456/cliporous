@@ -6,6 +6,34 @@
 
 import '@testing-library/jest-dom/vitest';
 
+// Node 26 exposes an incomplete localStorage global unless a backing file is
+// configured. Renderer tests only need the standard synchronous Storage API.
+const testStorage = new Map<string, string>();
+const localStorageMock: Storage = {
+  get length() {
+    return testStorage.size;
+  },
+  clear() {
+    testStorage.clear();
+  },
+  getItem(key) {
+    return testStorage.get(key) ?? null;
+  },
+  key(index) {
+    return [...testStorage.keys()][index] ?? null;
+  },
+  removeItem(key) {
+    testStorage.delete(key);
+  },
+  setItem(key, value) {
+    testStorage.set(key, String(value));
+  },
+};
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: localStorageMock,
+});
+
 // ── ResizeObserver — Radix Slider/Select rely on it ───────────────────────
 class MockResizeObserver {
   observe(): void {}

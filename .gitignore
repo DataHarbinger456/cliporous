@@ -27,6 +27,8 @@ python/venv/
 # Electron build artifacts
 *.AppImage
 *.exe
+!resources/bin/ffmpeg.exe
+!resources/bin/ffprobe.exe
 *.dmg
 *.deb
 *.rpm

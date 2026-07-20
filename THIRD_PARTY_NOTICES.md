@@ -1,34 +1,38 @@
 # BatchClip third-party notices and redistribution audit
 
-**Audit date:** 18 July 2026  
-**Release status:** **BLOCKED — do not distribute a packaged build.**
+**Audit date:** 20 July 2026
+**Release status:** **CLEARED for the Windows x64 payload described below.**
 
 This file is part of every BatchClip release payload. It records the redistribution review of bundled fonts, audio, icons, and compiled third-party code selected by `package.json` and `package-lock.json`. It is not legal advice and does not replace the license terms below or the original license files retained in packaged npm modules.
 
-The release gate is `npm run audit:third-party -- --release`. It verifies the audited asset hashes and refuses packaging while any item in **Release blockers** remains unresolved. The macOS and Windows release scripts invoke that gate before creating a staging directory.
+The release gate is `npm run audit:third-party -- --release`. It verifies the audited asset hashes and package versions before either platform release script can package the application.
 
-## Release blockers
+## Cleared Windows x64 release payload
 
-| Bundled item | Finding | Required remediation before release |
-| --- | --- | --- |
-| `ffmpeg-static@5.3.0` FFmpeg executable | The inspected macOS binary reports both `--enable-gpl` and `--enable-nonfree`. FFmpeg states that `--enable-nonfree` builds are not redistributable. The package's GPL-3.0-or-later declaration cannot cure that incompatible build configuration. | Replace every target binary with a build whose configuration and all linked-code licenses permit redistribution; preserve the exact license, build configuration, and corresponding source alongside the release. |
-| `@remotion/compositor-*@4.0.457` native compositor, FFmpeg, ffprobe, and FFmpeg libraries | The platform package has no `license` field or included license file. Its inspected macOS FFmpeg/ffprobe reports `--enable-gpl --enable-nonfree` and includes `libfdk_aac`; redistribution permission is therefore not proven. Remotion 4.0.457 also uses a size/usage-dependent license, and this repository has no recorded eligibility or company license. | Obtain written redistribution terms and any required Remotion company license, and replace the nonfree FFmpeg payload with redistributable binaries plus corresponding source; or remove the compositor packages and dependent feature from release builds. |
-| `@ffprobe-installer/*` platform ffprobe executables | Lock metadata labels the macOS arm64 package LGPL-2.1 and Windows x64 package GPL-3.0, but the platform packages include neither the applicable license text nor corresponding source/build material. | Package the exact applicable license and corresponding source/build information for each target, or replace/remove these binaries. |
-| `@img/sharp-libvips-*@1.2.4` | The prebuilt libvips payload is LGPL-3.0-or-later and includes many third-party libraries. The npm platform package omits the LGPL text and upstream `THIRD-PARTY-NOTICES.md`; this release does not yet provide corresponding source/relinking material. | Bundle the original sharp-libvips notices, all required license texts, and exact corresponding source/relinking material for each target, or remove the prebuilt payload. |
-| `onnxruntime-node@1.26.0` native libraries, DirectML, and DXC payloads | The npm package contains compiled binaries for several platforms but omits ONNX Runtime's MIT license and `ThirdPartyNotices.txt`. Those notices cover additional code and source-availability terms and must travel with a binary redistribution. | Preserve the exact v1.26.0 `LICENSE` and `ThirdPartyNotices.txt`, verify DirectML/DXC redistribution terms per target, and exclude non-target binaries; or remove the dependency. |
-| `src/renderer/src/assets/ui-sounds/{attention,complete,decision}.mp3` | No embedded author/source/license metadata, source project, generation recipe, purchase receipt, or written grant was found. | Replace with reproducibly generated project-owned audio under an explicit license, attach a valid commercial redistribution grant, or remove the files and imports. |
-| `src/main/hyperframes/catalog/shared/mm-logo.png` | The Media Master logo is a third-party trademark/copyright asset with no written redistribution grant in the repository. | Add the owner's written app-bundle redistribution permission and trademark usage terms, or remove it from the catalog and release payload. |
+The previously blocked material was removed instead of waived:
 
-A release remains blocked even if a component is technically downloadable from npm. Availability from a registry is not proof that all bundled binary content may be redistributed without satisfying its license conditions.
+- Removed `ffmpeg-static` and `@ffprobe-installer` plus their platform binaries.
+- Removed Remotion and its compositor/media packages. The inactive Remotion-only render features remain unregistered and their source is excluded from packaged files.
+- Removed HyperFrames, which also removed transitive sharp/libvips and ONNX Runtime binaries. HyperFrames overlays are no longer registered in the release render pipeline.
+- Removed the three unproven renderer UI sounds.
+- Removed the unlicensed Media Master logo.
+
+Windows now bundles a matching `ffmpeg.exe` / `ffprobe.exe` pair from BtbN FFmpeg-Builds release `latest`, commit `8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665`, published 20 July 2026. The asset was `ffmpeg-n8.1-latest-win64-gpl-8.1.zip`, upstream SHA-256 `bffb1e3fbff5bba5ab2c54d36cc5935b1f0dd5219fb9eec8388df6bd5d95c933`. The binaries report FFmpeg 8.1 with `--enable-gpl --enable-version3`, explicitly `--disable-libfdk-aac`, and no `--enable-nonfree`.
+
+| Bundled file | SHA-256 |
+| --- | --- |
+| `resources/bin/ffmpeg.exe` | `9959487dde724f9b3b997a2353517f43c12e1d96b6225029d0f0453242b4a370` |
+| `resources/bin/ffprobe.exe` | `39b64ebddfc338436f2c1d9e5f691a3d82565f37a092349cbd07ea5397bb2651` |
+| `resources/bin/FFMPEG-GPL-3.0.txt` | `8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903` |
+| `resources/bin/FFMPEG-BUILDS-MIT.txt` | `c1b3cc7eec42bd9c4f6247169bb887b4a9bc904abfd2a7f7f9231ed357844993` |
+
+Corresponding source and exact build instructions are available from <https://github.com/BtbN/FFmpeg-Builds/tree/8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665>. FFmpeg license and source obligations remain governed by GPL-3.0-or-later and the component licenses identified by that build.
 
 ### Evidence sources
 
 - Exact files, versions, package license declarations, and platform selectors: repository `package-lock.json` plus SHA-256 hashes enforced by `scripts/audit-third-party-assets.mjs`.
-- Binary build configuration: each installed `ffmpeg -version` / `ffprobe -version` output inspected on 18 July 2026.
-- FFmpeg redistribution checklist and `--enable-nonfree` restriction: <https://ffmpeg.org/legal.html>.
-- Remotion 4.0.457 license text: <https://github.com/remotion-dev/remotion/blob/v4.0.457/LICENSE.md>.
-- ONNX Runtime 1.26.0 originals omitted by its npm payload: <https://github.com/microsoft/onnxruntime/blob/v1.26.0/LICENSE> and <https://github.com/microsoft/onnxruntime/blob/v1.26.0/ThirdPartyNotices.txt>.
-- sharp-libvips 1.2.4 third-party inventory: <https://github.com/lovell/sharp-libvips/blob/v1.2.4/THIRD-PARTY-NOTICES.md>.
+- FFmpeg redistribution checklist: <https://ffmpeg.org/legal.html>.
+- BtbN binary source/build recipe and MIT license: <https://github.com/BtbN/FFmpeg-Builds/tree/8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665>.
 - Font rights: the copyright, source, license, and Reserved Font Name fields embedded in each audited TTF, cross-checked against the named upstream projects.
 - Original project-asset provenance: repository history and `scripts/generate-release-art.py`.
 
@@ -78,14 +82,6 @@ Repository commit `4787c756b62c646da2792d2bcfd6660e0657a27d` records these six f
 | `resources/sfx/typewriter-key.mp3` | `d8e0d949ef8da2da95e86dfb98168a8fdea06932e82bfbfdf967f96c822a02a2` | 0.300 s |
 | `resources/sfx/word-pop.mp3` | `8ae8c9581173692884cc067139539f5c491ef867656019490114ee345a26773a` | 0.250 s |
 
-### UI sounds — blocked
-
-| File | SHA-256 | Finding |
-| --- | --- | --- |
-| `src/renderer/src/assets/ui-sounds/attention.mp3` | `13ff4075990c53d17f1859ee4171edcd1d4f8c9e6a8a35150d9930297a9f7906` | No redistribution evidence |
-| `src/renderer/src/assets/ui-sounds/complete.mp3` | `524f7c541a7268b5d3e6868606b37f6f7cdf7c43571d285205341d7fc5207469` | No redistribution evidence |
-| `src/renderer/src/assets/ui-sounds/decision.mp3` | `95591ddb2d32e34fc124a5200b7275781b6052b3cf3c0c0297eae57a10f670a1` | No redistribution evidence |
-
 ### Music — empty
 
 No music recording is currently present under `resources/music/`; only `resources/music/README.md` exists. Adding any audio file changes the audited file set and blocks the release gate until its grant and hash are recorded.
@@ -116,7 +112,6 @@ The BatchClip artwork is project-owned and covered by the repository MIT license
 ### Third-party icon content
 
 - `lucide-react@0.475.0` supplies icons embedded in renderer JavaScript under the ISC license. Copyright for Feather portions © 2013–2022 Cole Bemis; other Lucide portions © 2022 Lucide Contributors. Its original license remains at `node_modules/lucide-react/LICENSE` and is reproduced below.
-- `src/main/hyperframes/catalog/shared/mm-logo.png`, SHA-256 `329325cf91ba067d7b54ad57f6cce4eaa5103cc562f3125a6ade37d4bfc1d6c4`, is **blocked** as described above.
 - Inline SVG shapes authored directly in project source are covered by the BatchClip MIT license; no external SVG files were found beyond the audited build artwork.
 
 ## Audited compiled third-party code
@@ -131,12 +126,7 @@ Exact versions come from `package-lock.json`, not semver ranges in `package.json
 | Rspack native bindings | `@rspack/binding-*@1.7.6` | MIT, Copyright © 2022-present ByteDance Inc. and affiliates | Cleared; platform package `LICENSE` remains packaged |
 | source-map WebAssembly mappings parser | `source-map@0.7.3` | BSD-3-Clause, Mozilla Foundation and contributors | Cleared; original `LICENSE` remains packaged and is reproduced below |
 | fsevents native addon (macOS) | `fsevents@2.3.3` | MIT, Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller | Cleared; original `LICENSE` remains packaged |
-| sharp native binding | `sharp@0.34.5`, `@img/sharp-*@0.34.5` | Apache-2.0 | Binding itself cleared; linked sharp-libvips payload remains a blocker |
-| sharp-libvips shared library bundle | `@img/sharp-libvips-*@1.2.4` | LGPL-3.0-or-later plus many third-party terms | **Blocked** |
-| ONNX Runtime native payload | `onnxruntime-node@1.26.0` | Upstream MIT plus third-party notices absent from npm payload | **Blocked** |
-| ffmpeg-static executable | `ffmpeg-static@5.3.0` | Package says GPL-3.0-or-later; inspected binary is nonfree | **Blocked / binary not redistributable** |
-| ffprobe-installer executables | wrapper `2.1.2`; macOS arm64 `5.0.1`; Windows x64 `5.1.0` | LGPL-2.1 / GPL-3.0 declarations without required materials | **Blocked** |
-| Remotion native compositor and media libraries | `@remotion/compositor-*@4.0.457` | No package license; Remotion custom license; inspected media binary is nonfree | **Blocked** |
+| BtbN FFmpeg 8.1 Windows x64 executables | build commit `8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665` | GPL-3.0-or-later plus linked component terms | Cleared for the Windows payload with exact licenses, hashes, and corresponding build source recorded above |
 
 The production tree also contains executable JavaScript command shims. Those are source-form scripts covered by their npm packages' licenses, not compiled binary payloads. Electron-builder/NSIS build-time executables are not installed as standalone application resources; the generated installer must continue to retain any notices electron-builder places in the artifact.
 

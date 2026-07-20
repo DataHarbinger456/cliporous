@@ -11,6 +11,14 @@ const enforceRelease = process.argv.includes('--release');
 const expectedAssets = new Map(
   Object.entries({
     'resources/bin/.gitkeep': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    'resources/bin/FFMPEG-BUILDS-MIT.txt':
+      'c1b3cc7eec42bd9c4f6247169bb887b4a9bc904abfd2a7f7f9231ed357844993',
+    'resources/bin/FFMPEG-GPL-3.0.txt':
+      '8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903',
+    'resources/bin/ffmpeg.exe':
+      '9959487dde724f9b3b997a2353517f43c12e1d96b6225029d0f0453242b4a370',
+    'resources/bin/ffprobe.exe':
+      '39b64ebddfc338436f2c1d9e5f691a3d82565f37a092349cbd07ea5397bb2651',
     'resources/fonts/.gitkeep': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     'resources/fonts/Anton-Regular.ttf':
       'a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab',
@@ -104,52 +112,24 @@ const expectedAssets = new Map(
     'build/installerHeader.bmp': '3156ffe5e1facacdc8c5069f12305c76fdb84d3e3e7c3e900affb148ede34f94',
     'build/installerSidebar.bmp':
       '57cd308e5f29093d477bdd28dad41b06680588c05e0a59afb3f26ccf9787c84f',
-    'src/main/hyperframes/catalog/shared/mm-logo.png':
-      '329325cf91ba067d7b54ad57f6cce4eaa5103cc562f3125a6ade37d4bfc1d6c4',
-    'src/renderer/src/assets/ui-sounds/attention.mp3':
-      '13ff4075990c53d17f1859ee4171edcd1d4f8c9e6a8a35150d9930297a9f7906',
-    'src/renderer/src/assets/ui-sounds/complete.mp3':
-      '524f7c541a7268b5d3e6868606b37f6f7cdf7c43571d285205341d7fc5207469',
-    'src/renderer/src/assets/ui-sounds/decision.mp3':
-      '95591ddb2d32e34fc124a5200b7275781b6052b3cf3c0c0297eae57a10f670a1',
   }),
 );
 
 const expectedPackages = new Map([
-  ['node_modules/@ffprobe-installer/ffprobe', '2.1.2'],
   ['node_modules/@fontsource/inter', '5.2.8'],
   ['node_modules/better-sqlite3', '12.9.0'],
   ['node_modules/electron', '34.5.8'],
-  ['node_modules/ffmpeg-static', '5.3.0'],
   ['node_modules/fsevents', '2.3.3'],
   ['node_modules/lucide-react', '0.475.0'],
-  ['node_modules/onnxruntime-node', '1.26.0'],
-  ['node_modules/sharp', '0.34.5'],
-  ['node_modules/source-map', '0.7.3'],
 ]);
 
 const expectedPackageFamilies = [
-  [
-    /^node_modules\/@ffprobe-installer\/(darwin|linux|win32)-/,
-    new Set(['5.0.1', '5.1.0', '5.2.0']),
-  ],
-  [/^node_modules\/@img\/sharp-(?!libvips-)/, new Set(['0.34.5'])],
-  [/^node_modules\/@img\/sharp-libvips-/, new Set(['1.2.4'])],
-  [/^node_modules\/@remotion\/compositor-/, new Set(['4.0.457'])],
   [/^node_modules\/@rspack\/binding-/, new Set(['1.7.6'])],
   [/(^|node_modules\/)@esbuild\//, new Set(['0.25.0', '0.25.12', '0.27.7'])],
   [/(^|node_modules\/)esbuild$/, new Set(['0.25.0', '0.25.12', '0.27.7'])],
 ];
 
-const releaseBlockers = [
-  'ffmpeg-static contains an FFmpeg build configured with --enable-nonfree.',
-  'Remotion compositor packages have no bundled redistribution license and contain --enable-nonfree FFmpeg binaries.',
-  'ffprobe-installer platform packages omit applicable license/source materials.',
-  'sharp-libvips platform packages omit required LGPL and third-party redistribution materials.',
-  'onnxruntime-node omits its upstream LICENSE and ThirdPartyNotices.txt from the npm payload.',
-  'Three renderer UI sound files have no provable source or redistribution grant.',
-  'The Media Master logo has no written app-bundle redistribution grant.',
-];
+const releaseBlockers = [];
 
 const failures = [];
 
@@ -231,8 +211,8 @@ const noticePath = resolve(root, 'THIRD_PARTY_NOTICES.md');
 if (!existsSync(noticePath)) failures.push('Missing release-facing THIRD_PARTY_NOTICES.md');
 else {
   const notice = readFileSync(noticePath, 'utf8');
-  if (!notice.includes('**Release status:** **BLOCKED')) {
-    failures.push('Third-party notice does not record blocked status');
+  if (!notice.includes('**Release status:** **CLEARED')) {
+    failures.push('Third-party notice does not record cleared status');
   }
 }
 
@@ -243,11 +223,10 @@ if (failures.length > 0) {
 }
 
 console.log(`Third-party asset audit integrity: PASS (${expectedAssets.size} files verified)`);
-console.log(`Redistribution review: BLOCKED (${releaseBlockers.length} unresolved items)`);
-for (const blocker of releaseBlockers) console.log(`- ${blocker}`);
+console.log('Redistribution review: CLEARED (0 unresolved items)');
 console.log('Details: THIRD_PARTY_NOTICES.md');
 
-if (enforceRelease) {
+if (enforceRelease && releaseBlockers.length > 0) {
   console.error('\nRelease refused: resolve every redistribution blocker before packaging.');
   process.exit(1);
 }
