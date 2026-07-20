@@ -1,27 +1,22 @@
+import type { LifecycleSnapshot } from '@shared/app-lifecycle';
+import type { CreatorJob } from '@shared/jobs';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Clapperboard, FolderOpen, Save, Settings, ShieldAlert } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { AiUsageIndicator } from '@/components/AiUsageIndicator';
+import { CommandPalette } from '@/components/CommandPalette';
+import { CompletionCelebration } from '@/components/CompletionCelebration';
+import { StudioWorkspaceSkeleton } from '@/components/CreatorSkeletons';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ErrorLog } from '@/components/ErrorLog';
+import { MissingMediaDialog } from '@/components/MissingMediaDialog';
+import { RecoveryPrompt } from '@/components/RecoveryPrompt';
+import { ReleaseSurfaces } from '@/components/ReleaseSurfaces';
+import { StudioHeader } from '@/components/StudioHeader';
 import { ClipGrid } from '@/components/screens/ClipGrid';
+import { CutPlanReviewScreen } from '@/components/screens/CutPlanReviewScreen';
 import { DropScreen } from '@/components/screens/DropScreen';
 import { ProcessingScreen } from '@/components/screens/ProcessingScreen';
 import { RenderScreen } from '@/components/screens/RenderScreen';
-import { ThemeToggle } from '@/components/ThemeToggle';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -29,196 +24,80 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
 import { Toaster } from '@/components/ui/sonner';
 import type { KeyboardShortcutCallbacks } from '@/hooks';
-import { useAutosave, useKeyboardShortcuts, usePythonSetup } from '@/hooks';
-import { clearRecovery, loadProject, loadRecovery, saveProject } from '@/services';
+import { useKeyboardShortcuts, usePythonSetup } from '@/hooks';
+import { useAiTokenUsage } from '@/hooks/useAiTokenUsage';
+import { useDesktopLifecycle } from '@/hooks/useDesktopLifecycle';
+import { performHistoryCommand, useHistoryMenuSync } from '@/hooks/useHistoryControls';
+import { useNativeJobIntegration } from '@/hooks/useNativeJobIntegration';
+import { stopActiveProcessingAndKeepProgress } from '@/hooks/usePipeline';
+import { isMac, modifierKeyLabel } from '@/lib/platform';
+import {
+  createNewProject,
+  loadProject,
+  loadProjectFromPath,
+  saveProject,
+  saveProjectAs,
+} from '@/services';
+import { useDisplayPreferences } from '@/services/display-preferences';
+import { resumeLastProject } from '@/services/project-service';
 import { useStore } from '@/store';
 import { selectIsLongformOnly, selectScreen } from '@/store/selectors';
 import { listenForSettingsChanges } from '@/store/settings-sync';
+import type { PipelineStage } from '@/store/types';
 
-// ---------------------------------------------------------------------------
-// Autosave toast — small bottom-right card that fades in when useAutosave
-// reports a fresh save (justSaved=true for ~2s).
-// ---------------------------------------------------------------------------
+const ACTIVE_PROCESSING_STAGES = new Set([
+  'downloading',
+  'transcribing',
+  'scoring',
+  'stitching',
+  'optimizing-loops',
+  'detecting-faces',
+  'ai-editing',
+  'segmenting',
+]);
 
-function AutosaveToast(): React.JSX.Element {
-  const { justSaved } = useAutosave();
-  const reduceMotion = useReducedMotion();
-  return (
-    <AnimatePresence>
-      {justSaved && (
-        <motion.div
-          key="autosave-toast"
-          initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
-          transition={{ duration: 0.15, ease: 'easeOut' }}
-          className="pointer-events-none fixed right-4 bottom-4 z-50"
-        >
-          <Card className="flex items-center gap-2 px-3 py-1.5 text-xs shadow-md">
-            <span className="indicator-success h-2 w-2 rounded-full" aria-hidden="true" />
-            <span className="text-muted-foreground">Autosaved</span>
-          </Card>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+function waitForRenderSettlement(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('The export did not confirm cancellation within 25 seconds.'));
+    }, 25_000);
+    const finish = (): void => {
+      cleanup();
+      resolve();
+    };
+    const offCancelled = window.api.onRenderCancelled(finish);
+    const offDone = window.api.onRenderBatchDone(finish);
+    const cleanup = (): void => {
+      window.clearTimeout(timeout);
+      offCancelled();
+      offDone();
+    };
+
+    void window.api.cancelRender().catch((error) => {
+      cleanup();
+      reject(error);
+    });
+  });
 }
 
-// ---------------------------------------------------------------------------
-// Header — orientation + actions
-// ---------------------------------------------------------------------------
+async function cancelActiveDesktopWork(): Promise<void> {
+  const startingState = useStore.getState();
+  const processing = ACTIVE_PROCESSING_STAGES.has(startingState.pipeline.stage);
+  const rendering = startingState.isRendering || startingState.singleRenderStatus === 'rendering';
 
-type AppScreen = 'drop' | 'processing' | 'clips' | 'render';
-type RailKey = 'source' | 'shape' | 'export';
-
-const STAGE_RAIL: readonly { key: RailKey; label: string; detail: string }[] = [
-  { key: 'source', label: 'Source', detail: 'Bring in a video' },
-  { key: 'shape', label: 'Shape', detail: 'Find and refine clips' },
-  { key: 'export', label: 'Export', detail: 'Render finished clips' },
-];
-
-function Header({
-  activeScreen,
-  stage,
-}: {
-  activeScreen: AppScreen;
-  stage: string;
-}): React.JSX.Element {
-  const isDirty = useStore((s) => s.isDirty);
-  const hasSource = useStore((s) => s.activeSourceId !== null);
-
-  const handleSave = async (): Promise<void> => {
-    const result = await saveProject();
-    if (result) toast.success('Project saved');
-  };
-
-  const handleOpen = async (): Promise<void> => {
-    const ok = await loadProject();
-    if (ok) toast.success('Project loaded');
-  };
-
-  const handleSettings = async (): Promise<void> => {
-    try {
-      await window.api.openSettingsWindow();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Couldn't open settings: ${msg}`);
-    }
-  };
-
-  const activeRail: RailKey =
-    activeScreen === 'drop' ? 'source' : activeScreen === 'render' ? 'export' : 'shape';
-  const activeDetail = STAGE_RAIL.find((item) => item.key === activeRail)?.detail ?? 'Ready';
-  const stageName = stage.replace(/[-_]/g, ' ');
-
-  // The whole header is the window drag region. Interactive children opt back
-  // out with app-region: no-drag.
-  return (
-    <header
-      className="filmstrip-rule border-border flex min-h-16 shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b bg-background/95 px-4 pl-20 backdrop-blur-sm lg:flex-nowrap"
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-    >
-      <div className="flex min-w-max items-center gap-3">
-        <span
-          className="bg-primary/15 text-primary flex h-8 w-8 items-center justify-center rounded-md border border-primary/30"
-          aria-hidden="true"
-        >
-          <Clapperboard className="h-4 w-4" />
-        </span>
-        <div className="leading-none">
-          <div className="text-foreground text-sm font-semibold tracking-tight">BatchClip</div>
-          <div className="text-muted-foreground mt-1 text-[10px] font-medium uppercase tracking-[0.16em]">
-            Clip studio
-          </div>
-        </div>
-        {isDirty && (
-          <span
-            className="indicator-signal h-1.5 w-1.5 rounded-full"
-            role="status"
-            aria-label="Unsaved changes"
-            title="Unsaved changes"
-          />
-        )}
-      </div>
-
-      <nav
-        aria-label="Studio stages"
-        className="flex min-w-0 flex-1 items-center gap-1 max-[640px]:order-3 max-[640px]:basis-full"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        {STAGE_RAIL.map((item, index) => {
-          const isActive = item.key === activeRail;
-          const isComplete =
-            index < STAGE_RAIL.findIndex((stageItem) => stageItem.key === activeRail);
-          return (
-            <div key={item.key} className="flex min-w-0 items-center">
-              <div
-                className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 ${isActive ? 'bg-primary/[0.12] text-foreground' : isComplete ? 'text-muted-foreground' : 'text-muted-foreground/[0.65]'}`}
-                aria-current={isActive ? 'step' : undefined}
-                title={item.detail}
-              >
-                <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold ${isActive ? 'border-primary/60 bg-primary text-primary-foreground' : isComplete ? 'border-primary/40 text-primary' : 'border-[hsl(var(--border-strong))] text-muted-foreground'}`}
-                >
-                  {isComplete ? '✓' : index + 1}
-                </span>
-                <span
-                  className={`${isActive ? 'inline' : 'hidden sm:inline'} truncate text-xs font-medium`}
-                >
-                  {item.label}
-                </span>
-              </div>
-              {index < STAGE_RAIL.length - 1 && (
-                <span
-                  className="text-[hsl(var(--border-strong))] hidden px-1 text-xs sm:inline"
-                  aria-hidden="true"
-                >
-                  →
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-
-      <div
-        className="flex min-w-max items-center gap-1"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <div
-          className="mr-1 hidden items-center gap-1.5 rounded-md border border-border/[0.7] bg-card/[0.7] px-2 py-1.5 text-[11px] text-muted-foreground xl:flex"
-          aria-live="polite"
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${hasSource ? 'indicator-success' : 'bg-muted-foreground/60'}`}
-            aria-hidden="true"
-          />
-          <span>{hasSource ? activeDetail : 'No source selected'}</span>
-        </div>
-        <AiUsageIndicator />
-        <Separator orientation="vertical" className="mx-1 h-5" />
-        <Button variant="ghost" size="sm" onClick={handleSave} aria-label="Save project">
-          <Save />
-          <span className="hidden sm:inline">Save</span>
-        </Button>
-        <Button variant="ghost" size="sm" onClick={handleOpen} aria-label="Open project">
-          <FolderOpen />
-          <span className="hidden sm:inline">Open</span>
-        </Button>
-        <Button variant="ghost" size="sm" onClick={handleSettings} aria-label="Open settings">
-          <Settings />
-          <span className="hidden sm:inline">Settings</span>
-        </Button>
-        <ThemeToggle />
-        <span className="sr-only" aria-live="polite">
-          Current stage: {stageName}
-        </span>
-      </div>
-    </header>
-  );
+  if (processing) {
+    const stopped = await stopActiveProcessingAndKeepProgress();
+    if (!stopped) throw new Error('Processing is still stopping.');
+  }
+  if (rendering) {
+    await waitForRenderSettlement();
+    const state = useStore.getState();
+    state.setIsRendering(false);
+    state.setSingleRenderState({ status: 'idle' });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,139 +131,26 @@ function ScreenFrame({
 }
 
 // ---------------------------------------------------------------------------
-// Recovery prompt — on first paint, check for an auto-saved payload from a
-// previous session that wasn't shut down cleanly. Deferred 400ms (V1
-// behavior) so the initial screen render isn't blocked by the modal.
-// Only shown when the payload contains at least one clip.
-// ---------------------------------------------------------------------------
-
-function RecoveryPrompt(): React.JSX.Element | null {
-  const acknowledgedRecovery = useStore((s) => s.acknowledgedRecovery);
-  const acknowledgeRecovery = useStore((s) => s.acknowledgeRecovery);
-  const [payload, setPayload] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (acknowledgedRecovery) return;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      const data = await loadRecovery();
-      if (cancelled) return;
-      if (!data) {
-        acknowledgeRecovery();
-        return;
-      }
-      try {
-        const project = JSON.parse(data) as {
-          clips?: Record<string, unknown[]>;
-          transcriptions?: Record<string, unknown>;
-          longformPlans?: Record<string, unknown>;
-        };
-        const clips = project.clips ?? {};
-        const hasClips = Object.values(clips).some((arr) => Array.isArray(arr) && arr.length > 0);
-        // Long-form projects autosave only a transcription (+ optional edit
-        // plan) and no short-form clips. Restore those too so the slow
-        // transcription / expensive Gemini plan isn't silently discarded.
-        const hasTranscriptions = Object.keys(project.transcriptions ?? {}).length > 0;
-        if (!hasClips && !hasTranscriptions) {
-          await clearRecovery();
-          acknowledgeRecovery();
-          return;
-        }
-        setPayload(data);
-        setOpen(true);
-      } catch {
-        await clearRecovery();
-        acknowledgeRecovery();
-      }
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [acknowledgedRecovery, acknowledgeRecovery]);
-
-  const handleRestore = async (): Promise<void> => {
-    if (!payload) return;
-    try {
-      const project = JSON.parse(payload);
-      const sources = project.sources ?? [];
-      const clips = project.clips ?? {};
-      const stitchedClips = project.stitchedClips ?? {};
-      const longformPlans = project.longformPlans ?? {};
-      const hasClips = Object.values(clips).some((arr) => Array.isArray(arr) && arr.length > 0);
-      const hasLongform = Object.keys(longformPlans).length > 0;
-      // Long-form-only state (transcription + edit plan, no short-form clips)
-      // is still restorable — surface the first source and jump to 'ready' so
-      // the saved plan can render without re-calling Gemini.
-      const ready = hasClips || hasLongform;
-      const activeSourceId = ready && sources.length > 0 ? sources[0].id : null;
-      useStore.setState({
-        sources,
-        transcriptions: project.transcriptions ?? {},
-        clips,
-        stitchedClips,
-        longformPlans,
-        activeSourceId,
-        pipeline: ready
-          ? { stage: 'ready', message: '', percent: 100 }
-          : { stage: 'idle', message: '', percent: 0 },
-        isDirty: false,
-      });
-      toast.success('Recovered your last session');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Recovery failed: ${msg}`);
-    } finally {
-      await clearRecovery();
-      acknowledgeRecovery();
-      setOpen(false);
-    }
-  };
-
-  const handleDiscard = async (): Promise<void> => {
-    await clearRecovery();
-    acknowledgeRecovery();
-    setOpen(false);
-  };
-
-  if (!payload) return null;
-
-  return (
-    <AlertDialog open={open}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
-            <ShieldAlert className="text-warning" aria-hidden="true" />
-            Recover unsaved work
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            BatchClip didn&apos;t shut down cleanly last time. We saved your project — restore it
-            now, or discard and start fresh.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={handleDiscard}>Discard</AlertDialogCancel>
-          <AlertDialogAction onClick={handleRestore}>Restore</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Keyboard shortcut help — a small dialog opened with `?` that documents the
-// four global shortcuts wired through useKeyboardShortcuts.
+// global shortcuts wired through useKeyboardShortcuts.
 // ---------------------------------------------------------------------------
 
-const IS_MAC = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
-const MOD_KEY = IS_MAC ? '⌘' : 'Ctrl';
+const MOD_KEY = modifierKeyLabel;
 
 const SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: [MOD_KEY, 'K'], label: 'Open creator commands' },
+  { keys: [MOD_KEY, 'N'], label: 'New project' },
   { keys: [MOD_KEY, 'S'], label: 'Save project' },
+  { keys: [MOD_KEY, 'Shift', 'S'], label: 'Save project as' },
   { keys: [MOD_KEY, 'O'], label: 'Open project' },
   { keys: [MOD_KEY, ','], label: 'Settings' },
-  { keys: ['?'], label: 'Show this help' },
+  { keys: [MOD_KEY, 'Z'], label: 'Undo project or active clip change' },
+  {
+    keys: isMac ? [MOD_KEY, 'Shift', 'Z'] : ['Ctrl', 'Y'],
+    label: 'Redo project or active clip change',
+  },
+  { keys: [MOD_KEY, '+ / − / 0'], label: 'Zoom in, out, or reset' },
+  { keys: [MOD_KEY, '/'], label: 'Show this help' },
 ];
 
 function HelpDialog({
@@ -430,21 +196,157 @@ function HelpDialog({
 export default function App(): React.JSX.Element {
   const stage = useStore((s) => s.pipeline.stage);
   const activeSourceId = useStore((s) => s.activeSourceId);
+  const currentProcessingJobId = useStore((s) => s.currentProcessingJobId);
   const hydrateSecretsFromMain = useStore((s) => s.hydrateSecretsFromMain);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [processingForeground, setProcessingForeground] = useState(true);
+  const { autoCleanupTemp } = useDisplayPreferences();
+  const startupAutoCleanup = useRef(autoCleanupTemp);
+  useHistoryMenuSync();
+  useAiTokenUsage();
+  useNativeJobIntegration();
+
+  useEffect(() => {
+    void window.api.setAutoCleanup(autoCleanupTemp);
+  }, [autoCleanupTemp]);
+
+  useEffect(() => {
+    if (!startupAutoCleanup.current) return;
+    void window.api.cleanupTemp().catch((error) => {
+      window.api.logToMain(
+        'warn',
+        'storage',
+        `Automatic temporary-file cleanup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreWorkspace = async (): Promise<void> => {
+      const startupProjectPath = await window.api.consumePendingProjectOpen();
+      if (startupProjectPath) {
+        const opened = await loadProjectFromPath(startupProjectPath);
+        if (!opened) toast.error("Couldn't open that project file");
+      } else {
+        await resumeLastProject();
+      }
+      if (!cancelled) setWorkspaceReady(true);
+    };
+    void restoreWorkspace().catch((error) => {
+      if (!cancelled) {
+        setWorkspaceReady(true);
+        toast.error(error instanceof Error ? error.message : "Couldn't restore the workspace");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const canReplaceCurrentProject = useCallback((): boolean => {
+    const state = useStore.getState();
+    if (
+      ACTIVE_PROCESSING_STAGES.has(state.pipeline.stage) ||
+      state.isRendering ||
+      state.singleRenderStatus === 'rendering'
+    ) {
+      toast.error('Finish or cancel active work before opening another project.');
+      return false;
+    }
+    return (
+      !state.isDirty ||
+      window.confirm(`Discard unsaved changes to ${state.currentProject.displayName}?`)
+    );
+  }, []);
+
+  const handleNewProject = useCallback((): void => {
+    const state = useStore.getState();
+    if (
+      ACTIVE_PROCESSING_STAGES.has(state.pipeline.stage) ||
+      state.isRendering ||
+      state.singleRenderStatus === 'rendering'
+    ) {
+      toast.error('Finish or cancel active work before starting a new project.');
+      return;
+    }
+    if (state.isDirty && !window.confirm('Discard unsaved changes and start a new project?')) {
+      return;
+    }
+    createNewProject();
+    toast.success('New project ready');
+  }, []);
+
+  const handleOpenProject = useCallback(async (): Promise<void> => {
+    if (!canReplaceCurrentProject()) return;
+    const ok = await loadProject();
+    if (ok) toast.success('Project loaded');
+  }, [canReplaceCurrentProject]);
+
+  const handleOpenJob = useCallback(
+    async (requestedJob: CreatorJob): Promise<void> => {
+      let state = useStore.getState();
+      if (requestedJob.projectId !== state.currentProject.id) {
+        if (!requestedJob.projectFilePath || !canReplaceCurrentProject()) return;
+        const opened = await loadProjectFromPath(requestedJob.projectFilePath);
+        if (!opened) {
+          toast.error("Couldn't open the job's project file");
+          return;
+        }
+        state = useStore.getState();
+      }
+      const job =
+        state.creatorJobs.find((candidate) => candidate.id === requestedJob.id) ?? requestedJob;
+      if (job.kind === 'processing') {
+        useStore.setState({ currentProcessingJobId: job.id });
+        if (job.status === 'completed') {
+          state.setPipeline({ stage: 'ready', message: job.message, percent: 100 });
+        } else if (job.status === 'running' && ACTIVE_PROCESSING_STAGES.has(job.stage)) {
+          state.setPipeline({
+            stage: job.stage as PipelineStage,
+            message: job.message,
+            percent: state.pipeline.percent,
+          });
+        } else {
+          const failedStage = ACTIVE_PROCESSING_STAGES.has(job.failedStage ?? job.stage)
+            ? ((job.failedStage ?? job.stage) as PipelineStage)
+            : 'transcribing';
+          state.setFailedPipelineStage(failedStage);
+          state.pauseProcessingJob(failedStage, job.message);
+          state.setPipeline({
+            stage: 'error',
+            message: job.message,
+            percent: state.pipeline.percent,
+          });
+        }
+        setProcessingForeground(true);
+        return;
+      }
+      state.setPipeline({
+        stage: job.status === 'running' ? 'rendering' : 'done',
+        message: job.message,
+        percent: job.progress,
+      });
+    },
+    [canReplaceCurrentProject],
+  );
 
   // Global keyboard shortcuts. Mounted once at the App root; the hook attaches
   // a single window keydown listener and re-binds when the callbacks change.
   const shortcutCallbacks = useMemo<KeyboardShortcutCallbacks>(
     () => ({
+      onNew: handleNewProject,
       onSave: async () => {
-        const result = await saveProject();
-        if (result) toast.success('Project saved');
+        await saveProject();
       },
-      onLoad: async () => {
-        const ok = await loadProject();
-        if (ok) toast.success('Project loaded');
+      onSaveAs: async () => {
+        await saveProjectAs();
       },
+      onLoad: handleOpenProject,
       onOpenSettings: async () => {
         try {
           await window.api.openSettingsWindow();
@@ -453,15 +355,89 @@ export default function App(): React.JSX.Element {
           toast.error(`Couldn't open settings: ${msg}`);
         }
       },
+      onUndo: () => performHistoryCommand('undo'),
+      onRedo: () => performHistoryCommand('redo'),
+      onOpenCommands: () => setCommandPaletteOpen(true),
       onShowHelp: () => setHelpOpen((prev) => !prev),
     }),
-    [],
+    [handleNewProject, handleOpenProject],
   );
   useKeyboardShortcuts(shortcutCallbacks);
 
+  const getLifecycleSnapshot = useCallback((): LifecycleSnapshot => {
+    const state = useStore.getState();
+    return {
+      windowKind: 'main',
+      projectName: state.currentProject.displayName,
+      projectDirty: state.isDirty,
+      settingsDirty: false,
+      processingStage: ACTIVE_PROCESSING_STAGES.has(state.pipeline.stage)
+        ? state.pipeline.stage
+        : null,
+      rendering: state.isRendering || state.singleRenderStatus === 'rendering',
+    };
+  }, []);
+
+  const saveForLifecycle = useCallback(async (): Promise<boolean> => {
+    if (!useStore.getState().isDirty) return true;
+    const filePath = await saveProject();
+    return filePath !== null && !useStore.getState().isDirty;
+  }, []);
+
+  useDesktopLifecycle({
+    getSnapshot: getLifecycleSnapshot,
+    onSave: saveForLifecycle,
+    onCancelWork: cancelActiveDesktopWork,
+  });
+
+  useEffect(() => {
+    const offNew = window.api.onProjectNewRequest(shortcutCallbacks.onNew);
+    const offSave = window.api.onProjectSaveRequest(shortcutCallbacks.onSave);
+    const offSaveAs = window.api.onProjectSaveAsRequest(shortcutCallbacks.onSaveAs);
+    const offOpen = window.api.onProjectOpenRequest(shortcutCallbacks.onLoad);
+    const offOpenRecent = window.api.onProjectOpenRecentRequest(({ path }) => {
+      if (!canReplaceCurrentProject()) return;
+      void loadProjectFromPath(path).then((ok) => {
+        if (ok) toast.success('Project loaded');
+        else toast.error("Couldn't open that project file");
+      });
+    });
+    const offSettings = window.api.onSettingsOpenRequest(shortcutCallbacks.onOpenSettings);
+    const offHelp = window.api.onKeyboardShortcutsRequest(shortcutCallbacks.onShowHelp);
+    const offUndo = window.api.onEditUndoRequest(shortcutCallbacks.onUndo);
+    const offRedo = window.api.onEditRedoRequest(shortcutCallbacks.onRedo);
+    return () => {
+      offNew();
+      offSave();
+      offSaveAs();
+      offOpen();
+      offOpenRecent();
+      offSettings();
+      offHelp();
+      offUndo();
+      offRedo();
+    };
+  }, [canReplaceCurrentProject, shortcutCallbacks]);
+
+  useEffect(() => {
+    if (currentProcessingJobId) setProcessingForeground(true);
+  }, [currentProcessingJobId]);
+
+  useEffect(
+    () =>
+      window.api.onNotificationClicked((payload) => {
+        if (!payload.jobId) return;
+        const job = useStore
+          .getState()
+          .creatorJobs.find((candidate) => candidate.id === payload.jobId);
+        if (job) void handleOpenJob(job);
+      }),
+    [handleOpenJob],
+  );
+
   // Wire python:setupProgress / python:setupDone listeners into the store so
   // DropScreen can render the first-run install card. Mounted once at the App
-  // root — the hook is idempotent.
+  // root. The hook is idempotent.
   usePythonSetup();
 
   // Hydrate API keys from the main-process safeStorage on first paint.
@@ -477,30 +453,56 @@ export default function App(): React.JSX.Element {
   }, [hydrateSecretsFromMain]);
 
   const isLongformOnly = useStore(selectIsLongformOnly);
-  const screen = useMemo(
-    () => selectScreen(stage, activeSourceId !== null, isLongformOnly),
-    [stage, activeSourceId, isLongformOnly],
-  );
+  const screen = useMemo(() => {
+    const routedScreen = selectScreen(stage, activeSourceId !== null, isLongformOnly);
+    return routedScreen === 'processing' && !processingForeground ? 'drop' : routedScreen;
+  }, [stage, activeSourceId, isLongformOnly, processingForeground]);
+
+  if (!workspaceReady) return <StudioWorkspaceSkeleton />;
 
   return (
     <ErrorBoundary>
-      <div className="studio-shell bg-background text-foreground flex h-screen w-full flex-col">
-        <Header activeScreen={screen} stage={stage} />
+      <div className="studio-shell flex h-full w-full max-w-[100vw] flex-col overflow-x-hidden bg-background text-foreground">
+        <StudioHeader
+          activeScreen={screen}
+          stage={stage}
+          onNew={shortcutCallbacks.onNew}
+          onOpen={shortcutCallbacks.onLoad}
+          onSave={shortcutCallbacks.onSave}
+          onSaveAs={shortcutCallbacks.onSaveAs}
+          onOpenCommands={shortcutCallbacks.onOpenCommands}
+          onShowShortcuts={() => setHelpOpen(true)}
+          onOpenJob={handleOpenJob}
+        />
+        <ReleaseSurfaces />
+        <MissingMediaDialog />
         <main className="relative flex-1 overflow-hidden">
           <AnimatePresence mode="wait" initial={false}>
             <ScreenFrame key={stage} motionKey={stage}>
               {screen === 'drop' && <DropScreen />}
-              {screen === 'processing' && <ProcessingScreen />}
+              {screen === 'processing' && (
+                <ProcessingScreen onBackground={() => setProcessingForeground(false)} />
+              )}
               {screen === 'clips' && <ClipGrid />}
+              {screen === 'cut-plan' && <CutPlanReviewScreen />}
               {screen === 'render' && <RenderScreen />}
             </ScreenFrame>
           </AnimatePresence>
         </main>
         <ErrorLog />
       </div>
-      <AutosaveToast />
       <Toaster />
+      <CompletionCelebration />
       <RecoveryPrompt />
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onNew={shortcutCallbacks.onNew}
+        onOpen={shortcutCallbacks.onLoad}
+        onSave={shortcutCallbacks.onSave}
+        onSaveAs={shortcutCallbacks.onSaveAs}
+        onShowShortcuts={() => setHelpOpen(true)}
+      />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </ErrorBoundary>
   );

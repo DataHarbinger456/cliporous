@@ -26,11 +26,15 @@
  * dedicated render-service and is out of scope for this screen.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createStructuredError, type StructuredError } from '@shared/errors';
+import { BUILTIN_PALETTES } from '@shared/palettes';
+import type { LongformEditPlan, LongformRenderFallback } from '@shared/types';
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Check,
   FileSpreadsheet,
   FileVideo,
@@ -40,44 +44,78 @@ import {
   Play,
   Plus,
   RotateCcw,
-} from 'lucide-react'
-import { toast } from 'sonner'
-
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { cn } from '@/lib/utils'
-
-import { startApprovedRender } from '@/services/render-service'
-import { LONGFORM_RENDER_DEFAULTS } from '@/services/render-defaults'
-import { PalettePicker } from '@/components/PalettePicker'
-import { TemplateEditor } from '@/components/TemplateEditor'
-import { useStore } from '@/store'
-import type { ClipCandidate, RenderProgress, SourceVideo } from '@/store/types'
-import type { LongformPlanRecord } from '@/store/longform-slice'
-import type { LongformEditPlan } from '@shared/types'
+  Settings as SettingsIcon,
+  Square,
+  X,
+} from 'lucide-react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { CompletedOutputCard } from '@/components/CompletedOutputCard';
+import { CutPlanReconciliation } from '@/components/CutPlanReconciliation';
+import { ErrorPresentation } from '@/components/ErrorPresentation';
+import { ExportPreflight } from '@/components/ExportPreflight';
+import { PalettePicker } from '@/components/PalettePicker';
+import { TemplateEditor } from '@/components/TemplateEditor';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { humanizeLongformKind } from '@/lib/longform-plan';
+import { cn } from '@/lib/utils';
+import { creatorPreparationLabel, recordRenderHistory } from '@/services/export-queue';
+import { prepareLongformRender, startLongformRender } from '@/services/longform-render-service';
+import { locateMissingSource } from '@/services/media-relink-service';
+import { startApprovedRender } from '@/services/render-service';
+import { useStore } from '@/store';
+import type { LongformPlanRecord } from '@/store/longform-slice';
+import type {
+  ClipCandidate,
+  RenderProgress,
+  SourceVideo,
+  StitchedClipCandidate,
+} from '@/store/types';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type RowStatus = RenderProgress['status'] // 'queued' | 'preparing' | 'rendering' | 'done' | 'error'
+type RowStatus = RenderProgress['status'];
 
 interface RowProgress {
-  status: RowStatus
-  percent: number
-  error?: string
-  /** Suggested action shown alongside the error summary (RF-022). */
-  suggestion?: string
-  /** Raw engine output (stderr tail), shown behind a "details" expander. */
-  details?: string
-  outputPath?: string
-  /** Live status text shown during the prepare phase (B-Roll, filler removal, etc.) */
-  prepareMessage?: string
-  /** One-line post-render note: what rendered vs. what was unavailable (RF-008). */
-  summary?: string
+  status: RowStatus;
+  percent: number;
+  error?: StructuredError;
+  outputPath?: string;
+  prepareMessage?: string;
+  preparationActivities?: RenderProgress['preparationActivities'];
+  fallbacks?: RenderProgress['fallbacks'];
+  summary?: string;
+}
+
+interface RowProgressFields {
+  error?: StructuredError | undefined;
+  outputPath?: string | undefined;
+  prepareMessage?: string | undefined;
+  preparationActivities?: RenderProgress['preparationActivities'] | undefined;
+  fallbacks?: RenderProgress['fallbacks'] | undefined;
+  summary?: string | undefined;
+}
+
+function toRowProgress(
+  status: RowStatus,
+  percent: number,
+  fields: RowProgressFields = {},
+): RowProgress {
+  const row: RowProgress = { status, percent };
+  if (fields.error !== undefined) row.error = fields.error;
+  if (fields.outputPath !== undefined) row.outputPath = fields.outputPath;
+  if (fields.prepareMessage !== undefined) row.prepareMessage = fields.prepareMessage;
+  if (fields.preparationActivities !== undefined) {
+    row.preparationActivities = fields.preparationActivities;
+  }
+  if (fields.fallbacks !== undefined) row.fallbacks = fields.fallbacks;
+  if (fields.summary !== undefined) row.summary = fields.summary;
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,69 +134,23 @@ interface RowProgress {
  * Example: "5 blocks (2 bar-chart, 2 stat-grid, 1 callout) · 3 cards · 12 phrases".
  */
 function summarizeLongformPlan(plan: LongformEditPlan): string {
-  const blocks = plan.blocks ?? []
-  const cards = plan.cards ?? []
-  const phrases = plan.phrases ?? []
+  const blocks = plan.blocks ?? [];
+  const cards = plan.cards ?? [];
+  const phrases = plan.phrases ?? [];
 
-  const kindCounts = new Map<string, number>()
-  for (const b of blocks) kindCounts.set(b.kind, (kindCounts.get(b.kind) ?? 0) + 1)
+  const kindCounts = new Map<string, number>();
+  for (const b of blocks) kindCounts.set(b.kind, (kindCounts.get(b.kind) ?? 0) + 1);
   const breakdown = Array.from(kindCounts.entries())
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([kind, n]) => `${n} ${kind}`)
-    .join(', ')
+    .join(', ');
 
   const parts = [
     `${blocks.length} block${blocks.length === 1 ? '' : 's'}${breakdown ? ` (${breakdown})` : ''}`,
     `${cards.length} card${cards.length === 1 ? '' : 's'}`,
     `${phrases.length} phrase${phrases.length === 1 ? '' : 's'}`,
-  ]
-  return parts.join(' · ')
-}
-
-/** Build a stable map of clipId → progress, defaulting unseen clips to queued. */
-function buildProgressMap(
-  approved: readonly ClipCandidate[],
-  records: readonly RenderProgress[]
-): Map<string, RowProgress> {
-  const map = new Map<string, RowProgress>()
-  for (const clip of approved) {
-    map.set(clip.id, { status: 'queued', percent: 0 })
-  }
-  for (const r of records) {
-    if (!map.has(r.clipId)) continue
-    map.set(r.clipId, {
-      status: r.status,
-      percent: r.percent,
-      error: r.error,
-      suggestion: r.suggestion,
-      details: r.details,
-      outputPath: r.outputPath,
-      prepareMessage: r.prepareMessage,
-      summary: r.summary,
-    })
-  }
-  return map
-}
-
-/** Pick a small poster image for the row. Custom thumbnail wins. */
-function pickThumbnail(clip: ClipCandidate): string | undefined {
-  return clip.customThumbnail ?? clip.thumbnail
-}
-
-/** Trailing path segment (filename) from a POSIX or Windows path. */
-function basename(filePath: string): string {
-  const parts = filePath.split(/[/\\]/)
-  return parts[parts.length - 1] || filePath
-}
-
-/** Reveal a rendered file in the OS file manager (Finder / Explorer). */
-async function revealInFolder(filePath: string): Promise<void> {
-  try {
-    await window.api.showItemInFolder(filePath)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    toast.error(`Couldn't reveal file: ${msg}`)
-  }
+  ];
+  return parts.join(' · ');
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +164,7 @@ function StatusBadge({ status }: { status: RowStatus }): React.JSX.Element {
         <Badge variant="outline" className="gap-1 font-normal">
           Pending
         </Badge>
-      )
+      );
     case 'preparing':
     case 'rendering':
       return (
@@ -180,21 +172,28 @@ function StatusBadge({ status }: { status: RowStatus }): React.JSX.Element {
           <Loader2 className="h-3 w-3 animate-spin" />
           {status === 'preparing' ? 'Preparing' : 'Rendering'}
         </Badge>
-      )
+      );
     case 'done':
       return (
         <Badge variant="default" className="gap-1 font-normal">
           <Check className="h-3 w-3" />
           Done
         </Badge>
-      )
+      );
     case 'error':
       return (
         <Badge variant="destructive" className="gap-1 font-normal">
           <AlertCircle className="h-3 w-3" />
           Error
         </Badge>
-      )
+      );
+    case 'cancelled':
+      return (
+        <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
+          <X className="h-3 w-3" />
+          Cancelled
+        </Badge>
+      );
   }
 }
 
@@ -203,34 +202,9 @@ function StatusBadge({ status }: { status: RowStatus }): React.JSX.Element {
 // the long-form 16:9 pipeline, which renders a single whole-video job).
 // ---------------------------------------------------------------------------
 
-/** Error summary + suggested action + raw-output "details" expander (RF-022). */
 function RenderErrorDetails({ progress }: { progress: RowProgress }): React.JSX.Element | null {
-  if (progress.status !== 'error' || !progress.error) return null
-  return (
-    <div className="mt-1.5">
-      <p
-        className="text-destructive line-clamp-2 text-xs font-medium"
-        title={progress.error}
-      >
-        {progress.error}
-      </p>
-      {progress.suggestion && (
-        <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
-          {progress.suggestion}
-        </p>
-      )}
-      {progress.details && progress.details !== progress.error && (
-        <details className="group mt-1">
-          <summary className="text-muted-foreground hover:text-foreground cursor-pointer list-none text-xs underline-offset-2 group-open:underline">
-            Details
-          </summary>
-          <pre className="text-muted-foreground bg-muted/40 mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded p-2 text-[11px] leading-snug">
-            {progress.details}
-          </pre>
-        </details>
-      )}
-    </div>
-  )
+  if (progress.status !== 'error' || !progress.error) return null;
+  return <ErrorPresentation error={progress.error} compact className="mt-3" />;
 }
 
 function GenericRow({
@@ -238,27 +212,24 @@ function GenericRow({
   progress,
   poster,
   planSummary,
+  controls,
+  fallbackActions,
 }: {
-  label: string
-  progress: RowProgress
-  /** Optional poster frame (e.g. the long-form source thumbnail). */
-  poster?: string
-  /**
-   * Persistent plan-composition line (RF-012): block-kind breakdown + card +
-   * phrase counts for the active long-form plan. Always visible (unlike the
-   * transient prepare message) so the rendered result is traceable to a plan
-   * the user actually saw.
-   */
-  planSummary?: string
+  label: string;
+  progress: RowProgress;
+  poster?: string;
+  planSummary?: string;
+  controls?: ReactNode;
+  fallbackActions?: ReactNode;
 }): React.JSX.Element {
-  const isActive = progress.status === 'rendering' || progress.status === 'preparing'
-  const isDone = progress.status === 'done'
-  const isError = progress.status === 'error'
-  const showBar = isActive || isDone
-  const barValue = isDone ? 100 : Math.max(0, Math.min(100, progress.percent))
+  const isActive = progress.status === 'rendering' || progress.status === 'preparing';
+  const isDone = progress.status === 'done';
+  const isError = progress.status === 'error';
+  const showBar = isActive || isDone;
+  const barValue = isDone ? 100 : Math.max(0, Math.min(100, progress.percent));
 
   return (
-    <Card className="flex items-center gap-3 p-3">
+    <Card className="flex items-center gap-3 border-border/80 bg-card/75 p-3 transition-[border-color,box-shadow] duration-150 hover:border-primary/35">
       <div className="bg-muted text-muted-foreground flex h-16 w-9 shrink-0 items-center justify-center overflow-hidden rounded">
         {poster ? (
           <img src={poster} alt="" draggable={false} className="h-full w-full object-cover" />
@@ -269,12 +240,18 @@ function GenericRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <p
-            className={cn('line-clamp-2 text-sm font-medium leading-snug', isError && 'text-destructive')}
+            className={cn(
+              'line-clamp-2 text-sm font-medium leading-snug',
+              isError && 'text-destructive',
+            )}
             title={label}
           >
             {label}
           </p>
-          <StatusBadge status={progress.status} />
+          <div className="flex shrink-0 items-center gap-1">
+            <StatusBadge status={progress.status} />
+            {controls}
+          </div>
         </div>
         {showBar && (
           <Progress
@@ -288,113 +265,54 @@ function GenericRow({
           </p>
         )}
         {progress.status === 'preparing' && progress.prepareMessage && (
-          <p className="text-muted-foreground mt-1.5 line-clamp-1 text-xs" title={progress.prepareMessage}>
+          <p
+            className="mt-1.5 line-clamp-1 text-xs text-muted-foreground"
+            title={progress.prepareMessage}
+          >
             {progress.prepareMessage}
           </p>
         )}
+        {progress.preparationActivities && progress.preparationActivities.length > 0 && (
+          <ul
+            className="mt-2 space-y-1 text-[11px] text-muted-foreground"
+            aria-label="Recent preparation activity"
+          >
+            {progress.preparationActivities.slice(-2).map((activity) => (
+              <li key={activity.id} className="flex items-center gap-1.5">
+                {activity.status === 'running' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="h-3 w-3 text-success" aria-hidden />
+                )}
+                {activity.label}
+              </li>
+            ))}
+          </ul>
+        )}
+        {progress.fallbacks && progress.fallbacks.length > 0 && (
+          <div className="mt-2 rounded-md border border-warning/35 bg-warning/10 p-2.5 text-xs">
+            <p className="flex items-start gap-1.5 font-medium text-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+              {progress.fallbacks.length} visual{' '}
+              {progress.fallbacks.length === 1 ? 'moment used' : 'moments used'} the speaker shot
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              {progress.fallbacks[progress.fallbacks.length - 1]?.reason}
+            </p>
+            {fallbackActions && (
+              <div className="mt-2 flex flex-wrap gap-1.5">{fallbackActions}</div>
+            )}
+          </div>
+        )}
         {isDone && progress.summary && (
-          <p className="text-muted-foreground mt-1.5 line-clamp-1 text-xs" title={progress.summary}>
+          <p className="mt-1.5 line-clamp-1 text-xs text-muted-foreground" title={progress.summary}>
             {progress.summary}
           </p>
         )}
         <RenderErrorDetails progress={progress} />
       </div>
     </Card>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Single clip row
-// ---------------------------------------------------------------------------
-
-interface ClipRowProps {
-  clip: ClipCandidate
-  progress: RowProgress
-}
-
-function ClipRow({ clip, progress }: ClipRowProps): React.JSX.Element {
-  const thumb = pickThumbnail(clip)
-  const isActive = progress.status === 'rendering' || progress.status === 'preparing'
-  const isDone = progress.status === 'done'
-  const isError = progress.status === 'error'
-  const showBar = isActive || isDone
-  const barValue = isDone ? 100 : Math.max(0, Math.min(100, progress.percent))
-
-  return (
-    <Card className="flex items-center gap-3 p-3">
-      {/* Thumbnail — small 9:16 tile */}
-      <div className="bg-muted relative h-16 w-9 shrink-0 overflow-hidden rounded">
-        {thumb ? (
-          <img
-            src={thumb}
-            alt=""
-            draggable={false}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="text-muted-foreground flex h-full w-full items-center justify-center">
-            <Play className="h-3.5 w-3.5 opacity-50" />
-          </div>
-        )}
-      </div>
-
-      {/* Hook text + status + progress */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <p
-            className={cn(
-              'line-clamp-2 text-sm font-medium leading-snug',
-              isError && 'text-destructive'
-            )}
-            title={clip.hookText || undefined}
-          >
-            {clip.hookText || (
-              <span className="text-muted-foreground italic">Untitled clip</span>
-            )}
-          </p>
-          <StatusBadge status={progress.status} />
-        </div>
-
-        {showBar && (
-          <Progress
-            value={barValue}
-            className={cn('mt-2 h-1.5', isError && '[&>div]:bg-destructive')}
-          />
-        )}
-
-        {progress.status === 'preparing' && progress.prepareMessage && (
-          <p
-            className="text-muted-foreground mt-1.5 line-clamp-1 text-xs"
-            title={progress.prepareMessage}
-          >
-            {progress.prepareMessage}
-          </p>
-        )}
-
-        <RenderErrorDetails progress={progress} />
-
-        {isDone && progress.outputPath && (
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 gap-1.5 px-2 text-xs"
-              onClick={() => revealInFolder(progress.outputPath as string)}
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Reveal in Finder
-            </Button>
-            <p
-              className="text-muted-foreground min-w-0 truncate text-xs"
-              title={progress.outputPath}
-            >
-              {basename(progress.outputPath)}
-            </p>
-          </div>
-        )}
-      </div>
-    </Card>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -408,38 +326,139 @@ function LongformSetup({
   source,
   disabled,
 }: {
-  record: LongformPlanRecord
-  source: SourceVideo | null
-  disabled: boolean
+  record: LongformPlanRecord;
+  source: SourceVideo | null;
+  disabled: boolean;
 }): React.JSX.Element {
-  const phrases = record.plan.phrases.length
-  const blocks = record.plan.blocks.length
+  const phrases = record.plan.phrases.length;
+  const blocks = record.plan.blocks.length;
+  const cards = record.plan.cards?.length ?? 0;
+  const noVisualBeats = phrases + blocks + cards === 0;
+  const sourceChecking = source?.mediaStatus === 'checking';
+  const sourceUnavailable = !source || source.mediaStatus === 'offline';
+
   return (
     <div className="space-y-4">
-      <Card className="flex items-start gap-3 p-4">
-        <div className="bg-muted text-muted-foreground flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded">
-          {source?.thumbnail ? (
-            <img src={source.thumbnail} alt="" draggable={false} className="h-full w-full object-cover" />
-          ) : (
-            <FileVideo className="h-4 w-4 opacity-60" />
-          )}
+      <Card className="overflow-hidden">
+        <div className="grid gap-4 border-b border-border bg-muted/25 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:p-5">
+          <div className="flex aspect-video items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+            {source?.thumbnail ? (
+              <img
+                src={source.thumbnail}
+                alt="Representative source frame"
+                draggable={false}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <FileVideo className="h-5 w-5 opacity-60" aria-hidden />
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">Accepted Cut Plan</Badge>
+              <Badge variant="outline">No AI re-analysis</Badge>
+            </div>
+            <h2
+              className="mt-2 truncate text-base font-semibold text-foreground"
+              title={source?.name}
+            >
+              {source?.name ?? 'Long-form source unavailable'}
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Re-render directly from the saved plan. Treatment changes affect the next export only;
+              the accepted editorial timing stays intact.
+            </p>
+            <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs">
+              <div>
+                <dt className="text-muted-foreground">Phrase overlays</dt>
+                <dd className="mt-0.5 font-semibold tabular-nums text-foreground">{phrases}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Content blocks</dt>
+                <dd className="mt-0.5 font-semibold tabular-nums text-foreground">{blocks}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Overlay cards</dt>
+                <dd className="mt-0.5 font-semibold tabular-nums text-foreground">{cards}</dd>
+              </div>
+            </dl>
+          </div>
         </div>
-        <div className="min-w-0">
-          <p className="text-foreground text-sm font-medium leading-snug">
-            {source ? `Long-form edit · ${source.name}` : 'Long-form edit (16:9)'}
-          </p>
-          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-            Saved edit plan · {phrases} phrase{phrases === 1 ? '' : 's'}, {blocks} block
-            {blocks === 1 ? '' : 's'}. Renders straight from the saved plan — no transcription or
-            AI re-analysis.
-          </p>
+
+        {sourceChecking && (
+          <div
+            role="status"
+            className="flex items-start gap-2 border-b border-border bg-muted/25 p-4"
+          >
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
+            <div>
+              <p className="text-xs font-medium text-foreground">Checking source media</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Export preparation unlocks when the saved source is confirmed.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {sourceUnavailable && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 p-4"
+          >
+            <div className="flex min-w-0 items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+              <div>
+                <p className="text-xs font-medium text-foreground">Source media is unavailable</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Relink the original video before preparing this export.
+                </p>
+              </div>
+            </div>
+            {source && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void locateMissingSource(source.id)}
+                disabled={disabled}
+              >
+                <FolderOpen className="h-4 w-4" aria-hidden />
+                Relink source
+              </Button>
+            )}
+          </div>
+        )}
+
+        {noVisualBeats && (
+          <div
+            className="flex items-start gap-2 border-b border-warning/35 bg-warning/10 p-4"
+            role="status"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+            <div>
+              <p className="text-xs font-medium text-foreground">Speaker-only saved plan</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                This export has no planned overlays or content blocks. The source video still
+                renders.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="p-4 sm:p-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold text-foreground">
+              Choose the next export treatment
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Compare skin and palette choices against this project's frame and saved copy.
+            </p>
+          </div>
+          <PalettePicker disabled={disabled} />
         </div>
-      </Card>
-      <Card className="p-4">
-        <PalettePicker disabled={disabled} />
       </Card>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -448,291 +467,411 @@ function LongformSetup({
 
 export function RenderScreen(): React.JSX.Element {
   // ── Store reads ────────────────────────────────────────────────────────
-  const activeSourceId = useStore((s) => s.activeSourceId)
-  const clipsBySource = useStore((s) => s.clips)
-  const longformPlans = useStore((s) => s.longformPlans)
-  const getLongformPlan = useStore((s) => s.getLongformPlan)
-  const sources = useStore((s) => s.sources)
-  const renderProgress = useStore((s) => s.renderProgress)
-  const renderErrors = useStore((s) => s.renderErrors)
-  const isRendering = useStore((s) => s.isRendering)
-  const outputDirectory = useStore((s) => s.settings.outputDirectory)
+  const activeSourceId = useStore((state) => state.activeSourceId);
+  const clipsBySource = useStore((state) => state.clips);
+  const stitchedBySource = useStore((state) => state.stitchedClips);
+  const longformPlans = useStore((state) => state.longformPlans);
+  const getLongformPlan = useStore((s) => s.getLongformPlan);
+  const sources = useStore((s) => s.sources);
+  const renderProgress = useStore((s) => s.renderProgress);
+  const renderErrors = useStore((s) => s.renderErrors);
+  const isRendering = useStore((s) => s.isRendering);
+  const renderCancellation = useStore((s) => s.renderCancellation);
+  const outputDirectory = useStore((s) => s.settings.outputDirectory);
+  const longformPaletteId = useStore((s) => s.settings.longformPaletteId);
+  const customPalettes = useStore((s) => s.settings.customPalettes);
 
   // ── Store writes ───────────────────────────────────────────────────────
-  const setRenderProgress = useStore((s) => s.setRenderProgress)
-  const setIsRendering = useStore((s) => s.setIsRendering)
-  const setRenderError = useStore((s) => s.setRenderError)
-  const clearRenderErrors = useStore((s) => s.clearRenderErrors)
-  const setPipeline = useStore((s) => s.setPipeline)
-  const setActiveSource = useStore((s) => s.setActiveSource)
-  const addError = useStore((s) => s.addError)
+  const setRenderProgress = useStore((s) => s.setRenderProgress);
+  const setIsRendering = useStore((s) => s.setIsRendering);
+  const setRenderCancellation = useStore((s) => s.setRenderCancellation);
+  const setRenderError = useStore((s) => s.setRenderError);
+  const clearRenderErrors = useStore((s) => s.clearRenderErrors);
+  const setPipeline = useStore((s) => s.setPipeline);
+  const setActiveSource = useStore((s) => s.setActiveSource);
+  const setLongformReconciliation = useStore((s) => s.setLongformReconciliation);
+  const addError = useStore((s) => s.addError);
 
   // ── Local state ────────────────────────────────────────────────────────
   // Tracks whether the most recent batch has finished — controls the
   // post-render footer (Open Folder / Back to Clips).
   const [batchSummary, setBatchSummary] = useState<{
-    completed: number
-    failed: number
-    total: number
-    manifestCsvPath?: string
-  } | null>(null)
+    completed: number;
+    failed: number;
+    total: number;
+    manifestCsvPath?: string;
+  } | null>(null);
+  const [stoppingAfterCurrent, setStoppingAfterCurrent] = useState(false);
+  const cancellationWatchdogRef = useRef<number | null>(null);
+  const segmentFallbacksRef = useRef<LongformRenderFallback[]>([]);
+  const verifiedOutputPathsRef = useRef(new Set<string>());
 
   // Active source metadata — drives the long-form row label + poster frame.
   const activeSource = useMemo(
     () => sources.find((s) => s.id === activeSourceId) ?? null,
-    [sources, activeSourceId]
-  )
+    [sources, activeSourceId],
+  );
+  const sourceBlocked =
+    !activeSource ||
+    activeSource.mediaStatus === 'checking' ||
+    activeSource.mediaStatus === 'offline';
+  const sourceBlockedMessage =
+    activeSource?.mediaStatus === 'checking'
+      ? 'Wait for the source media check before rendering'
+      : 'Relink the source media before rendering';
+  const paletteUnavailable = ![...BUILTIN_PALETTES, ...customPalettes].some(
+    (palette) => palette.id === longformPaletteId,
+  );
+  const renderBlocked = sourceBlocked || paletteUnavailable;
+  const renderBlockedMessage = paletteUnavailable
+    ? 'Restore or select a palette before rendering'
+    : sourceBlockedMessage;
 
   // Persisted long-form edit plan for the active source (RF-001). A restored
   // long-form project has this but no short-form clips; we re-render straight
   // from it without re-calling Gemini. Subscribe to `longformPlans` so the
   // lookup stays reactive while still reading through the store getter.
-  const longformPlanRecord = useMemo(
-    () => (activeSourceId ? getLongformPlan(activeSourceId) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- longformPlans drives reactivity
-    [activeSourceId, longformPlans, getLongformPlan]
-  )
+  const longformPlanRecord = useMemo(() => {
+    void longformPlans;
+    return activeSourceId ? getLongformPlan(activeSourceId) : null;
+  }, [activeSourceId, longformPlans, getLongformPlan]);
 
   // Seed the palette/skin picker with the axes the plan was saved with, so a
   // reopened project shows what it was rendered with. Seed once per source so
   // we don't clobber the user's in-session changes on every re-render.
-  const seededSourceRef = useRef<string | null>(null)
+  const seededSourceRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!longformPlanRecord || !activeSourceId) return
-    if (seededSourceRef.current === activeSourceId) return
-    seededSourceRef.current = activeSourceId
-    const store = useStore.getState()
-    store.setLongformSkin(longformPlanRecord.skin)
-    store.setLongformPaletteId(longformPlanRecord.paletteId)
-  }, [activeSourceId, longformPlanRecord])
+    if (!longformPlanRecord || !activeSourceId) return;
+    if (seededSourceRef.current === activeSourceId) return;
+    seededSourceRef.current = activeSourceId;
+    const store = useStore.getState();
+    store.setLongformSkin(longformPlanRecord.skin);
+    store.setLongformPaletteId(longformPlanRecord.paletteId);
+  }, [activeSourceId, longformPlanRecord]);
 
-  // ── Derived: approved clips for the active source ──────────────────────
   const approvedClips = useMemo<ClipCandidate[]>(() => {
-    if (!activeSourceId) return []
-    const list = clipsBySource[activeSourceId] ?? []
-    return list.filter((c) => c.status === 'approved')
-  }, [activeSourceId, clipsBySource])
+    if (!activeSourceId) return [];
+    return (clipsBySource[activeSourceId] ?? []).filter((clip) => clip.status === 'approved');
+  }, [activeSourceId, clipsBySource]);
+  const approvedStitched = useMemo<StitchedClipCandidate[]>(() => {
+    if (!activeSourceId) return [];
+    return (stitchedBySource[activeSourceId] ?? []).filter((clip) => clip.status === 'approved');
+  }, [activeSourceId, stitchedBySource]);
+  const queueItems = useMemo<RenderProgress[]>(() => {
+    if (renderProgress.length > 0) {
+      return [...renderProgress].sort(
+        (left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0),
+      );
+    }
+    const now = Date.now();
+    return [
+      ...approvedClips.map((clip, index) => ({
+        clipId: clip.id,
+        kind: 'clip' as const,
+        label: clip.hookText || 'Untitled clip',
+        sourceId: clip.sourceId,
+        durationSeconds: clip.duration,
+        queuePosition: index,
+        percent: 0,
+        status: 'queued' as const,
+        queuedAt: now,
+      })),
+      ...approvedStitched.map((clip, index) => ({
+        clipId: clip.id,
+        kind: 'stitched' as const,
+        label: clip.hookText || 'Stitched story',
+        sourceId: clip.sourceId,
+        durationSeconds: clip.duration,
+        queuePosition: approvedClips.length + index,
+        percent: 0,
+        status: 'queued' as const,
+        queuedAt: now,
+      })),
+    ];
+  }, [approvedClips, approvedStitched, renderProgress]);
 
-  // Merge store renderProgress + renderErrors into a stable per-row view.
-  const progressMap = useMemo(() => {
-    const merged: RenderProgress[] = renderProgress.map((r) => ({
-      ...r,
-      error: r.error ?? renderErrors[r.clipId]
-    }))
-    return buildProgressMap(approvedClips, merged)
-  }, [approvedClips, renderProgress, renderErrors])
+  useEffect(() => {
+    const pending = queueItems
+      .filter(
+        (item) =>
+          item.status === 'done' &&
+          item.outputPath &&
+          !verifiedOutputPathsRef.current.has(item.outputPath),
+      )
+      .flatMap((item) => (item.outputPath ? [item.outputPath] : []));
+    if (pending.length === 0) return;
+    for (const path of pending) verifiedOutputPathsRef.current.add(path);
+    void window.api
+      .checkMediaPaths(pending)
+      .then((statuses) => {
+        const availability = new Map(statuses.map((status) => [status.path, status.available]));
+        const current = useStore.getState().renderProgress;
+        const next = current.map((item) => {
+          if (!item.outputPath || !pending.includes(item.outputPath)) return item;
+          if (availability.get(item.outputPath)) {
+            return {
+              ...item,
+              checkpoints: Array.from(
+                new Set([...(item.checkpoints ?? []), 'output-verified' as const]),
+              ),
+            };
+          }
+          const { outputPath: missingOutput, ...rest } = item;
+          void missingOutput;
+          return {
+            ...rest,
+            status: 'queued' as const,
+            percent: 0,
+            prepareMessage: 'Previous output is missing. Ready to render again.',
+            checkpoints: (item.checkpoints ?? []).filter(
+              (checkpoint) => checkpoint !== 'output-verified',
+            ),
+          };
+        });
+        setRenderProgress(next);
+      })
+      .catch(() => {
+        for (const path of pending) verifiedOutputPathsRef.current.delete(path);
+      });
+  }, [queueItems, setRenderProgress]);
 
   // ── Subscribe to render:* events ───────────────────────────────────────
   useEffect(() => {
     // Snapshot the current renderProgress array on each event via the store
     // getState — avoids a stale-closure dependency on a reactive `state` ref.
-    const upsertProgress = (
-      clipId: string,
-      patch: Partial<RenderProgress>
-    ): void => {
-      const current = useStore.getState().renderProgress
-      const idx = current.findIndex((r) => r.clipId === clipId)
+    const upsertProgress = (clipId: string, patch: Partial<RenderProgress>): void => {
+      const current = useStore.getState().renderProgress;
+      const idx = current.findIndex((r) => r.clipId === clipId);
       if (idx === -1) {
-        const next: RenderProgress = {
-          clipId,
-          percent: patch.percent ?? 0,
-          status: patch.status ?? 'queued',
-          error: patch.error,
-          suggestion: patch.suggestion,
-          details: patch.details,
-          outputPath: patch.outputPath,
-          prepareMessage: patch.prepareMessage,
-          summary: patch.summary
+        const next = queueItems.map((item) =>
+          item.clipId === clipId ? { ...item, ...patch } : item,
+        );
+        if (!next.some((item) => item.clipId === clipId)) {
+          next.push({
+            clipId,
+            status: patch.status ?? 'queued',
+            percent: patch.percent ?? 0,
+            ...patch,
+          });
         }
-        setRenderProgress([...current, next])
+        setRenderProgress(next);
       } else {
-        const next = current.slice()
-        next[idx] = { ...next[idx], ...patch }
-        setRenderProgress(next)
+        const next = current.slice();
+        const existing = next[idx];
+        if (!existing) return;
+        next[idx] = { ...existing, ...patch };
+        setRenderProgress(next);
       }
-    }
+    };
 
     const offPrepare = window.api.onRenderClipPrepare((data) => {
       // Prep runs before the encode begins. Don't downgrade a row that has
       // already moved on to 'rendering'/'done' (events can race on retry).
-      const current = useStore.getState().renderProgress
-      const row = current.find((r) => r.clipId === data.clipId)
-      if (row && (row.status === 'rendering' || row.status === 'done')) return
+      const current = useStore.getState().renderProgress;
+      const row = current.find((r) => r.clipId === data.clipId);
+      if (row && (row.status === 'rendering' || row.status === 'done')) return;
+      const label = creatorPreparationLabel(data.message);
+      const previousActivities = (row?.preparationActivities ?? []).map((activity) =>
+        activity.status === 'running' ? { ...activity, status: 'done' as const } : activity,
+      );
       upsertProgress(data.clipId, {
         status: 'preparing',
         percent: Math.max(0, Math.min(100, data.percent)),
-        prepareMessage: data.message,
-      })
-    })
+        prepareMessage: label,
+        checkpoints: Array.from(new Set([...(row?.checkpoints ?? []), 'prepared' as const])),
+        preparationActivities: [
+          ...previousActivities,
+          {
+            id: `${data.clipId}-${Date.now()}-${data.percent}`,
+            label,
+            status: 'running' as const,
+            timestamp: Date.now(),
+          },
+        ].slice(-8),
+      });
+    });
 
     const offStart = window.api.onRenderClipStart((data) => {
-      // Note: a stale prepareMessage may remain on the row, but the UI only
-      // renders it while status === 'preparing', so it's harmless once we
-      // flip to 'rendering'.
-      upsertProgress(data.clipId, { status: 'rendering', percent: 0 })
-    })
+      if (useStore.getState().getLongformPlan(data.clipId)) {
+        segmentFallbacksRef.current = [];
+      }
+      useStore.setState({
+        activeEncoder: { encoder: data.encoder, isHardware: data.encoderIsHardware },
+      });
+      upsertProgress(data.clipId, {
+        status: 'rendering',
+        percent: 0,
+        startedAt: Date.now(),
+        preparationActivities: (
+          useStore.getState().renderProgress.find((item) => item.clipId === data.clipId)
+            ?.preparationActivities ?? []
+        ).map((activity) => ({ ...activity, status: 'done' as const })),
+      });
+    });
 
     const offProgress = window.api.onRenderClipProgress((data) => {
       upsertProgress(data.clipId, {
         status: 'rendering',
-        percent: Math.max(0, Math.min(100, data.percent))
-      })
-    })
+        percent: Math.max(0, Math.min(100, data.percent)),
+      });
+    });
 
     const offDone = window.api.onRenderClipDone((data) => {
+      const finishedAt = Date.now();
+      const state = useStore.getState();
+      const row = state.renderProgress.find((item) => item.clipId === data.clipId);
+      const encoder = state.activeEncoder;
+      if (row?.startedAt && row.durationSeconds && encoder) {
+        recordRenderHistory({
+          encoder: encoder.encoder,
+          hardware: encoder.isHardware,
+          quality: state.settings.renderQuality.preset,
+          mediaSeconds: row.durationSeconds,
+          renderSeconds: Math.max(1, (finishedAt - row.startedAt) / 1000),
+          completedAt: finishedAt,
+        });
+      }
       upsertProgress(data.clipId, {
         status: 'done',
         percent: 100,
         outputPath: data.outputPath,
-        // Only attach when present so the done patch stays free of an
-        // `undefined`-typed field under exactOptionalPropertyTypes.
-        ...(data.summary ? { summary: data.summary } : {})
-      })
-    })
+        completedAt: finishedAt,
+        checkpoints: Array.from(
+          new Set([...(row?.checkpoints ?? []), 'encoded' as const, 'output-verified' as const]),
+        ),
+        ...(data.summary ? { summary: data.summary } : {}),
+      });
+      if (data.reconciliation) {
+        setLongformReconciliation(data.clipId, {
+          ...data.reconciliation,
+          fallbacks: [...data.reconciliation.fallbacks, ...segmentFallbacksRef.current],
+        });
+      }
+    });
+
+    const offFallback = window.api.onSegmentFallback((data) => {
+      const state = useStore.getState();
+      const row = state.renderProgress.find((item) => item.clipId === data.clipId);
+      const kind = humanizeLongformKind(data.archetype);
+      const fallback = {
+        id: `${data.clipId}-${data.segmentIndex}-${Date.now()}`,
+        message: `${kind} used the speaker shot`,
+        reason: data.reason,
+        actionable: true,
+        timestamp: Date.now(),
+      };
+      upsertProgress(data.clipId, { fallbacks: [...(row?.fallbacks ?? []), fallback] });
+      if (state.getLongformPlan(data.clipId)) {
+        segmentFallbacksRef.current.push({
+          type: 'segment',
+          count: 1,
+          label: `Segment ${data.segmentIndex + 1}, ${kind}`,
+          reason: data.reason,
+        });
+      }
+    });
 
     const offError = window.api.onRenderClipError((data) => {
-      setRenderError(data.clipId, data.error)
-      upsertProgress(data.clipId, {
-        status: 'error',
-        error: data.error,
-        suggestion: data.suggestion,
-        details: data.details,
-      })
-      // Mirror render failures into the global error log so the bottom
-      // <ErrorLog> panel reflects everything the main process reports. Include
-      // the suggested action; keep the raw engine output (details) in the log
-      // too so the developer-facing panel stays complete.
-      addError({
-        source: 'render',
-        message: [
-          `Clip ${data.clipId} failed: ${data.error}`,
-          data.suggestion ? `Try: ${data.suggestion}` : '',
-          data.details && data.details !== data.error ? data.details : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      })
-    })
+      setRenderError(data.clipId, data.error);
+      upsertProgress(data.clipId, { status: 'error', error: data.error, completedAt: Date.now() });
+      addError(data.error);
+    });
+
+    const offClipCancelled = window.api.onRenderClipCancelled((data) => {
+      upsertProgress(data.clipId, { status: 'cancelled', percent: 0, completedAt: Date.now() });
+    });
 
     const offBatchDone = window.api.onRenderBatchDone((data) => {
-      setIsRendering(false)
-      setPipeline({ stage: 'done', message: '', percent: 100 })
-      setBatchSummary(data)
-      if (data.failed === 0) {
-        toast.success(`Rendered ${data.completed}/${data.total} clip${data.total === 1 ? '' : 's'}`)
-      } else {
-        toast.error(`${data.failed} of ${data.total} clip${data.total === 1 ? '' : 's'} failed`)
+      if (cancellationWatchdogRef.current !== null) {
+        window.clearTimeout(cancellationWatchdogRef.current);
+        cancellationWatchdogRef.current = null;
       }
-    })
+      setStoppingAfterCurrent(false);
+      setRenderCancellation({ status: 'idle', error: null });
+      setIsRendering(false);
+      setPipeline({ stage: 'done', message: '', percent: 100 });
+      setBatchSummary(data);
+      if (data.failed === 0) {
+        toast.success(
+          `Export pack ready: ${data.completed} of ${data.total} ${data.total === 1 ? 'file' : 'files'}`,
+        );
+      } else {
+        toast.error(
+          `${data.failed} of ${data.total} ${data.total === 1 ? 'export' : 'exports'} failed`,
+        );
+      }
+    });
 
     const offCancelled = window.api.onRenderCancelled((data) => {
-      setIsRendering(false)
-      setPipeline({ stage: 'ready', message: '', percent: 0 })
-      setBatchSummary(data)
-      toast.message('Render cancelled')
-    })
+      if (cancellationWatchdogRef.current !== null) {
+        window.clearTimeout(cancellationWatchdogRef.current);
+        cancellationWatchdogRef.current = null;
+      }
+      setStoppingAfterCurrent(false);
+      setRenderCancellation({ status: 'idle', error: null });
+      setIsRendering(false);
+      setPipeline({ stage: 'rendering', message: 'Queue stopped with progress kept', percent: 0 });
+      setBatchSummary(data);
+      toast.message('Queue stopped. Completed media and remaining jobs are kept.');
+    });
 
     return () => {
-      offPrepare()
-      offStart()
-      offProgress()
-      offDone()
-      offError()
-      offBatchDone()
-      offCancelled()
-    }
-  }, [setRenderProgress, setRenderError, setIsRendering, setPipeline, addError])
+      offPrepare();
+      offStart();
+      offProgress();
+      offDone();
+      offFallback();
+      offError();
+      offClipCancelled();
+      offBatchDone();
+      offCancelled();
+      if (cancellationWatchdogRef.current !== null) {
+        window.clearTimeout(cancellationWatchdogRef.current);
+        cancellationWatchdogRef.current = null;
+      }
+    };
+  }, [
+    setRenderProgress,
+    setRenderError,
+    setRenderCancellation,
+    setIsRendering,
+    setPipeline,
+    setLongformReconciliation,
+    addError,
+    queueItems,
+  ]);
 
   // ── Action: Render All ────────────────────────────────────────────────
   // Delegates to the shared render-service so the ClipGrid "Render Approved"
   // button and this "Render All" button stay in lockstep.
   const handleRenderAll = async (): Promise<void> => {
-    setBatchSummary(null)
-    await startApprovedRender()
-  }
+    setBatchSummary(null);
+    setRenderCancellation({ status: 'idle', error: null });
+    await startApprovedRender();
+  };
 
-  // ── Action: Render long-form from the saved plan (RF-001) ─────────────
-  // Re-runs the persisted Gemini edit plan via startBatchRender — no
-  // transcription, no Gemini re-call. Uses the skin/palette currently picked
-  // (seeded from the saved record, editable via PalettePicker above).
+  // Compatibility path for reopened completed projects. Draft and legacy plans
+  // return to explicit review instead of bypassing approval.
   const handleLongformRender = async (): Promise<void> => {
-    if (!activeSource || !activeSourceId) return
-    const state = useStore.getState()
-    const record = state.getLongformPlan(activeSourceId)
-    if (!record) {
-      toast.error('No saved edit plan to render')
-      return
+    const record = activeSourceId ? useStore.getState().getLongformPlan(activeSourceId) : null;
+    if (!record || record.status !== 'accepted') {
+      setPipeline({ stage: 'ready', message: 'Cut Plan ready for review', percent: 100 });
+      toast.message('Review and accept the Cut Plan before rendering');
+      return;
     }
-
-    // Zero-config floor — fall back to the app default output dir if unset.
-    let outputDirectory = state.settings.outputDirectory
-    if (!outputDirectory) {
-      outputDirectory = (await window.api.getDefaultOutputDirectory().catch(() => null)) ?? null
-      if (!outputDirectory) {
-        toast.error('Couldn’t resolve a default output directory')
-        return
-      }
-      const resolved = outputDirectory
-      useStore.setState((s) => {
-        s.settings.outputDirectory = resolved
-      })
-    }
-
-    setBatchSummary(null)
-    clearRenderErrors()
-    setRenderProgress([{ clipId: activeSourceId, percent: 0, status: 'queued' }])
-    setIsRendering(true)
-    setPipeline({ stage: 'rendering', message: '', percent: 0 })
-
-    try {
-      await window.api.startBatchRender({
-        outputDirectory,
-        outputProfile: 'longform',
-        // The persisted plan is the shared canonical shape; the preload mirror
-        // is structurally identical, so bridge it across the IPC boundary.
-        longformEditPlan: record.plan as unknown as NonNullable<
-          Parameters<typeof window.api.startBatchRender>[0]['longformEditPlan']
-        >,
-        longformSkinId: state.settings.longformSkin,
-        longformPaletteId: state.settings.longformPaletteId,
-        customPalettes: state.settings.customPalettes ?? LONGFORM_RENDER_DEFAULTS.customPalettes,
-        renderQuality: state.settings.renderQuality,
-        developerMode: state.settings.developerMode,
-        // Forwarded for in-render asset generation (e.g. pop-up cards); the plan
-        // already exists, so no plan/transcription work is re-triggered.
-        geminiApiKey: state.settings.geminiApiKey,
-        sourceMeta: {
-          name: activeSource.name,
-          path: activeSource.path,
-          duration: activeSource.duration,
-        },
-        jobs: [
-          {
-            clipId: activeSourceId,
-            sourceVideoPath: activeSource.path,
-            startTime: 0,
-            endTime: activeSource.duration,
-          },
-        ],
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setIsRendering(false)
-      setPipeline({ stage: 'error', message: msg, percent: 0 })
-      toast.error(`Couldn't start render: ${msg}`)
-      addError({ source: 'render', message: `Couldn't start render: ${msg}` })
-    }
-  }
+    setBatchSummary(null);
+    await prepareLongformRender();
+  };
 
   // ── Action: Render long-form again ────────────────────────────
   // Clears the finished batch so the LongformSetup surface (PalettePicker)
   // reappears, letting the user change skin/palette before another render.
   const handleLongformReset = (): void => {
-    setBatchSummary(null)
-    setRenderProgress([])
-    clearRenderErrors()
-    setPipeline({ stage: 'ready', message: '', percent: 0 })
-  }
+    setBatchSummary(null);
+    setRenderProgress([]);
+    clearRenderErrors();
+    setPipeline({ stage: 'ready', message: '', percent: 0 });
+  };
 
   // ── Action: Retry Failed ──────────────────────────────────────────────
   // Re-runs only the clips whose renderProgress status is 'error', so a
@@ -741,107 +880,241 @@ export function RenderScreen(): React.JSX.Element {
     const failedIds = useStore
       .getState()
       .renderProgress.filter((r) => r.status === 'error')
-      .map((r) => r.clipId)
-    if (failedIds.length === 0) return
-    setBatchSummary(null)
-    await startApprovedRender({ clipIds: failedIds })
-  }
+      .map((r) => r.clipId);
+    if (failedIds.length === 0) return;
+    setBatchSummary(null);
+    setRenderCancellation({ status: 'idle', error: null });
+    if (longformPlanRecord && failedIds.includes(activeSourceId ?? '')) {
+      await startLongformRender();
+      return;
+    }
+    await startApprovedRender({ clipIds: failedIds });
+  };
+
+  const handleRetryOne = async (clipId: string): Promise<void> => {
+    setBatchSummary(null);
+    if (longformPlanRecord && clipId === activeSourceId) {
+      await startLongformRender();
+      return;
+    }
+    await startApprovedRender({ clipIds: [clipId] });
+  };
+
+  const moveQueuedJob = (clipId: string, direction: -1 | 1): void => {
+    if (isRendering) return;
+    const current = [...useStore.getState().renderProgress].sort(
+      (left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0),
+    );
+    const index = current.findIndex((item) => item.clipId === clipId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= current.length) return;
+    [current[index], current[target]] = [
+      current[target] as RenderProgress,
+      current[index] as RenderProgress,
+    ];
+    setRenderProgress(current.map((item, position) => ({ ...item, queuePosition: position })));
+  };
+
+  const cancelQueuedJob = async (clipId: string): Promise<void> => {
+    const current = useStore.getState().renderProgress;
+    const row = current.find((item) => item.clipId === clipId);
+    if (!row || row.status !== 'queued') return;
+    if (isRendering) await window.api.cancelQueuedRenderJob(clipId);
+    setRenderProgress(
+      current.map((item) =>
+        item.clipId === clipId
+          ? { ...item, status: 'cancelled' as const, percent: 0, completedAt: Date.now() }
+          : item,
+      ),
+    );
+  };
+
+  const handleStopAfterCurrent = async (): Promise<void> => {
+    if (stoppingAfterCurrent) return;
+    setStoppingAfterCurrent(true);
+    try {
+      await window.api.stopRenderAfterCurrent();
+      toast.message('Finishing active exports. Remaining jobs will stay queued.');
+    } catch (caught) {
+      setStoppingAfterCurrent(false);
+      toast.error(caught instanceof Error ? caught.message : "Couldn't stop the queue safely");
+    }
+  };
+
+  const clearCompleted = (): void => {
+    setRenderProgress(useStore.getState().renderProgress.filter((item) => item.status !== 'done'));
+    setBatchSummary(null);
+  };
+
+  const handleFixFallback = (clipId: string): void => {
+    if (longformPlanRecord && clipId === activeSourceId) {
+      handleLongformReset();
+      return;
+    }
+    useStore.getState().setWorkspaceSelectedClip(clipId);
+    setPipeline({ stage: 'ready', message: 'Review visual fallback', percent: 100 });
+  };
 
   // ── Action: Cancel ────────────────────────────────────────────────────
   const handleCancel = async (): Promise<void> => {
+    if (renderCancellation.status === 'cancelling') return;
+    setRenderCancellation({ status: 'cancelling', error: null });
+
+    const markCancellationFailed = (caught: unknown): void => {
+      const error = createStructuredError({
+        source: 'render',
+        error: caught,
+        headline: "BatchClip couldn't stop rendering yet",
+        whatHappened: 'The render is still running.',
+        whatIsSafe: 'Completed outputs and your clip edits have been kept.',
+        whatToDoNext: 'Try cancelling again. Keep BatchClip open until rendering stops.',
+        failedStage: 'rendering',
+        recoveryAction: 'retry',
+        retryable: true,
+      });
+      addError(error);
+      setRenderCancellation({ status: 'failed', error });
+    };
+
     try {
-      await window.api.cancelRender()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Couldn't cancel: ${msg}`)
+      await window.api.cancelRender();
+      if (cancellationWatchdogRef.current !== null) {
+        window.clearTimeout(cancellationWatchdogRef.current);
+      }
+      cancellationWatchdogRef.current = window.setTimeout(() => {
+        const state = useStore.getState();
+        if (state.isRendering && state.renderCancellation.status === 'cancelling') {
+          markCancellationFailed(
+            new Error('The render did not confirm cancellation within 25 seconds.'),
+          );
+        }
+      }, 25_000);
+    } catch (caught) {
+      markCancellationFailed(caught);
     }
-  }
+  };
 
   // ── Action: Open Output Folder ────────────────────────────────────────
   const handleOpenFolder = async (): Promise<void> => {
     try {
-      const result = await window.api.openOutputFolder(outputDirectory ?? undefined)
+      const result = await window.api.openOutputFolder(outputDirectory ?? undefined);
       // shell.openPath returns '' on success and an error string on failure.
-      if (result) toast.error(`Couldn't open folder: ${result}`)
+      if (result) toast.error(`Couldn't open folder: ${result}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Couldn't open folder: ${msg}`)
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Couldn't open folder: ${msg}`);
     }
-  }
+  };
 
   // ── Action: Open manifest.csv ────────────────────────────────
   // Opens the exported caption/hashtag sheet in the OS default app.
   const handleOpenCsv = async (): Promise<void> => {
-    const csvPath = batchSummary?.manifestCsvPath
-    if (!csvPath) return
+    const csvPath = batchSummary?.manifestCsvPath;
+    if (!csvPath) return;
     try {
-      const result = await window.api.openPath(csvPath)
+      const result = await window.api.openPath(csvPath);
       // shell.openPath returns '' on success and an error string on failure.
-      if (result) toast.error(`Couldn't open CSV: ${result}`)
+      if (result) toast.error(`Couldn't open CSV: ${result}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Couldn't open CSV: ${msg}`)
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Couldn't open CSV: ${msg}`);
     }
-  }
+  };
 
   // ── Action: Back to Clips ─────────────────────────────────────────────
   const handleBackToClips = (): void => {
-    setBatchSummary(null)
-    setRenderProgress([])
-    clearRenderErrors()
-    setPipeline({ stage: 'ready', message: '', percent: 0 })
-  }
+    setBatchSummary(null);
+    setRenderProgress([]);
+    clearRenderErrors();
+    setPipeline({ stage: 'ready', message: '', percent: 0 });
+  };
 
   // ── Action: New video (long-form) ─────────────────────────────────────
   // Long-form has no clip grid to return to, so "Back to Clips" would strand
   // the user on ClipGrid's empty state. Reset to a clean slate → DropScreen.
   const handleNewVideo = (): void => {
-    setBatchSummary(null)
-    setRenderProgress([])
-    clearRenderErrors()
-    setActiveSource(null)
-    setPipeline({ stage: 'idle', message: '', percent: 0 })
-  }
+    setBatchSummary(null);
+    setRenderProgress([]);
+    clearRenderErrors();
+    setActiveSource(null);
+    setPipeline({ stage: 'idle', message: '', percent: 0 });
+  };
 
   // ── Render ────────────────────────────────────────────────────────────
-  const isComplete = batchSummary !== null && !isRendering
-  // A restored long-form project (RF-001): persisted Gemini edit plan, no
-  // short-form clips. Before a render is kicked off it shows the skin/palette
-  // setup surface; afterwards it shares the long-form progress rows below.
+  const reconciliation = longformPlanRecord?.reconciliation ?? null;
   const showLongformSetup =
     longformPlanRecord !== null &&
+    reconciliation === null &&
     approvedClips.length === 0 &&
-    renderProgress.length === 0 &&
-    !isComplete
-  // Long-form (16:9) renders a single whole-video job with no ClipCandidates,
-  // so fall back to the live render-progress rows for the count + labels.
+    approvedStitched.length === 0 &&
+    renderProgress.length === 0;
   const isLongform =
-    approvedClips.length === 0 && (renderProgress.length > 0 || longformPlanRecord !== null)
-  const totalCount = showLongformSetup
-    ? 1
-    : isLongform
-      ? renderProgress.length
-      : approvedClips.length
-  const doneCount = renderProgress.filter((r) => r.status === 'done').length
-  const failedCount = renderProgress.filter((r) => r.status === 'error').length
-  const itemNoun = isLongform ? 'video' : 'clip'
+    longformPlanRecord !== null || queueItems.some((item) => item.kind === 'longform');
+  const totalCount = showLongformSetup ? 1 : Math.max(queueItems.length, reconciliation ? 1 : 0);
+  const doneCount = Math.max(
+    queueItems.filter((item) => item.status === 'done').length,
+    reconciliation ? 1 : 0,
+  );
+  const failedCount = queueItems.filter((item) => item.status === 'error').length;
+  const queuedCount = queueItems.filter((item) => item.status === 'queued').length;
+  const cancelledCount = queueItems.filter((item) => item.status === 'cancelled').length;
+  const completedRows = queueItems.filter(
+    (item): item is RenderProgress & { outputPath: string } =>
+      item.status === 'done' && typeof item.outputPath === 'string',
+  );
+  const isComplete = !isRendering && completedRows.length > 0 && queuedCount === 0;
+  const showPreflight = !isRendering && queuedCount > 0 && !showLongformSetup;
+  const isCancelling = renderCancellation.status === 'cancelling';
+  const displayedError =
+    renderCancellation.error ??
+    [...queueItems].reverse().find((entry) => entry.error)?.error ??
+    null;
+  const itemNoun = isLongform ? 'video' : 'export';
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-6 py-6">
-      {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="mb-4 flex shrink-0 items-center justify-between gap-3">
+    <div className="studio-shell mx-auto flex h-full w-full max-w-5xl flex-col overflow-y-auto px-4 py-4 sm:px-6 min-[1100px]:py-6">
+      {/* Production queue header keeps counts, source, destination, and actions together. */}
+      <div className="mb-4 grid shrink-0 grid-cols-1 items-end gap-3 border-b border-border/80 pb-4 md:grid-cols-[minmax(0,1fr)_auto] min-[1100px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1100px]:gap-4 min-[1100px]:pb-5">
         <div className="min-w-0">
-          <h2 className="text-foreground text-base font-semibold tracking-tight">
-            Render
-          </h2>
-          <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
-            {totalCount} {itemNoun}{totalCount === 1 ? '' : 's'}
-            {isRendering && ` · ${doneCount} done`}
-            {isRendering && failedCount > 0 && ` · ${failedCount} failed`}
+          <p className="text-primary text-[11px] font-semibold uppercase tracking-[0.16em]">
+            Production queue
+          </p>
+          <h1 className="text-foreground mt-1 text-2xl font-semibold tracking-tight">Render</h1>
+          <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+            {totalCount} {itemNoun}
+            {totalCount === 1 ? '' : 's'}
+            {queuedCount > 0 && ` · ${queuedCount} queued`}
+            {doneCount > 0 && ` · ${doneCount} done`}
+            {failedCount > 0 && ` · ${failedCount} failed`}
+          </p>
+          <p
+            className="text-muted-foreground mt-2 max-w-xl truncate text-xs"
+            title={outputDirectory ?? undefined}
+          >
+            Destination: {outputDirectory ?? 'Output folder not set'}
           </p>
         </div>
+        <section
+          className="flex flex-wrap items-center gap-2 md:justify-end"
+          aria-label="Render summary"
+        >
+          <span className="rounded-md border border-border/70 bg-card/70 px-2.5 py-1.5 text-xs text-muted-foreground">
+            <strong className="text-foreground">{queuedCount}</strong> queued
+          </span>
+          <span className="rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+            <strong>{doneCount}</strong> done
+          </span>
+          <span className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+            <strong>{failedCount}</strong> failed
+          </span>
+          {cancelledCount > 0 && (
+            <span className="rounded-md border border-border/70 bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">
+              <strong>{cancelledCount}</strong> cancelled
+            </span>
+          )}
+        </section>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:col-span-2 min-[1100px]:col-span-1 min-[1100px]:justify-end">
           {isLongform ? (
             <Button
               variant="ghost"
@@ -865,98 +1138,300 @@ export function RenderScreen(): React.JSX.Element {
               Back to Clips
             </Button>
           )}
-          {!isRendering && !showLongformSetup && <TemplateEditor />}
+          {!isRendering && !showLongformSetup && !isLongform && <TemplateEditor />}
           {isRendering ? (
-            <Button variant="destructive" size="sm" onClick={handleCancel}>
-              Cancel
+            <>
+              <Button
+                size="sm"
+                onClick={() => void handleStopAfterCurrent()}
+                disabled={stoppingAfterCurrent}
+                aria-live="polite"
+              >
+                {stoppingAfterCurrent ? (
+                  <Loader2 className="animate-spin" aria-hidden />
+                ) : (
+                  <Square aria-hidden />
+                )}
+                {stoppingAfterCurrent ? 'Finishing current exports' : 'Stop after current'}
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => void handleCancel()}
+                disabled={isCancelling || stoppingAfterCurrent}
+                className={cn(isCancelling && 'disabled:opacity-100')}
+              >
+                {isCancelling && <Loader2 className="animate-spin" aria-hidden />}
+                {isCancelling
+                  ? 'Cancelling now'
+                  : renderCancellation.status === 'failed'
+                    ? 'Retry cancel'
+                    : 'Cancel now'}
+              </Button>
+            </>
+          ) : reconciliation ? (
+            <Button size="sm" variant="outline" onClick={handleLongformReset}>
+              <RotateCcw />
+              Review plan
             </Button>
           ) : showLongformSetup ? (
-            <Button size="sm" onClick={handleLongformRender} disabled={!activeSource}>
-              <Play />
-              Render
-            </Button>
-          ) : (
             <Button
               size="sm"
-              onClick={handleRenderAll}
-              disabled={isComplete || totalCount === 0}
+              onClick={handleLongformRender}
+              disabled={renderBlocked}
+              title={renderBlocked ? renderBlockedMessage : undefined}
             >
               <Play />
-              Render All
+              Prepare export
             </Button>
-          )}
+          ) : doneCount > 0 ? (
+            <Button size="sm" variant="outline" onClick={clearCompleted}>
+              <X aria-hidden />
+              Clear completed
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      {/* ── Inline batch error — surfaces the most recent failure even
-           when the bottom <ErrorLog> is collapsed. ───────────────────── */}
-      {failedCount > 0 && (
-        <Alert variant="destructive" className="mb-3">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>
-            {failedCount} clip{failedCount === 1 ? '' : 's'} failed to render
-          </AlertTitle>
-          <AlertDescription className="break-words">
-            See the error log at the bottom of the window for details.
-          </AlertDescription>
-        </Alert>
+      {displayedError && (failedCount > 0 || renderCancellation.status === 'failed') && (
+        <ErrorPresentation
+          error={displayedError}
+          className="mb-4"
+          actions={
+            renderCancellation.status === 'failed'
+              ? [
+                  {
+                    label: 'Retry cancellation',
+                    onClick: handleCancel,
+                    icon: RotateCcw,
+                  },
+                ]
+              : !isRendering && failedCount > 0
+                ? [
+                    ...(displayedError.recoveryAction === 'free-space'
+                      ? [
+                          {
+                            label: 'Free Space',
+                            onClick: () => window.api.openSettingsWindow(),
+                            icon: SettingsIcon,
+                          },
+                        ]
+                      : []),
+                    ...(displayedError.recoveryAction === 'relink' && activeSource
+                      ? [
+                          {
+                            label: 'Relink Source',
+                            onClick: async () => {
+                              await locateMissingSource(activeSource.id);
+                            },
+                            icon: FolderOpen,
+                          },
+                        ]
+                      : []),
+                    {
+                      label: `Retry failed (${failedCount})`,
+                      onClick: handleRetryFailed,
+                      icon: RotateCcw,
+                    },
+                  ]
+                : []
+          }
+        />
+      )}
+
+      {longformPlanRecord?.reconciliation && (
+        <div className="mb-4">
+          <CutPlanReconciliation reconciliation={longformPlanRecord.reconciliation} compact />
+        </div>
+      )}
+
+      {showPreflight && activeSource && (
+        <div className="mb-4">
+          <ExportPreflight
+            queue={queueItems}
+            sourceId={activeSource.id}
+            sourcePaths={[activeSource.path]}
+            outputMode={isLongform ? 'longform' : 'short'}
+            onStart={
+              isLongform
+                ? async () => {
+                    setBatchSummary(null);
+                    await startLongformRender();
+                  }
+                : handleRenderAll
+            }
+          />
+        </div>
       )}
 
       {/* ── Clip list ───────────────────────────────────────────────── */}
-      <div className="-mx-1 flex-1 space-y-2 overflow-y-auto px-1">
+      <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
         {showLongformSetup && longformPlanRecord ? (
-          // Restored long-form project (RF-001) — pick skin/palette, then render
-          // straight from the saved plan (no Gemini re-call).
-          <LongformSetup
-            record={longformPlanRecord}
-            source={activeSource}
-            disabled={isRendering}
-          />
-        ) : approvedClips.length === 0 && renderProgress.length === 0 ? (
+          <LongformSetup record={longformPlanRecord} source={activeSource} disabled={isRendering} />
+        ) : queueItems.length === 0 && !reconciliation ? (
           <div className="flex h-full w-full items-center justify-center p-6">
             <Card className="flex w-full max-w-sm flex-col items-center gap-3 px-6 py-10 text-center">
               <FileVideo
-                className="text-muted-foreground h-10 w-10"
+                className="h-10 w-10 text-muted-foreground"
                 strokeWidth={1.5}
                 aria-hidden
               />
-              <p className="text-foreground text-sm font-medium">
-                No approved clips
-              </p>
-              <p className="text-muted-foreground text-xs">
-                Approve clips on the previous screen, then come back to render.
+              <p className="text-sm font-medium text-foreground">No exports queued</p>
+              <p className="text-xs text-muted-foreground">
+                Approve clips on the previous screen, then prepare an export.
               </p>
             </Card>
           </div>
-        ) : approvedClips.length === 0 ? (
-          // Output modes without ClipCandidates (long-form 16:9) — render the
-          // raw progress rows reported by the render:* events.
-          renderProgress.map((r) => (
-            <GenericRow
-              key={r.clipId}
-              label={activeSource ? `Long-form edit · ${activeSource.name}` : 'Long-form edit (16:9)'}
-              poster={activeSource?.thumbnail}
-              planSummary={
-                longformPlanRecord ? summarizeLongformPlan(longformPlanRecord.plan) : undefined
-              }
-              progress={{
-                status: r.status,
-                percent: r.percent,
-                error: r.error ?? renderErrors[r.clipId],
-                suggestion: r.suggestion,
-                details: r.details,
-                outputPath: r.outputPath,
-                summary: r.summary,
-              }}
-            />
-          ))
         ) : (
-          approvedClips.map((clip) => {
-            const p = progressMap.get(clip.id) ?? { status: 'queued' as const, percent: 0 }
-            return <ClipRow key={clip.id} clip={clip} progress={p} />
+          queueItems.map((item, index) => {
+            const clip = approvedClips.find((candidate) => candidate.id === item.clipId);
+            const stitched = approvedStitched.find((candidate) => candidate.id === item.clipId);
+            const poster =
+              clip?.customThumbnail ??
+              clip?.thumbnail ??
+              stitched?.customThumbnail ??
+              stitched?.thumbnail ??
+              activeSource?.thumbnail;
+            const label =
+              item.label ??
+              clip?.hookText ??
+              stitched?.hookText ??
+              (activeSource ? `Long-form edit · ${activeSource.name}` : 'Long-form edit');
+            const controls = (
+              <>
+                {item.status === 'queued' && !isRendering && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => moveQueuedJob(item.clipId, -1)}
+                      disabled={index === 0}
+                      aria-label={`Move ${label} earlier`}
+                      title="Move earlier"
+                    >
+                      <ArrowUp aria-hidden />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => moveQueuedJob(item.clipId, 1)}
+                      disabled={index === queueItems.length - 1}
+                      aria-label={`Move ${label} later`}
+                      title="Move later"
+                    >
+                      <ArrowDown aria-hidden />
+                    </Button>
+                  </>
+                )}
+                {item.status === 'queued' && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => void cancelQueuedJob(item.clipId)}
+                    aria-label={`Cancel queued export ${label}`}
+                    title="Cancel queued export"
+                  >
+                    <X aria-hidden />
+                  </Button>
+                )}
+                {item.status === 'error' && !isRendering && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleRetryOne(item.clipId)}
+                  >
+                    <RotateCcw aria-hidden /> Retry
+                  </Button>
+                )}
+              </>
+            );
+            return (
+              <GenericRow
+                key={item.clipId}
+                label={label}
+                progress={toRowProgress(item.status, item.percent, {
+                  error: item.error ?? renderErrors[item.clipId],
+                  outputPath: item.outputPath,
+                  prepareMessage: item.prepareMessage,
+                  preparationActivities: item.preparationActivities,
+                  fallbacks: item.fallbacks,
+                  summary: item.summary,
+                })}
+                {...(poster ? { poster } : {})}
+                {...(item.kind === 'longform' && longformPlanRecord
+                  ? { planSummary: summarizeLongformPlan(longformPlanRecord.plan) }
+                  : {})}
+                controls={controls}
+                fallbackActions={
+                  item.fallbacks?.some((fallback) => fallback.actionable) ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleFixFallback(item.clipId)}
+                      >
+                        Fix visual
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleRetryOne(item.clipId)}
+                        disabled={isRendering}
+                      >
+                        <RotateCcw aria-hidden /> Render again
+                      </Button>
+                    </>
+                  ) : undefined
+                }
+              />
+            );
           })
         )}
       </div>
+
+      {completedRows.length > 0 && (
+        <section
+          className="mt-5 border-t border-border/80 pt-5"
+          aria-labelledby="completed-outputs-heading"
+        >
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 id="completed-outputs-heading" className="text-lg font-semibold text-foreground">
+                Finished media
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Play the real files, reveal them, copy a path, or render one again.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={clearCompleted}>
+              <X aria-hidden /> Clear completed
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {completedRows.map((item) => {
+              const clip = approvedClips.find((candidate) => candidate.id === item.clipId);
+              const stitched = approvedStitched.find((candidate) => candidate.id === item.clipId);
+              const poster =
+                clip?.customThumbnail ??
+                clip?.thumbnail ??
+                stitched?.customThumbnail ??
+                stitched?.thumbnail ??
+                activeSource?.thumbnail;
+              return (
+                <CompletedOutputCard
+                  key={item.clipId}
+                  item={item}
+                  {...(poster ? { poster } : {})}
+                  onRenderAgain={handleRetryOne}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ── Post-batch footer ──────────────────────────────────────── */}
       {isComplete && (
@@ -988,16 +1463,19 @@ export function RenderScreen(): React.JSX.Element {
             )}
             <div className="flex items-center gap-2">
               {longformPlanRecord ? (
-                // Long-form re-render (RF-001): "Render again" returns to the
-                // skin/palette setup so the user can tweak axes, then render
-                // straight from the saved plan again (no Gemini re-call).
                 <Button size="sm" variant="outline" onClick={handleLongformReset}>
                   <RotateCcw />
-                  Render again
+                  Review plan
                 </Button>
               ) : (
                 failedCount > 0 && (
-                  <Button size="sm" variant="outline" onClick={handleRetryFailed}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRetryFailed}
+                    disabled={sourceBlocked}
+                    title={sourceBlocked ? sourceBlockedMessage : undefined}
+                  >
                     <RotateCcw />
                     Retry Failed ({failedCount})
                   </Button>
@@ -1012,5 +1490,5 @@ export function RenderScreen(): React.JSX.Element {
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -203,6 +203,12 @@
     box-shadow: 0 18px 48px hsl(0 0% 0% / 0.18);
   }
 
+  /* Preserve card geometry while Chromium skips paint/layout for media rows below the viewport. */
+  .media-list-item {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 420px;
+  }
+
   .status-success {
     color: hsl(var(--success));
   }
@@ -299,6 +305,72 @@
     background-color: hsl(var(--indicator-error) / 0.12);
     border-color: hsl(var(--indicator-error) / 0.32);
   }
+
+  .command-search-input:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+  }
+
+  .zoom-hud {
+    position: fixed;
+    z-index: 100;
+    inset: 0;
+    display: flex;
+    pointer-events: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .zoom-hud-card {
+    display: flex;
+    min-width: 7.25rem;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    border: 1px solid hsl(var(--border-strong));
+    border-radius: var(--radius);
+    padding: 1rem 1.5rem;
+    color: hsl(var(--foreground));
+    background: hsl(var(--popover));
+    box-shadow: 0 16px 44px -12px hsl(0 0% 0% / 0.38);
+    animation:
+      zoom-hud-in 160ms var(--ease-productive),
+      zoom-hud-out 260ms ease 620ms forwards;
+  }
+
+  .zoom-hud-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .zoom-hud-label {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+@keyframes zoom-hud-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes zoom-hud-out {
+  to {
+    opacity: 0;
+  }
 }
 
 @media (max-width: 900px) {
@@ -319,8 +391,72 @@
   }
 }
 
+/* The qa-reduced-motion class mirrors the OS preference for deterministic evidence captures. */
+.qa-reduced-motion *,
+.qa-reduced-motion *::before,
+.qa-reduced-motion *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
 @media (forced-colors: active) {
   :focus-visible {
-    outline: 2px solid Highlight;
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
   }
+
+  .studio-shell::before,
+  .filmstrip-rule::after {
+    display: none;
+  }
+
+  .surface-glow,
+  .zoom-hud-card {
+    box-shadow: none;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role='button'],
+  [role='dialog'] {
+    border-color: ButtonText;
+  }
+}
+
+/* Deterministic high-contrast simulation uses the same semantic system-color contract. */
+.qa-forced-colors {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 0%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 0%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 0%;
+  --muted: 0 0% 92%;
+  --muted-foreground: 0 0% 25%;
+  --secondary: 0 0% 90%;
+  --secondary-foreground: 0 0% 0%;
+  --primary: 240 100% 30%;
+  --primary-foreground: 0 0% 100%;
+  --border: 0 0% 0%;
+  --border-strong: 0 0% 0%;
+  --ring: 240 100% 30%;
+}
+
+.qa-forced-colors :focus-visible {
+  outline-width: 3px;
+}
+
+.qa-forced-colors .studio-shell::before,
+.qa-forced-colors .filmstrip-rule::after {
+  display: none;
+}
+
+.qa-forced-colors .surface-glow,
+.qa-forced-colors .zoom-hud-card {
+  box-shadow: none;
 }

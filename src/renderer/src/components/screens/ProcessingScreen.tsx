@@ -5,4 +5,4 @@
  * other top-level surfaces.  This file remains for backwards compatibility
  * with existing `@/components/screens/ProcessingScreen` imports (App.tsx).
  */
-export { ProcessingScreen } from '@/components/ProcessingScreen'
+export { ProcessingScreen } from '@/components/ProcessingScreen';

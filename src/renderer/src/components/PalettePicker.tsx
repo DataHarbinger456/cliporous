@@ -1,144 +1,119 @@
-/**
- * PalettePicker — color-palette + skin selection for long-form block renders.
- *
- * A palette is a SEPARATE axis from the skin (see `LongformSkinId`): a palette
- * controls colors (background / foreground / accent), a skin controls visual
- * structure. This component lets the user:
- *   • pick a color palette from built-in presets or their own custom palettes,
- *   • create / edit / delete custom palettes (the editor dialog is owned by a
- *     separate component — exposed here via the `onCreate` / `onEdit` props),
- *   • pick one of the four skins via a small segmented "Style" control.
- *
- * Selection is persisted through the Zustand settings slice
- * (`longformPaletteId` / `longformSkin` + the `customPalettes` array).
- */
-
 import { BUILTIN_PALETTES, DEFAULT_PALETTE_ID, type Palette } from '@shared/palettes';
 import type { LongformSkinId } from '@shared/types';
-import { Check, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  CircleUserRound,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import * as React from 'react';
+import { LongformStylePreview } from '@/components/LongformStylePreview';
+import { PaletteDeleteDialog } from '@/components/PaletteDeleteDialog';
 import { PaletteEditor } from '@/components/PaletteEditor';
-import { SkinThumbnail } from '@/components/SkinThumbnail';
+import { LONGFORM_SKINS, SkinThumbnail } from '@/components/SkinThumbnail';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { evaluatePaletteContrast } from '@/lib/palette-contrast';
 import { cn } from '@/lib/utils';
+import { useCreatorProfiles } from '@/services/creator-profiles';
+import { deleteCustomPaletteEverywhere } from '@/services/palette-service';
 import { useStore } from '@/store';
 
-// ---------------------------------------------------------------------------
-// Skins — the four fixed long-form skins, in display order.
-// ---------------------------------------------------------------------------
-
-const SKINS: ReadonlyArray<{ id: LongformSkinId; label: string }> = [
-  { id: 'editorial', label: 'Editorial' },
-  { id: 'aurora-glass', label: 'Aurora Glass' },
-  { id: 'bento', label: 'Bento' },
-  { id: 'terminal', label: 'Terminal' },
-];
-
 export interface PalettePickerProps {
-  /** Disable all interaction (e.g. while a render is starting). */
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   className?: string;
+  skin?: LongformSkinId;
+  paletteId?: string;
+  onSkinChange?: (skin: LongformSkinId) => void;
+  onPaletteChange?: (paletteId: string) => void;
+  showProfileDefault?: boolean;
+  showProjectPreview?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// SwatchCard — one selectable mini-preview tile for a single palette.
-// ---------------------------------------------------------------------------
-
-interface SwatchCardProps {
+interface PaletteCardProps {
   palette: Palette;
+  skin: LongformSkinId;
   selected: boolean;
-  disabled?: boolean;
+  profileDefault: boolean;
+  disabled?: boolean | undefined;
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }
 
-function SwatchCard({
+function PaletteCard({
   palette,
+  skin,
   selected,
+  profileDefault,
   disabled,
   onSelect,
   onEdit,
   onDelete,
-}: SwatchCardProps): React.JSX.Element {
-  const isCustom = !palette.builtin;
+}: PaletteCardProps): React.JSX.Element {
+  const custom = !palette.builtin;
+
   return (
-    <div className="group relative">
+    <div className="group relative min-w-0">
       <button
         type="button"
         onClick={onSelect}
         disabled={disabled}
         aria-pressed={selected}
-        aria-label={`Select palette ${palette.name}`}
+        aria-label={`Use ${palette.name} palette`}
         className={cn(
-          'block w-full rounded-lg border p-1 text-left transition-all',
+          'block w-full rounded-lg border p-1 text-left transition-[border-color,box-shadow,opacity] duration-150',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           'disabled:pointer-events-none disabled:opacity-50',
           selected
             ? 'border-transparent ring-2 ring-primary'
-            : 'border-border hover:border-foreground/30',
+            : 'border-border hover:border-foreground/35',
         )}
       >
-        {/* Mini-preview tile filled with the palette's own colors. */}
-        <div
-          className="relative flex h-16 flex-col justify-between overflow-hidden rounded-md p-2"
-          style={{ backgroundColor: palette.background }}
-        >
-          <span
-            className="text-[11px] font-medium leading-none"
-            style={{ color: palette.foreground }}
-          >
-            Aa headline
+        <SkinThumbnail skin={skin} palette={palette} className="rounded-md" />
+        <span className="mt-1.5 flex min-w-0 items-center gap-1 px-0.5">
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+            {palette.name}
           </span>
-          {/* Both accents — rendered blocks use accent2 for charts/gradients. */}
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-8 rounded-full" style={{ backgroundColor: palette.accent }} />
-            <span
-              className="h-1.5 w-4 rounded-full"
-              style={{ backgroundColor: palette.accent2 ?? palette.accent }}
-            />
-          </span>
-          {selected && (
-            <span
-              className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full"
-              style={{ backgroundColor: palette.accent }}
-            >
-              <Check className="h-3 w-3" style={{ color: palette.background }} />
-            </span>
-          )}
-        </div>
-        <span className="mt-1 block truncate px-0.5 text-xs text-foreground">{palette.name}</span>
-        {palette.id === DEFAULT_PALETTE_ID && (
-          <span className="block truncate px-0.5 text-[10px] leading-tight text-muted-foreground">
-            Matches the app brand colors
-          </span>
-        )}
+          {selected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />}
+        </span>
+        <span className="mt-0.5 flex min-h-4 items-center gap-1 px-0.5 text-[10px] leading-tight text-muted-foreground">
+          {profileDefault ? 'Profile default' : palette.builtin ? 'Built in' : 'Custom'}
+        </span>
       </button>
 
-      {isCustom && (onEdit || onDelete) && (
-        <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      {custom && (onEdit || onDelete) && (
+        <div className="mt-1 grid grid-cols-2 gap-1">
           {onEdit && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={onEdit}
               disabled={disabled}
-              aria-label={`Edit palette ${palette.name}`}
-              className="rounded bg-background/80 p-1 text-muted-foreground backdrop-blur hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+              aria-label={`Edit ${palette.name} palette`}
+              className="min-h-11 px-2 text-xs"
             >
-              <Pencil className="h-3 w-3" />
-            </button>
+              <Pencil className="h-3.5 w-3.5" aria-hidden />
+              Edit
+            </Button>
           )}
           {onDelete && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={onDelete}
               disabled={disabled}
-              aria-label={`Delete palette ${palette.name}`}
-              className="rounded bg-background/80 p-1 text-muted-foreground backdrop-blur hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+              aria-label={`Delete ${palette.name} palette`}
+              className="min-h-11 px-2 text-xs text-muted-foreground hover:text-destructive"
             >
-              <Trash2 className="h-3 w-3" />
-            </button>
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              Delete
+            </Button>
           )}
         </div>
       )}
@@ -146,136 +121,333 @@ function SwatchCard({
   );
 }
 
-// ---------------------------------------------------------------------------
-// PalettePicker
-// ---------------------------------------------------------------------------
+export function PalettePicker({
+  disabled,
+  className,
+  skin,
+  paletteId,
+  onSkinChange,
+  onPaletteChange,
+  showProfileDefault = true,
+  showProjectPreview = true,
+}: PalettePickerProps): React.JSX.Element {
+  const storedPaletteId = useStore((state) => state.settings.longformPaletteId);
+  const customPalettes = useStore((state) => state.settings.customPalettes);
+  const setLongformPaletteId = useStore((state) => state.setLongformPaletteId);
+  const storedSkin = useStore((state) => state.settings.longformSkin);
+  const setLongformSkin = useStore((state) => state.setLongformSkin);
+  const projectProfile = useStore((state) => state.creatorProfile);
+  const setProjectOverride = useStore((state) => state.setCreatorProfileOverride);
+  const clearProjectOverride = useStore((state) => state.clearCreatorProfileOverride);
+  const profiles = useCreatorProfiles();
+  const selectedSkin = skin ?? storedSkin;
+  const selectedPaletteId = paletteId ?? storedPaletteId;
+  const allPalettes = React.useMemo(
+    () => [...BUILTIN_PALETTES, ...customPalettes],
+    [customPalettes],
+  );
+  const selectedPalette = allPalettes.find((item) => item.id === selectedPaletteId);
+  const fallbackPalette = BUILTIN_PALETTES[0] as Palette;
+  const previewPalette = selectedPalette ?? fallbackPalette;
+  const paletteMissing = selectedPalette === undefined;
+  const appliedProfile = profiles.find((item) => item.id === projectProfile.profileId) ?? null;
+  const profilePaletteId = showProfileDefault ? appliedProfile?.longformPaletteId : undefined;
+  const profilePalette = allPalettes.find((item) => item.id === profilePaletteId);
+  const usingProfileDefault =
+    appliedProfile !== null &&
+    selectedSkin === appliedProfile.longformSkin &&
+    selectedPaletteId === appliedProfile.longformPaletteId;
+  const contrast = evaluatePaletteContrast(previewPalette);
 
-export function PalettePicker({ disabled, className }: PalettePickerProps): React.JSX.Element {
-  const longformPaletteId = useStore((s) => s.settings.longformPaletteId);
-  const customPalettes = useStore((s) => s.settings.customPalettes);
-  const setLongformPaletteId = useStore((s) => s.setLongformPaletteId);
-  const removeCustomPalette = useStore((s) => s.removeCustomPalette);
-
-  const longformSkin = useStore((s) => s.settings.longformSkin);
-  const setLongformSkin = useStore((s) => s.setLongformSkin);
-
-  // Editor dialog state. `editingPalette === undefined` while open === true
-  // means "create mode"; a defined palette means "edit that custom palette".
+  const previewHeadingId = React.useId();
+  const customHeadingId = React.useId();
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editingPalette, setEditingPalette] = React.useState<Palette | undefined>(undefined);
+  const [deletingPalette, setDeletingPalette] = React.useState<Palette | null>(null);
+
+  const commitSkin = (nextSkin: LongformSkinId): void => {
+    if (onSkinChange) {
+      onSkinChange(nextSkin);
+      return;
+    }
+    setLongformSkin(nextSkin);
+    if (!appliedProfile) return;
+    if (nextSkin === appliedProfile.longformSkin) clearProjectOverride('longformSkin');
+    else setProjectOverride('longformSkin', nextSkin);
+  };
+
+  const commitPalette = (nextPaletteId: string): void => {
+    if (onPaletteChange) {
+      onPaletteChange(nextPaletteId);
+      return;
+    }
+    setLongformPaletteId(nextPaletteId);
+    if (!appliedProfile) return;
+    if (nextPaletteId === appliedProfile.longformPaletteId) {
+      clearProjectOverride('longformPaletteId');
+    } else {
+      setProjectOverride('longformPaletteId', nextPaletteId);
+    }
+  };
 
   const openCreate = (): void => {
     setEditingPalette(undefined);
     setEditorOpen(true);
   };
 
-  const openEdit = (palette: Palette): void => {
-    setEditingPalette(palette);
+  const openEdit = (target: Palette): void => {
+    setEditingPalette(target);
     setEditorOpen(true);
+  };
+
+  const useProfileDefaults = (): void => {
+    if (!appliedProfile) return;
+    commitSkin(appliedProfile.longformSkin);
+    commitPalette(
+      allPalettes.some((item) => item.id === appliedProfile.longformPaletteId)
+        ? appliedProfile.longformPaletteId
+        : DEFAULT_PALETTE_ID,
+    );
+  };
+
+  const confirmDelete = (target: Palette): void => {
+    const wasSelected = target.id === selectedPaletteId;
+    deleteCustomPaletteEverywhere(target.id);
+    // Store-backed pickers are repaired by the shared delete service. Controlled
+    // pickers still need their owner (for example, a profile draft) notified.
+    if (wasSelected && onPaletteChange) onPaletteChange(DEFAULT_PALETTE_ID);
+    setDeletingPalette(null);
   };
 
   return (
     <div className={cn('flex flex-col gap-5', className)}>
-      {/* ----- Style (skin) ----- */}
-      <div className="flex flex-col gap-2">
-        <Label className="text-sm font-semibold tracking-tight text-foreground">Style</Label>
-        <p className="text-xs text-muted-foreground">Structure of your content blocks</p>
-        {/* biome-ignore lint/a11y/useSemanticElements: a labelled group of toggle buttons, not a fieldset of form fields */}
-        <div role="group" aria-label="Block skin" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {SKINS.map((skin) => {
-            const active = skin.id === longformSkin;
+      {appliedProfile && showProfileDefault && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <CircleUserRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-foreground">
+                {appliedProfile.name} defaults
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {LONGFORM_SKINS.find((item) => item.id === appliedProfile.longformSkin)?.label ??
+                  appliedProfile.longformSkin}{' '}
+                · {profilePalette?.name ?? 'Missing palette'}
+              </p>
+            </div>
+          </div>
+          {usingProfileDefault ? (
+            <Badge variant="secondary">Profile default</Badge>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={useProfileDefaults}
+              disabled={disabled}
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Use profile defaults
+            </Button>
+          )}
+        </div>
+      )}
+
+      {paletteMissing && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/35 bg-destructive/10 p-3"
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+            <div>
+              <p className="text-xs font-medium text-foreground">Selected palette is unavailable</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                It may have been deleted on another window. Brand Default is shown as a safe
+                preview.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => commitPalette(DEFAULT_PALETTE_ID)}
+            disabled={disabled}
+          >
+            Restore Brand Default
+          </Button>
+        </div>
+      )}
+
+      {showProjectPreview && (
+        <section aria-labelledby={previewHeadingId} className="grid gap-2">
+          <div>
+            <h3 id={previewHeadingId} className="text-sm font-semibold text-foreground">
+              Project preview
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Real project copy with a representative frame when available, shown before export.
+            </p>
+          </div>
+          <LongformStylePreview palette={previewPalette} skin={selectedSkin} />
+          {contrast.warnings.length > 0 && (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+              <div>
+                <p className="text-xs font-medium text-foreground">Contrast warning</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  {contrast.warnings[0]}
+                  {contrast.warnings.length > 1 &&
+                    ` ${contrast.warnings.length - 1} more issue${contrast.warnings.length === 2 ? '' : 's'} in this palette.`}
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-semibold text-foreground">Block style</legend>
+        <p className="text-xs text-muted-foreground">
+          Structure and typography for full-frame content blocks.
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {LONGFORM_SKINS.map((option) => {
+            const active = option.id === selectedSkin;
             return (
               <button
-                key={skin.id}
+                key={option.id}
                 type="button"
-                onClick={() => setLongformSkin(skin.id)}
+                onClick={() => commitSkin(option.id)}
                 disabled={disabled}
                 aria-pressed={active}
+                aria-label={option.label}
                 className={cn(
-                  'flex flex-col gap-1.5 rounded-lg border p-1 text-left transition-all',
+                  'flex min-w-0 flex-col gap-1.5 rounded-lg border p-1 text-left transition-[border-color,box-shadow,opacity] duration-150',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                   'disabled:pointer-events-none disabled:opacity-50',
                   active
                     ? 'border-transparent ring-2 ring-primary'
-                    : 'border-border hover:border-foreground/30',
+                    : 'border-border hover:border-foreground/35',
                 )}
               >
-                {/* Static sample tile approximating the skin's real look. */}
-                <SkinThumbnail
-                  skin={skin.id}
-                  className="block aspect-video w-full overflow-hidden rounded-md"
-                />
-                <span
-                  className={cn(
-                    'block px-0.5 text-xs font-medium',
-                    active ? 'text-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  {skin.label}
+                <SkinThumbnail skin={option.id} palette={previewPalette} className="rounded-md" />
+                <span className="flex min-w-0 items-center gap-1 px-0.5">
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                    {option.label}
+                  </span>
+                  {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />}
+                </span>
+                <span className="line-clamp-2 min-h-7 px-0.5 text-[10px] leading-snug text-muted-foreground">
+                  {option.description}
                 </span>
               </button>
             );
           })}
         </div>
-      </div>
+      </fieldset>
 
-      {/* ----- Built-in palettes ----- */}
-      <div className="flex flex-col gap-2">
-        <Label className="text-sm font-semibold tracking-tight text-foreground">Palette</Label>
-        <p className="text-xs text-muted-foreground">Colors used across all blocks</p>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {BUILTIN_PALETTES.map((palette) => (
-            <SwatchCard
-              key={palette.id}
-              palette={palette}
-              selected={palette.id === longformPaletteId}
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-semibold text-foreground">Built-in palettes</legend>
+        <p className="text-xs text-muted-foreground">
+          Exact colors used across every selected block style.
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {BUILTIN_PALETTES.map((option) => (
+            <PaletteCard
+              key={option.id}
+              palette={option}
+              skin={selectedSkin}
+              selected={option.id === selectedPaletteId}
+              profileDefault={option.id === profilePaletteId}
               disabled={disabled}
-              onSelect={() => setLongformPaletteId(palette.id)}
+              onSelect={() => commitPalette(option.id)}
             />
           ))}
         </div>
-      </div>
+      </fieldset>
 
-      {/* ----- Custom palettes ----- */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Custom
-          </Label>
+      <section className="grid gap-2" aria-labelledby={customHeadingId}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 id={customHeadingId} className="text-sm font-semibold text-foreground">
+              Custom palettes
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Reusable in projects and Creator Profiles.
+            </p>
+          </div>
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={openCreate}
             disabled={disabled}
-            className="h-7 px-2 text-xs"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3.5 w-3.5" aria-hidden />
             New palette
           </Button>
         </div>
         {customPalettes.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No custom palettes yet. Create one to reuse your own colors.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-3">
+            <div>
+              <p className="text-xs font-medium text-foreground">No custom palettes yet</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Create one to keep brand colors consistent across long-form projects.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={openCreate}
+              disabled={disabled}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Create first palette
+            </Button>
+          </div>
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {customPalettes.map((palette) => (
-              <SwatchCard
-                key={palette.id}
-                palette={palette}
-                selected={palette.id === longformPaletteId}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {customPalettes.map((option) => (
+              <PaletteCard
+                key={option.id}
+                palette={option}
+                skin={selectedSkin}
+                selected={option.id === selectedPaletteId}
+                profileDefault={option.id === profilePaletteId}
                 disabled={disabled}
-                onSelect={() => setLongformPaletteId(palette.id)}
-                onEdit={() => openEdit(palette)}
-                onDelete={() => removeCustomPalette(palette.id)}
+                onSelect={() => commitPalette(option.id)}
+                onEdit={() => openEdit(option)}
+                onDelete={() => setDeletingPalette(option)}
               />
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      <PaletteEditor open={editorOpen} onOpenChange={setEditorOpen} palette={editingPalette} />
+      <PaletteEditor
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        palette={editingPalette}
+        onSaved={(saved) => {
+          if (!editingPalette) commitPalette(saved.id);
+        }}
+        onRequestDelete={setDeletingPalette}
+        previewSkin={selectedSkin}
+      />
+      <PaletteDeleteDialog
+        palette={deletingPalette}
+        open={deletingPalette !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingPalette(null);
+        }}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

@@ -1,223 +1,285 @@
-/**
- * SkinThumbnail — a tiny static 16:9 mock tile that approximates the aesthetic
- * of each long-form block skin, so the skin choice is visual instead of
- * name-only. These are lightweight inline SVGs (NOT a Remotion player): they
- * caricature the real skins in `src/main/remotion/shared/skins.tsx`:
- *   • Editorial    — column-grid hairlines + big serif/condensed index.
- *   • Aurora Glass — blurred radial accent blobs behind a glass panel.
- *   • Bento        — radial spotlight + a hard rounded accent chip.
- *   • Terminal     — fine drafting grid + monospace index.
- *
- * Colors mirror the brand tokens used by the real skins (bg #23100c,
- * fg #f6ecd9, accent #9f75ff) so previews read true to the rendered output.
- */
-
+import { BUILTIN_PALETTES, type Palette } from '@shared/palettes';
 import type { LongformSkinId } from '@shared/types';
 import type * as React from 'react';
+import { cn } from '@/lib/utils';
 
-// Brand tokens — mirror BRAND_BG / BRAND_FG / BRAND_ACCENT used by the skins.
-const BG = '#23100c';
-const FG = '#f6ecd9';
-const ACCENT = '#9f75ff';
+const DEFAULT_PALETTE = BUILTIN_PALETTES[0] as Palette;
 
-const VB_W = 96;
-const VB_H = 54;
+export const LONGFORM_SKINS: ReadonlyArray<{
+  id: LongformSkinId;
+  label: string;
+  description: string;
+}> = [
+  { id: 'editorial', label: 'Editorial', description: 'Open grid and oversized index' },
+  {
+    id: 'print-magazine',
+    label: 'Print Magazine',
+    description: 'Framed columns and serif details',
+  },
+  {
+    id: 'neo-brutalist',
+    label: 'Neo Brutalist',
+    description: 'Hard borders and offset shapes',
+  },
+  { id: 'blueprint', label: 'Blueprint', description: 'Drafting grid and technical labels' },
+  { id: 'aurora-glass', label: 'Aurora Glass', description: 'Soft light and a glass panel' },
+  { id: 'bento', label: 'Bento', description: 'Focused card with a bold chip' },
+  { id: 'terminal', label: 'Terminal', description: 'Monospace data panel' },
+];
 
-function Frame({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <svg
-      viewBox={`0 0 ${VB_W} ${VB_H}`}
-      width="100%"
-      height="100%"
-      preserveAspectRatio="xMidYMid slice"
-      aria-hidden="true"
-      style={{ display: 'block' }}
-    >
-      <rect x={0} y={0} width={VB_W} height={VB_H} fill={BG} />
-      {children}
-    </svg>
-  );
+function headlineTokens(value: string): Array<{ key: string; text: string }> {
+  return Array.from(value.matchAll(/\S+\s*/g), (match) => ({
+    key: `${match.index ?? 0}-${match[0].trim()}`,
+    text: match[0],
+  }));
 }
 
-function EditorialThumb(): React.JSX.Element {
-  return (
-    <Frame>
-      {/* Column-grid vertical hairlines. */}
-      {[0.25, 0.5, 0.75].map((p) => (
-        <line
-          key={p}
-          x1={VB_W * p}
-          y1={6}
-          x2={VB_W * p}
-          y2={VB_H - 6}
-          stroke={FG}
-          strokeOpacity={0.14}
-          strokeWidth={0.6}
-        />
-      ))}
-      {/* Top + bottom accent running rules. */}
-      <line
-        x1={8}
-        y1={11}
-        x2={VB_W - 8}
-        y2={11}
-        stroke={ACCENT}
-        strokeOpacity={0.5}
-        strokeWidth={0.8}
-      />
-      <line
-        x1={8}
-        y1={VB_H - 11}
-        x2={VB_W - 8}
-        y2={VB_H - 11}
-        stroke={ACCENT}
-        strokeOpacity={0.5}
-        strokeWidth={0.8}
-      />
-      {/* Oversized condensed index. */}
-      <text
-        x={9}
-        y={37}
-        fill={ACCENT}
-        fontSize={26}
-        fontFamily="'Bebas Neue', 'Oswald', sans-serif"
-        fontWeight={700}
-        letterSpacing={1}
+interface SkinContentProps {
+  skin: LongformSkinId;
+  palette: Palette;
+  kicker: string;
+  headline: string;
+}
+
+function SkinContent({ skin, palette, kicker, headline }: SkinContentProps): React.JSX.Element {
+  const sharedCopy = (
+    <span className="relative z-10 flex min-w-0 flex-1 flex-col justify-center">
+      <span
+        className={cn(
+          'truncate text-[clamp(6px,3.8cqw,11px)] font-semibold uppercase tracking-[0.16em] opacity-75',
+          (skin === 'terminal' || skin === 'blueprint') && 'font-mono',
+          skin === 'print-magazine' && 'font-serif normal-case italic tracking-normal',
+        )}
       >
-        01
-      </text>
-      {/* Headline bars. */}
-      <rect x={40} y={20} width={46} height={4} rx={1} fill={FG} fillOpacity={0.85} />
-      <rect x={40} y={28} width={36} height={4} rx={1} fill={FG} fillOpacity={0.55} />
-    </Frame>
+        {kicker}
+      </span>
+      <span
+        className={cn(
+          'mt-[3%] line-clamp-2 text-[clamp(9px,7cqw,22px)] font-semibold leading-[1.02] tracking-tight',
+          skin === 'terminal' && 'font-mono uppercase tracking-normal',
+          skin === 'print-magazine' && 'font-serif font-normal',
+          skin === 'neo-brutalist' && 'uppercase tracking-[-0.03em]',
+        )}
+      >
+        {headlineTokens(headline).map((token) => (
+          <span key={token.key} className="contents">
+            {token.text}
+          </span>
+        ))}
+      </span>
+    </span>
   );
-}
 
-function AuroraGlassThumb(): React.JSX.Element {
-  return (
-    <Frame>
-      <defs>
-        <radialGradient id="aurora-a" cx="25%" cy="25%" r="55%">
-          <stop offset="0%" stopColor={ACCENT} stopOpacity={0.7} />
-          <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-        </radialGradient>
-        <radialGradient id="aurora-b" cx="80%" cy="80%" r="55%">
-          <stop offset="0%" stopColor={ACCENT} stopOpacity={0.55} />
-          <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-        </radialGradient>
-      </defs>
-      {/* Blurred radial accent blobs. */}
-      <rect x={0} y={0} width={VB_W} height={VB_H} fill="url(#aurora-a)" />
-      <rect x={0} y={0} width={VB_W} height={VB_H} fill="url(#aurora-b)" />
-      {/* Frosted-glass panel. */}
-      <rect
-        x={18}
-        y={14}
-        width={60}
-        height={26}
-        rx={6}
-        fill={FG}
-        fillOpacity={0.06}
-        stroke={ACCENT}
-        strokeOpacity={0.45}
-        strokeWidth={0.8}
-      />
-      <circle cx={27} cy={27} r={4.5} fill={ACCENT} />
-      <rect x={37} y={23} width={32} height={3} rx={1.5} fill={FG} fillOpacity={0.85} />
-      <rect x={37} y={29} width={22} height={3} rx={1.5} fill={FG} fillOpacity={0.5} />
-    </Frame>
-  );
-}
-
-function BentoThumb(): React.JSX.Element {
-  return (
-    <Frame>
-      <defs>
-        <radialGradient id="bento-glow" cx="50%" cy="0%" r="85%">
-          <stop offset="0%" stopColor={ACCENT} stopOpacity={0.32} />
-          <stop offset="60%" stopColor={ACCENT} stopOpacity={0} />
-        </radialGradient>
-      </defs>
-      <rect x={0} y={0} width={VB_W} height={VB_H} fill="url(#bento-glow)" />
-      {/* Spotlight panel. */}
-      <rect
-        x={14}
-        y={11}
-        width={68}
-        height={32}
-        rx={7}
-        fill={FG}
-        fillOpacity={0.04}
-        stroke={ACCENT}
-        strokeOpacity={0.4}
-        strokeWidth={0.8}
-      />
-      {/* Hard rounded accent chip. */}
-      <rect x={20} y={18} width={16} height={16} rx={5} fill={ACCENT} />
-      <rect x={42} y={20} width={32} height={4} rx={2} fill={FG} fillOpacity={0.85} />
-      <rect x={42} y={28} width={24} height={4} rx={2} fill={FG} fillOpacity={0.5} />
-    </Frame>
-  );
-}
-
-function TerminalThumb(): React.JSX.Element {
-  const cell = 8;
-  const xs = Array.from({ length: Math.ceil(VB_W / cell) + 1 }, (_, i) => i * cell);
-  const ys = Array.from({ length: Math.ceil(VB_H / cell) + 1 }, (_, i) => i * cell);
-  return (
-    <Frame>
-      {/* Fine drafting grid. */}
-      {xs.map((x) => (
-        <line
-          key={`v${x}`}
-          x1={x}
-          y1={0}
-          x2={x}
-          y2={VB_H}
-          stroke={ACCENT}
-          strokeOpacity={0.12}
-          strokeWidth={0.4}
+  if (skin === 'editorial') {
+    return (
+      <>
+        <span
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `linear-gradient(90deg, transparent 24%, ${palette.foreground} 25%, transparent 26%, transparent 49%, ${palette.foreground} 50%, transparent 51%, transparent 74%, ${palette.foreground} 75%, transparent 76%)`,
+          }}
         />
-      ))}
-      {ys.map((y) => (
-        <line
-          key={`h${y}`}
-          x1={0}
-          y1={y}
-          x2={VB_W}
-          y2={y}
-          stroke={ACCENT}
-          strokeOpacity={0.12}
-          strokeWidth={0.4}
+        <span
+          className="relative z-10 mr-[7%] font-display text-[clamp(20px,18cqw,56px)] leading-none"
+          style={{ color: palette.accent }}
+        >
+          01
+        </span>
+        {sharedCopy}
+      </>
+    );
+  }
+
+  if (skin === 'print-magazine') {
+    return (
+      <span
+        className="relative z-10 flex h-[76%] w-[86%] items-center gap-[7%] border-y-[3px] border-double px-[6%]"
+        style={{ borderColor: `${palette.foreground}66` }}
+      >
+        <span
+          className="font-serif text-[clamp(17px,15cqw,44px)] italic"
+          style={{ color: palette.accent }}
+        >
+          1
+        </span>
+        {sharedCopy}
+      </span>
+    );
+  }
+
+  if (skin === 'neo-brutalist') {
+    return (
+      <>
+        <span
+          className="absolute -right-[5%] -top-[25%] h-[72%] w-[32%] border-[3px]"
+          style={{ backgroundColor: palette.accent, borderColor: palette.foreground }}
         />
-      ))}
-      {/* Monospace index + cursor + data lines. */}
-      <text x={9} y={24} fill={ACCENT} fontSize={11} fontFamily="'JetBrains Mono', monospace">
-        01
-      </text>
-      <rect x={26} y={15} width={5} height={11} fill={ACCENT} fillOpacity={0.7} />
-      <rect x={9} y={32} width={46} height={3} rx={0.5} fill={FG} fillOpacity={0.75} />
-      <rect x={9} y={39} width={32} height={3} rx={0.5} fill={FG} fillOpacity={0.45} />
-    </Frame>
+        <span
+          className="relative z-10 flex w-[82%] items-center gap-[7%] border-[3px] p-[6%]"
+          style={{
+            backgroundColor: palette.background,
+            borderColor: palette.foreground,
+            boxShadow: `clamp(3px,2.4cqw,8px) clamp(3px,2.4cqw,8px) 0 ${palette.accent}`,
+          }}
+        >
+          <span
+            className="flex aspect-square w-[18%] shrink-0 items-center justify-center text-[clamp(8px,6cqw,18px)] font-bold"
+            style={{ backgroundColor: palette.accent, color: palette.background }}
+          >
+            01
+          </span>
+          {sharedCopy}
+        </span>
+      </>
+    );
+  }
+
+  if (skin === 'blueprint') {
+    return (
+      <>
+        <span
+          className="absolute inset-0 opacity-25"
+          style={{
+            backgroundImage: `linear-gradient(${palette.accent} 1px, transparent 1px), linear-gradient(90deg, ${palette.accent} 1px, transparent 1px)`,
+            backgroundSize: '10% 18%',
+          }}
+        />
+        <span
+          className="relative z-10 flex w-[84%] items-center gap-[7%] border p-[6%]"
+          style={{ borderColor: palette.accent }}
+        >
+          <span className="font-mono text-[clamp(8px,6cqw,18px)]" style={{ color: palette.accent }}>
+            A.01
+          </span>
+          {sharedCopy}
+        </span>
+      </>
+    );
+  }
+
+  if (skin === 'aurora-glass') {
+    return (
+      <>
+        <span
+          className="absolute -left-[18%] -top-[55%] h-[150%] w-[70%] rounded-full blur-xl"
+          style={{ backgroundColor: `${palette.accent}88` }}
+        />
+        <span
+          className="absolute -bottom-[65%] -right-[15%] h-[140%] w-[65%] rounded-full blur-xl"
+          style={{ backgroundColor: `${palette.accent2 ?? palette.accent}77` }}
+        />
+        <span
+          className="relative z-10 flex w-[78%] items-center gap-[7%] rounded-[clamp(6px,2cqw,18px)] border p-[7%] backdrop-blur-sm"
+          style={{
+            backgroundColor: `${palette.background}B8`,
+            borderColor: `${palette.accent}88`,
+          }}
+        >
+          <span
+            className="h-[clamp(8px,7cqw,22px)] w-[clamp(8px,7cqw,22px)] shrink-0 rounded-full"
+            style={{ backgroundColor: palette.accent }}
+          />
+          {sharedCopy}
+        </span>
+      </>
+    );
+  }
+
+  if (skin === 'bento') {
+    return (
+      <span
+        className="relative z-10 flex w-[78%] items-center gap-[7%] rounded-[clamp(7px,2cqw,20px)] border p-[7%]"
+        style={{
+          borderColor: `${palette.accent}88`,
+          background: `radial-gradient(110% 150% at 50% 0%, ${palette.accent}33, ${palette.background}F0 64%)`,
+        }}
+      >
+        <span
+          className="flex aspect-square w-[19%] shrink-0 items-center justify-center rounded-[28%] text-[clamp(7px,5cqw,16px)] font-bold"
+          style={{ backgroundColor: palette.accent, color: palette.background }}
+        >
+          01
+        </span>
+        {sharedCopy}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <span
+        className="absolute inset-0 opacity-25"
+        style={{
+          backgroundImage: `linear-gradient(${palette.accent} 1px, transparent 1px), linear-gradient(90deg, ${palette.accent} 1px, transparent 1px)`,
+          backgroundSize: '9% 16%',
+        }}
+      />
+      <span
+        className="relative z-10 flex w-[80%] items-center gap-[7%] rounded-sm border p-[6%]"
+        style={{ borderColor: `${palette.accent}99`, backgroundColor: `${palette.background}E8` }}
+      >
+        <span className="font-mono text-[clamp(8px,6cqw,18px)]" style={{ color: palette.accent }}>
+          01_
+        </span>
+        {sharedCopy}
+      </span>
+    </>
   );
 }
-
-const THUMBS: Partial<Record<LongformSkinId, () => React.JSX.Element>> = {
-  editorial: EditorialThumb,
-  'aurora-glass': AuroraGlassThumb,
-  bento: BentoThumb,
-  terminal: TerminalThumb,
-};
 
 export interface SkinThumbnailProps {
   skin: LongformSkinId;
+  palette?: Palette;
+  headline?: string;
+  kicker?: string;
+  posterUrl?: string | null;
   className?: string;
 }
 
-/** Static SVG mock tile approximating a long-form skin's aesthetic. */
-export function SkinThumbnail({ skin, className }: SkinThumbnailProps): React.JSX.Element {
-  const Thumb = THUMBS[skin];
-  return <span className={className}>{Thumb ? <Thumb /> : null}</span>;
+/**
+ * Responsive static approximation of the real Remotion skin. Palette colors and
+ * supplied project copy stay literal; a source poster is contextual evidence, not
+ * a claim that speaker footage remains behind every full-frame block.
+ */
+export function SkinThumbnail({
+  skin,
+  palette = DEFAULT_PALETTE,
+  headline = 'A stronger story starts here',
+  kicker = 'Project preview',
+  posterUrl,
+  className,
+}: SkinThumbnailProps): React.JSX.Element {
+  return (
+    <span
+      className={cn(
+        'relative isolate flex aspect-video w-full items-center justify-center overflow-hidden [container-type:inline-size]',
+        className,
+      )}
+      style={{ backgroundColor: palette.background, color: palette.foreground }}
+      aria-hidden="true"
+    >
+      {posterUrl && (
+        <>
+          <img
+            src={posterUrl}
+            alt=""
+            draggable={false}
+            className="absolute inset-y-0 right-0 h-full w-[38%] object-cover opacity-45"
+            onError={(event) => {
+              event.currentTarget.hidden = true;
+            }}
+          />
+          <span
+            className="absolute inset-0"
+            style={{
+              background: `linear-gradient(90deg, ${palette.background} 42%, ${palette.background}D9 64%, transparent 100%)`,
+            }}
+          />
+        </>
+      )}
+      <SkinContent skin={skin} palette={palette} kicker={kicker} headline={headline} />
+    </span>
+  );
 }
 
 export default SkinThumbnail;

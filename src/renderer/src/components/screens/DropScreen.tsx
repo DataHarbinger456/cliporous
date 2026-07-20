@@ -1,634 +1,708 @@
-/**
- * DropScreen — initial entry. Drop zone + URL/path input + recent projects.
- *
- * Single combined entry surface (matches `.ezcoder/plans/ux.md §1`):
- *   • Full-bleed centered shadcn <Card> with a dashed border = the drop zone.
- *   • One <Input> that auto-detects URL (starts with `http(s)://`) vs file path
- *     and dispatches to the right pipeline starter on Enter.
- *   • Native HTML5 drag-and-drop on the Card — no react-dnd, no extra deps.
- *   • Recent-projects list below (max 5), each a clickable shadcn <Card> row.
- *   • Ghost "Import .batchclip…" button as a secondary entry point.
- *
- * Pipeline kick-off: build a `SourceVideo`, `addSource()` + `setActiveSource()`,
- * then `usePipeline().processVideo()`. The router in App.tsx swaps to
- * ProcessingScreen as soon as `pipeline.stage` leaves `idle`.
- */
-
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { RecentProjectEntry } from '@shared/recent-projects';
 import {
   AlertTriangle,
-  FileVideo,
+  ArrowRight,
+  FilePlus2,
   FolderOpen,
-  Inbox,
+  Import,
   KeyRound,
   Link as LinkIcon,
   Settings as SettingsIcon,
   Upload,
-} from 'lucide-react'
-import { toast } from 'sonner'
-
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { NewProjectDialog, type NewProjectDraft } from '@/components/NewProjectDialog';
+import { PalettePicker } from '@/components/PalettePicker';
+import { ProcessingRecipe } from '@/components/ProcessingRecipe';
+import { ProjectContactSheet } from '@/components/ProjectContactSheet';
+import { PythonSetupCard } from '@/components/PythonSetupCard';
+import { RecentProjectLibrary } from '@/components/RecentProjectLibrary';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { cn } from '@/lib/utils'
-import { PalettePicker } from '@/components/PalettePicker'
+} from '@/components/ui/select';
+import { useLongformPipeline, usePipeline } from '@/hooks';
+import { resolveGeminiKey } from '@/lib/gemini-key';
+import { cn } from '@/lib/utils';
+import { createNewProject, loadProject, loadProjectFromPath } from '@/services';
+import { getCreatorProfiles } from '@/services/creator-profiles';
+import type { SourceVideo } from '@/store';
+import { useStore } from '@/store';
 
-import { useStore } from '@/store'
-import { resolveGeminiKey } from '@/lib/gemini-key'
-import { loadProject, loadProjectFromPath } from '@/services'
-import { usePipeline, useLongformPipeline } from '@/hooks'
-import type { SourceVideo } from '@/store'
-import { PythonSetupCard } from '@/components/PythonSetupCard'
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mts', 'm4v'] as const
-const MAX_RECENTS = 5
+const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mts', 'm4v'] as const;
 
 function isUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value.trim())
+  return /^https?:\/\//i.test(value.trim());
 }
 
-// Only YouTube links are downloadable (see src/main/youtube.ts). Catch
-// non-YouTube URLs here so we never invite a link the pipeline can't process.
 function isYouTubeUrl(value: string): boolean {
-  const trimmed = value.trim()
-  if (/youtu\.be\/[A-Za-z0-9_-]{11}/i.test(trimmed)) return true
+  const trimmed = value.trim();
+  if (/youtu\.be\/[A-Za-z0-9_-]{11}/i.test(trimmed)) return true;
   try {
-    const host = new URL(trimmed).hostname.replace(/^www\./i, '')
-    return host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be'
+    const host = new URL(trimmed).hostname.replace(/^www\./i, '');
+    return host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be';
   } catch {
-    return false
+    return false;
   }
 }
 
 function isVideoFilename(name: string): boolean {
-  const ext = name.split('.').pop()?.toLowerCase()
-  return ext ? (VIDEO_EXTENSIONS as readonly string[]).includes(ext) : false
+  const extension = name.split('.').pop()?.toLowerCase();
+  return extension ? (VIDEO_EXTENSIONS as readonly string[]).includes(extension) : false;
 }
 
 function basename(path: string): string {
-  const cleaned = path.replace(/[/\\]+$/, '')
-  const last = cleaned.split(/[/\\]/).pop()
-  return last && last.length > 0 ? last : cleaned
+  const cleaned = path.replace(/[/\\]+$/, '');
+  const last = cleaned.split(/[/\\]/).pop();
+  return last && last.length > 0 ? last : cleaned;
 }
 
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp
-  const sec = Math.max(1, Math.floor(diff / 1000))
-  if (sec < 60) return 'just now'
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const day = Math.floor(hr / 24)
-  if (day < 30) return `${day}d ago`
-  const mo = Math.floor(day / 30)
-  if (mo < 12) return `${mo}mo ago`
-  return `${Math.floor(mo / 12)}y ago`
+function filenameStem(path: string): string {
+  return basename(path).replace(/\.[^.]+$/, '');
 }
 
-// Crypto-safe id without pulling a uuid dep.
 function makeId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
-
-interface RecentProjectEntry {
-  path: string
-  name: string
-  lastOpened: number
-  clipCount: number
-  sourceCount: number
-  kind?: 'short' | 'longform'
-}
-
-// ---------------------------------------------------------------------------
-// DropScreen
-// ---------------------------------------------------------------------------
 
 export function DropScreen(): React.JSX.Element {
-  const addSource = useStore((s) => s.addSource)
-  const setActiveSource = useStore((s) => s.setActiveSource)
-  const addError = useStore((s) => s.addError)
-  const pythonStatus = useStore((s) => s.pythonStatus)
-  const outputMode = useStore((s) => s.settings.outputMode)
-  const setOutputMode = useStore((s) => s.setOutputMode)
-  const { processVideo } = usePipeline()
-  const { processLongform } = useLongformPipeline()
+  const addSource = useStore((state) => state.addSource);
+  const setActiveSource = useStore((state) => state.setActiveSource);
+  const addError = useStore((state) => state.addError);
+  const pythonStatus = useStore((state) => state.pythonStatus);
+  const outputMode = useStore((state) => state.settings.outputMode);
+  const setOutputMode = useStore((state) => state.setOutputMode);
+  const setProjectDisplayName = useStore((state) => state.setProjectDisplayName);
+  const setCreativeBrief = useStore((state) => state.setCreativeBrief);
+  const commitCreativeBrief = useStore((state) => state.commitCreativeBrief);
+  const setCreatorProfile = useStore((state) => state.setCreatorProfile);
+  const setProcessingConfig = useStore((state) => state.setProcessingConfig);
+  const setTargetPlatform = useStore((state) => state.setTargetPlatform);
+  const setTemplateLayout = useStore((state) => state.setTemplateLayout);
+  const setLongformSkin = useStore((state) => state.setLongformSkin);
+  const setLongformPaletteId = useStore((state) => state.setLongformPaletteId);
+  const { processVideo } = usePipeline();
+  const { processLongform } = useLongformPipeline();
 
-  // While the Python env is installing or has failed, replace the drop zone
-  // with the install card. `'checking'` is the brief moment between mount and
-  // the first status reply — we render the normal drop zone (status
-  // optimistically assumed ready) so a warm-path launch doesn't flash an
-  // install card. `'skipped'` is set by future flows that opt-out entirely.
   const showSetupCard =
-    pythonStatus === 'installing' || pythonStatus === 'error'
-  const isSetupBusy = pythonStatus === 'installing'
+    pythonStatus === 'not-setup' ||
+    pythonStatus === 'repair-needed' ||
+    pythonStatus === 'installing' ||
+    pythonStatus === 'cancelling' ||
+    pythonStatus === 'error';
+  const isSetupBusy = pythonStatus === 'installing' || pythonStatus === 'cancelling';
 
-  const [value, setValue] = useState('')
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [isStarting, setIsStarting] = useState(false)
-  const [recents, setRecents] = useState<RecentProjectEntry[]>([])
-  const [ingestError, setIngestError] = useState<string | null>(null)
-  const [keyMissing, setKeyMissing] = useState(false)
-  const dragDepth = useRef(0)
+  const [url, setUrl] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [recents, setRecents] = useState<RecentProjectEntry[]>([]);
+  const [recentsLoading, setRecentsLoading] = useState(true);
+  const [recentsError, setRecentsError] = useState<string | null>(null);
+  const [ingestError, setIngestError] = useState<string | null>(null);
+  const [keyMissing, setKeyMissing] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [busyProjectPath, setBusyProjectPath] = useState<string | null>(null);
+  const [queuedSource, setQueuedSource] = useState<{
+    source: SourceVideo;
+    outputMode: 'short' | 'longform';
+  } | null>(null);
+  const dragDepth = useRef(0);
 
-  // Up-front gate: both short-form scoring and long-form editing need a Gemini
-  // key. Catch a keyless user here — before any download/transcribe — so they're
-  // told immediately with a one-click path to Settings instead of after minutes
-  // of wasted work.
   const ensureScoringKey = useCallback(async (): Promise<boolean> => {
-    const key = await resolveGeminiKey(useStore.getState().settings.geminiApiKey)
-    if (key) {
-      setKeyMissing(false)
-      return true
+    const state = useStore.getState();
+    if (state.settings.outputMode === 'short' && state.processingConfig.promoMode) {
+      setKeyMissing(false);
+      return true;
     }
-    setKeyMissing(true)
-    setIngestError(null)
+
+    const resolvedCredential = await resolveGeminiKey(state.settings.geminiApiKey);
+    if (resolvedCredential) {
+      setKeyMissing(false);
+      return true;
+    }
+    setKeyMissing(true);
+    setIngestError(null);
     toast.error('Gemini API key required', {
       description: 'Add your key in Settings before processing a video.',
-    })
-    return false
-  }, [])
+    });
+    return false;
+  }, []);
 
   const handleOpenSettings = useCallback(async (): Promise<void> => {
     try {
-      await window.api.openSettingsWindow()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast.error(`Couldn't open settings: ${message}`)
+      await window.api.openSettingsWindow();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const structured = addError({ source: 'settings', error, message });
+      toast.error(structured.headline);
     }
-  }, [])
+  }, [addError]);
 
-  // Detect input mode from the current value (URL vs file path vs neutral).
-  const inputMode: 'url' | 'file' | 'neutral' = useMemo(() => {
-    const trimmed = value.trim()
-    if (trimmed.length === 0) return 'neutral'
-    if (isUrl(trimmed)) return 'url'
-    if (
-      trimmed.startsWith('/') ||
-      trimmed.startsWith('~') ||
-      trimmed.startsWith('file://') ||
-      /^[a-zA-Z]:[\\/]/.test(trimmed) ||
-      isVideoFilename(trimmed)
-    ) {
-      return 'file'
-    }
-    return 'neutral'
-  }, [value])
-
-  const LeadingIcon = inputMode === 'url' ? LinkIcon : inputMode === 'file' ? FileVideo : Upload
-
-  // ── Recent projects ────────────────────────────────────────────────────
   const refreshRecents = useCallback(async (): Promise<void> => {
+    setRecentsLoading(true);
+    setRecentsError(null);
     try {
-      const all = await window.api.getRecentProjects()
-      setRecents(all.slice(0, MAX_RECENTS))
-    } catch (err) {
-      // Non-fatal — surface to log only, don't toast.
-      const message = err instanceof Error ? err.message : String(err)
-      addError({ source: 'project', message: `Failed to load recent projects: ${message}` })
+      setRecents(await window.api.getRecentProjects());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addError({ source: 'project', message: `Failed to load recent projects: ${message}` });
+      setRecentsError(message || 'The recent-project index is unavailable.');
+    } finally {
+      setRecentsLoading(false);
     }
-  }, [addError])
+  }, [addError]);
 
   useEffect(() => {
-    void refreshRecents()
-  }, [refreshRecents])
+    void refreshRecents();
+  }, [refreshRecents]);
 
-  // ── Pipeline starters ──────────────────────────────────────────────────
+  const processOrQueueSource = useCallback(
+    (source: SourceVideo): void => {
+      const state = useStore.getState();
+      const selectedMode = state.settings.outputMode;
+      if (state.pythonStatus !== 'ready') {
+        setQueuedSource({ source, outputMode: selectedMode });
+        return;
+      }
+      if (selectedMode === 'longform') void processLongform(source);
+      else void processVideo(source);
+    },
+    [processLongform, processVideo],
+  );
+
+  useEffect(() => {
+    if (!queuedSource || pythonStatus !== 'ready') return;
+    setQueuedSource(null);
+    if (queuedSource.outputMode === 'longform') void processLongform(queuedSource.source);
+    else void processVideo(queuedSource.source);
+  }, [processLongform, processVideo, pythonStatus, queuedSource]);
+
   const startFromFilePath = useCallback(
     async (filePath: string): Promise<void> => {
-      if (isStarting) return
-      if (!(await ensureScoringKey())) return
-      setIsStarting(true)
+      if (isStarting) return;
+      if (!(await ensureScoringKey())) return;
+      setIsStarting(true);
       try {
-        const meta = await window.api.getMetadata(filePath)
+        const [metadataResult, thumbnailResult] = await Promise.allSettled([
+          window.api.getMetadata(filePath),
+          window.api.getThumbnail(filePath, 1),
+        ]);
+        if (metadataResult.status === 'rejected') throw metadataResult.reason;
+        const metadata = metadataResult.value;
         const source: SourceVideo = {
           id: makeId(),
           path: filePath,
           name: basename(filePath),
-          duration: meta.duration,
-          width: meta.width,
-          height: meta.height,
+          duration: metadata.duration,
+          width: metadata.width,
+          height: metadata.height,
+          ...(thumbnailResult.status === 'fulfilled' ? { thumbnail: thumbnailResult.value } : {}),
           origin: 'file',
+          mediaStatus: 'online',
+        };
+        if (useStore.getState().currentProject.displayName === 'Untitled Project') {
+          setProjectDisplayName(filenameStem(filePath));
         }
-        addSource(source)
-        setActiveSource(source.id)
-        // Don't await — the pipeline runs in the background; the router
-        // switches to ProcessingScreen as soon as stage leaves 'idle'.
-        if (useStore.getState().settings.outputMode === 'longform') {
-          void processLongform(source)
-        } else {
-          void processVideo(source)
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        toast.error(`Couldn't read video: ${message}`)
-        addError({ source: 'pipeline', message: `Failed to ingest ${filePath}: ${message}` })
-        setIngestError(`Couldn't read ${basename(filePath)}: ${message}`)
-        setIsStarting(false)
+        addSource(source);
+        setActiveSource(source.id);
+        processOrQueueSource(source);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const structured = addError({
+          source: 'pipeline',
+          error,
+          message: `Failed to ingest ${filePath}: ${message}`,
+          failedStage: 'source-ingest',
+        });
+        toast.error(structured.headline);
+        setIngestError(`${basename(filePath)}: ${structured.whatHappened}`);
+        setIsStarting(false);
       }
     },
-    [addError, addSource, ensureScoringKey, isStarting, processLongform, processVideo, setActiveSource]
-  )
+    [
+      addError,
+      addSource,
+      ensureScoringKey,
+      isStarting,
+      processOrQueueSource,
+      setActiveSource,
+      setProjectDisplayName,
+    ],
+  );
 
   const startFromUrl = useCallback(
-    async (url: string): Promise<void> => {
-      if (isStarting) return
-      if (!(await ensureScoringKey())) return
-      setIsStarting(true)
+    async (sourceUrl: string): Promise<void> => {
+      if (isStarting) return;
+      if (!(await ensureScoringKey())) return;
+      setIsStarting(true);
       const source: SourceVideo = {
         id: makeId(),
         path: '',
-        name: url,
+        name: sourceUrl,
         duration: 0,
         width: 0,
         height: 0,
         origin: 'youtube',
-        youtubeUrl: url,
+        youtubeUrl: sourceUrl,
+        mediaStatus: 'online',
+      };
+      if (useStore.getState().currentProject.displayName === 'Untitled Project') {
+        setProjectDisplayName('YouTube project');
       }
-      addSource(source)
-      setActiveSource(source.id)
-      if (useStore.getState().settings.outputMode === 'longform') {
-        void processLongform(source)
-      } else {
-        void processVideo(source)
-      }
+      addSource(source);
+      setActiveSource(source.id);
+      processOrQueueSource(source);
     },
-    [addSource, ensureScoringKey, isStarting, processLongform, processVideo, setActiveSource]
-  )
+    [
+      addSource,
+      ensureScoringKey,
+      isStarting,
+      processOrQueueSource,
+      setActiveSource,
+      setProjectDisplayName,
+    ],
+  );
 
-  // ── Submit (Enter / blur) ───────────────────────────────────────────────────────
-  const handleSubmit = useCallback((): void => {
-    if (isSetupBusy) return
-    const trimmed = value.trim()
-    if (!trimmed) return
-    if (isUrl(trimmed)) {
-      if (!isYouTubeUrl(trimmed)) {
-        const msg = 'Only YouTube links are supported. Paste a YouTube URL, or drop a video file.'
-        toast.error(msg)
-        setIngestError(msg)
-        return
-      }
-      void startFromUrl(trimmed)
-    } else {
-      // Treat as a local path. ffprobe will fail loudly if it isn't a video.
-      void startFromFilePath(trimmed)
+  const handleUrlSubmit = useCallback((): void => {
+    if (isSetupBusy || isStarting) return;
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    if (!isUrl(trimmed) || !isYouTubeUrl(trimmed)) {
+      const message = 'Paste a valid YouTube URL.';
+      toast.error(message);
+      setIngestError(message);
+      return;
     }
-  }, [isSetupBusy, startFromFilePath, startFromUrl, value])
+    setIngestError(null);
+    void startFromUrl(trimmed);
+  }, [isSetupBusy, isStarting, startFromUrl, url]);
 
-  // ── Native HTML5 drag-and-drop ─────────────────────────────────────────
-  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault()
-    dragDepth.current += 1
-    if (e.dataTransfer.types.includes('Files')) {
-      setIsDragOver(true)
+  const chooseVideoPath = useCallback(async (): Promise<string | null> => {
+    try {
+      const paths = await window.api.openFiles();
+      return paths[0] ?? null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const structured = addError({
+        source: 'pipeline',
+        error,
+        message: `Open file dialog: ${message}`,
+        failedStage: 'source-ingest',
+      });
+      toast.error(structured.headline);
+      setIngestError(structured.whatHappened);
+      return null;
     }
-  }, [])
+  }, [addError]);
 
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
-    // preventDefault is required to allow a drop event to fire.
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-  }, [])
-
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault()
-    dragDepth.current = Math.max(0, dragDepth.current - 1)
-    if (dragDepth.current === 0) setIsDragOver(false)
-  }, [])
+  const handleBrowse = useCallback(async (): Promise<void> => {
+    const path = await chooseVideoPath();
+    if (!path) return;
+    setIngestError(null);
+    void startFromFilePath(path);
+  }, [chooseVideoPath, startFromFilePath]);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>): void => {
-      e.preventDefault()
-      dragDepth.current = 0
-      setIsDragOver(false)
+    (event: React.DragEvent<HTMLElement>): void => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setIsDragOver(false);
+      const file = Array.from(event.dataTransfer.files ?? [])[0];
+      if (!file) return;
+      const path = window.api.getPathForFile(file);
 
-      const files = Array.from(e.dataTransfer.files ?? [])
-      if (files.length === 0) return
-      const file = files[0]
-
-      // .batchclip → load as project. Anything else → treat as video.
       if (file.name.toLowerCase().endsWith('.batchclip')) {
-        const path = window.api.getPathForFile(file)
-        void loadProjectFromPath(path).then((ok) => {
-          if (ok) {
-            toast.success('Project loaded')
-            void refreshRecents()
+        void loadProjectFromPath(path).then((opened) => {
+          if (opened) {
+            toast.success('Project loaded');
+            void refreshRecents();
+          } else {
+            setIngestError(`Couldn't open ${file.name}`);
           }
-        })
-        return
+        });
+        return;
       }
-
       if (!isVideoFilename(file.name)) {
-        const msg = `Unsupported file type: ${file.name}`
-        toast.error(msg)
-        setIngestError(msg)
-        return
+        const message = `Unsupported file type: ${file.name}`;
+        toast.error(message);
+        setIngestError(message);
+        return;
       }
-
-      const path = window.api.getPathForFile(file)
       if (!path) {
-        const msg = "Couldn't resolve file path"
-        toast.error(msg)
-        setIngestError(msg)
-        return
+        setIngestError("Couldn't resolve the dropped file path.");
+        return;
       }
-      setIngestError(null)
-      void startFromFilePath(path)
+      setIngestError(null);
+      void startFromFilePath(path);
     },
-    [refreshRecents, startFromFilePath]
-  )
+    [refreshRecents, startFromFilePath],
+  );
 
-  // ── Click-to-browse via system dialog ──────────────────────────────────
-  const handleBrowse = useCallback(async (): Promise<void> => {
+  const handleDragEnter = useCallback((event: React.DragEvent<HTMLElement>): void => {
+    event.preventDefault();
+    dragDepth.current += 1;
+    if (event.dataTransfer.types.includes('Files')) setIsDragOver(true);
+  }, []);
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLElement>): void => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLElement>): void => {
+    event.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setIsDragOver(false);
+  }, []);
+
+  const handleOpenRecent = useCallback(async (entry: RecentProjectEntry): Promise<void> => {
+    setBusyProjectPath(entry.path);
     try {
-      const paths = await window.api.openFiles()
-      if (paths.length > 0) {
-        setIngestError(null)
-        void startFromFilePath(paths[0])
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast.error(`Couldn't open file: ${message}`)
-      setIngestError(`Couldn't open file: ${message}`)
-      addError({ source: 'pipeline', message: `Open file dialog: ${message}` })
-    }
-  }, [addError, startFromFilePath])
-
-  // ── Recent projects ────────────────────────────────────────────────────
-  const handleOpenRecent = useCallback(
-    async (entry: RecentProjectEntry): Promise<void> => {
-      const ok = await loadProjectFromPath(entry.path)
-      if (ok) {
-        toast.success(`Loaded ${entry.name}`)
-        setIngestError(null)
+      const opened = await loadProjectFromPath(entry.path);
+      if (opened) {
+        toast.success(`Opened ${entry.name}`);
+        setIngestError(null);
       } else {
-        const msg = `Couldn't open ${entry.name}`
-        toast.error(msg)
-        setIngestError(msg)
+        setIngestError(`Couldn't open ${entry.name}. The project may have moved or been damaged.`);
+      }
+    } finally {
+      setBusyProjectPath(null);
+    }
+  }, []);
+
+  const handleOpenProjectFile = useCallback(async (): Promise<void> => {
+    const opened = await loadProject();
+    if (opened) {
+      toast.success('Project loaded');
+      void refreshRecents();
+    }
+  }, [refreshRecents]);
+
+  const runProjectAction = useCallback(
+    async (
+      entry: RecentProjectEntry,
+      action: () => Promise<void>,
+      success: string,
+    ): Promise<void> => {
+      setBusyProjectPath(entry.path);
+      try {
+        await action();
+        toast.success(success);
+        await refreshRecents();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setIngestError(`${entry.name}: ${message}`);
+        toast.error(message);
+      } finally {
+        setBusyProjectPath(null);
       }
     },
-    []
-  )
+    [refreshRecents],
+  );
 
-  const handleImportProject = useCallback(async (): Promise<void> => {
-    const ok = await loadProject()
-    if (ok) {
-      toast.success('Project loaded')
-      void refreshRecents()
-    }
-  }, [refreshRecents])
+  const handleCreateProject = useCallback(
+    (draft: NewProjectDraft): void => {
+      if (draft.source.kind === 'url' && !isYouTubeUrl(draft.source.value)) {
+        setIngestError('Paste a valid YouTube URL.');
+        setNewProjectOpen(false);
+        return;
+      }
+      createNewProject();
+      setProjectDisplayName(draft.name);
+      setOutputMode(draft.outputMode);
+      if (draft.profileId) {
+        const profile = getCreatorProfiles().find((item) => item.id === draft.profileId);
+        if (profile) {
+          setCreatorProfile(profile.id);
+          setProcessingConfig({ targetAudience: profile.audience });
+          setTargetPlatform(profile.targetPlatform);
+          setTemplateLayout(profile.templateLayout);
+          setLongformSkin(profile.longformSkin);
+          setLongformPaletteId(profile.longformPaletteId);
+        }
+      }
+      if (draft.brief) {
+        setCreativeBrief(draft.brief);
+        commitCreativeBrief();
+      }
+      setNewProjectOpen(false);
+      setIngestError(null);
+      if (draft.source.kind === 'file') void startFromFilePath(draft.source.value);
+      else void startFromUrl(draft.source.value);
+    },
+    [
+      commitCreativeBrief,
+      setCreativeBrief,
+      setCreatorProfile,
+      setLongformPaletteId,
+      setLongformSkin,
+      setOutputMode,
+      setProcessingConfig,
+      setProjectDisplayName,
+      setTargetPlatform,
+      setTemplateLayout,
+      startFromFilePath,
+      startFromUrl,
+    ],
+  );
 
-  // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full w-full justify-center overflow-y-auto p-8">
-      {/* my-auto centers the column when it fits but keeps the top reachable
-          when the content (mode selector + 60vh drop card + recents) overflows
-          the window — otherwise items-center clips the top off-screen. */}
-      <div className="my-auto flex w-full max-w-2xl flex-col gap-8">
-        {/* Missing-key gate — short-form scoring can't run without a Gemini
-            key. Surface it up front with a one-click jump to Settings. */}
+    <div className="studio-shell h-full w-full overflow-y-auto px-4 py-4 sm:px-6 min-[1100px]:px-8 min-[1100px]:py-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 pb-6">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Project lobby</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Start from footage or pick up your last cut.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              id="new-project-button"
+              variant="outline"
+              size="sm"
+              onClick={() => setNewProjectOpen(true)}
+            >
+              <FilePlus2 className="h-4 w-4" aria-hidden />
+              New project
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void handleOpenProjectFile()}>
+              <FolderOpen className="h-4 w-4" aria-hidden />
+              Open project
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void handleBrowse()}>
+              <Import className="h-4 w-4" aria-hidden />
+              Import video
+            </Button>
+          </div>
+        </header>
+
+        <ProjectContactSheet
+          projects={recents}
+          busyPath={busyProjectPath}
+          onOpenProject={(entry) => void handleOpenRecent(entry)}
+        />
+
         {keyMissing && (
           <Alert variant="destructive">
             <KeyRound className="h-4 w-4" />
             <AlertTitle>Gemini API key required</AlertTitle>
             <AlertDescription className="break-words">
               <p className="mb-2">
-                Scoring short clips needs a Gemini API key. Add it in Settings,
-                then drop your video again.
+                Finding and shaping moments needs a Gemini API key. Add it in Settings, then try
+                your source again.
               </p>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => void handleOpenSettings()}
-              >
-                <SettingsIcon className="mr-1 h-3.5 w-3.5" />
+              <Button variant="default" size="sm" onClick={() => void handleOpenSettings()}>
+                <SettingsIcon className="h-3.5 w-3.5" aria-hidden />
                 Open Settings
               </Button>
             </AlertDescription>
           </Alert>
         )}
 
-        {/* Inline error — surfaces ingest / open failures so the user
-            doesn't have to expand the bottom log to see what went wrong. */}
         {ingestError && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Couldn&apos;t open that file</AlertTitle>
-            <AlertDescription className="break-words">
-              {ingestError}
-            </AlertDescription>
+            <AlertTitle>That action did not finish</AlertTitle>
+            <AlertDescription className="break-words">{ingestError}</AlertDescription>
           </Alert>
         )}
 
-        {/* Output mode selector — pick the short-form clip pipeline (9:16) or
-            the Hormozi long-form edit pipeline (16:9) before dropping. */}
-        {!showSetupCard && (
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-foreground text-sm font-semibold tracking-tight">
-                Output mode
-              </h3>
-              <p className="text-muted-foreground text-xs">
-                {outputMode === 'longform'
-                  ? 'One 16:9 long-form edit — phrase overlays, concept cards, section headers'
-                  : 'Multiple 9:16 short clips scored and styled for social'}
-              </p>
-            </div>
-            <Select
-              value={outputMode}
-              onValueChange={(v) => setOutputMode(v as 'short' | 'longform')}
-              disabled={isStarting}
-            >
-              <SelectTrigger className="w-[200px]" aria-label="Output mode">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short">Short clips (9:16)</SelectItem>
-                <SelectItem value="longform">Long-form (16:9)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Long-form look — color palette + block skin. Long-form only.
-            Palette controls colors; skin controls visual structure. */}
-        {!showSetupCard && outputMode === 'longform' && (
-          <PalettePicker disabled={isStarting} />
-        )}
-
-        {/* Python first-run install card — replaces the drop zone while the
-            env is installing or errored. */}
-        {showSetupCard && <PythonSetupCard />}
-
-        {/* Drop zone — single shadcn Card with dashed border */}
-        {!showSetupCard && <Card
-          role="button"
-          tabIndex={0}
-          aria-label="Drop a video file or paste a URL"
-          aria-disabled={isStarting}
-          onClick={handleBrowse}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              void handleBrowse()
-            }
-          }}
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={cn(
-            'flex cursor-pointer flex-col items-center justify-center gap-6 border-2 border-dashed bg-transparent p-12 shadow-none transition-all duration-150',
-            'hover:border-foreground/40',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            isDragOver && 'border-primary bg-primary/5 scale-[1.01]',
-            isStarting && 'pointer-events-none opacity-60'
-          )}
-          style={{ minHeight: '60vh' }}
-        >
-          <div className="flex flex-col items-center gap-3 text-center">
-            <Upload
-              className={cn(
-                'h-12 w-12 transition-colors',
-                isDragOver ? 'text-primary' : 'text-muted-foreground'
-              )}
-              strokeWidth={1.5}
-              aria-hidden
-            />
-            <div className="space-y-1">
-              <h2 className="text-foreground text-lg font-semibold tracking-tight">
-                Drop a video file or paste a URL
-              </h2>
-              <p className="text-muted-foreground text-sm">
-                MP4, MOV, MKV, WEBM — or a YouTube link
-              </p>
-            </div>
-          </div>
-
-          {/* Combined Input — URL or path. Stop click bubbling so it doesn't open the picker. */}
-          <div
-            className="relative w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
+        {showSetupCard ? (
+          <PythonSetupCard queuedSourceName={queuedSource?.source.name ?? null} />
+        ) : (
+          <Card
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={cn(
+              'bg-card/80 grid overflow-hidden border-2 transition-[border-color,background-color,box-shadow,opacity] duration-150 min-[860px]:grid-cols-[1.15fr_0.85fr]',
+              isDragOver &&
+                'border-primary bg-primary/5 shadow-[0_0_0_4px_hsl(var(--primary)/0.08)]',
+              isStarting && 'opacity-65',
+            )}
           >
-            <LeadingIcon
-              className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
-              aria-hidden
-            />
-            <Input
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleSubmit()
-                }
-              }}
-              placeholder="Paste a URL or file path…"
-              spellCheck={false}
-              autoComplete="off"
+            <button
+              type="button"
+              aria-label="Drop a video file or paste a URL"
               disabled={isStarting}
-              className="pl-9"
-              aria-label="Video URL or file path"
-            />
-          </div>
-        </Card>}
-
-        {/* Recent projects */}
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-foreground text-sm font-semibold tracking-tight">
-              Recent projects
-            </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleImportProject}
-              className="text-muted-foreground"
+              onClick={() => void handleBrowse()}
+              className={cn(
+                'group flex min-h-48 items-center gap-5 border-b border-dashed p-5 text-left min-[860px]:border-r min-[860px]:border-b-0 sm:p-6',
+                'transition-[background-color,color] duration-150 hover:bg-muted/60',
+                'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
+              )}
             >
-              <FolderOpen />
-              Import .batchclip…
-            </Button>
-          </div>
-
-          {recents.length === 0 ? (
-            <Card className="flex flex-col items-center gap-2 px-6 py-8 text-center">
-              <Inbox
-                className="text-muted-foreground h-8 w-8"
-                strokeWidth={1.5}
+              <Upload
+                className={cn(
+                  'h-8 w-8 shrink-0 transition-colors duration-150',
+                  isDragOver ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+                )}
+                strokeWidth={1.6}
                 aria-hidden
               />
-              <p className="text-foreground text-sm font-medium">
-                No recent projects
-              </p>
-              <p className="text-muted-foreground text-xs">
-                Drop a video to begin — saved projects will appear here.
-              </p>
-            </Card>
-          ) : (
-            <ScrollArea className="max-h-[280px]">
-              <ul className="flex flex-col gap-2">
-                {recents.map((entry) => (
-                  <li key={entry.path}>
-                    <Card
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => void handleOpenRecent(entry)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          void handleOpenRecent(entry)
+              <span className="min-w-0">
+                <span className="block text-base font-semibold">Drop video</span>
+                <span className="text-muted-foreground mt-1 block text-sm">
+                  Or choose a local file to start this project.
+                </span>
+                <span className="text-muted-foreground mt-3 block text-xs">
+                  MP4, MOV, MKV, WEBM, MTS, and M4V
+                </span>
+              </span>
+            </button>
+
+            <div className="flex min-w-0 flex-col justify-center gap-4 p-5 sm:p-6">
+              <div className="grid gap-2">
+                <Label htmlFor="lobby-youtube-url">YouTube URL</Label>
+                <div className="flex gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <LinkIcon
+                      className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
+                      aria-hidden
+                    />
+                    <Input
+                      id="lobby-youtube-url"
+                      type="url"
+                      value={url}
+                      onChange={(event) => {
+                        setUrl(event.target.value);
+                        setIngestError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleUrlSubmit();
                         }
                       }}
-                      className={cn(
-                        'flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors',
-                        'hover:bg-accent hover:text-accent-foreground',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-                      )}
-                    >
-                      <FileVideo
-                        className="text-muted-foreground h-4 w-4 shrink-0"
-                        aria-hidden
-                      />
-                      <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="text-foreground truncate text-sm font-medium">
-                          {entry.name}
-                        </span>
-                        <span className="text-muted-foreground truncate text-xs">
-                          {entry.kind === 'longform'
-                            ? 'Long-form edit'
-                            : `${entry.clipCount} clip${entry.clipCount === 1 ? '' : 's'}`}
-                          {' · '}
-                          {entry.path}
-                        </span>
-                      </div>
-                      <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-                        {formatRelativeTime(entry.lastOpened)}
-                      </span>
-                    </Card>
-                  </li>
-                ))}
-              </ul>
-            </ScrollArea>
-          )}
-        </section>
+                      placeholder="Paste a YouTube link"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={isStarting}
+                      className="pl-9"
+                      aria-label="Video URL or file path"
+                    />
+                  </div>
+                  <Button
+                    size="icon"
+                    className="h-10 w-10 shrink-0"
+                    disabled={!url.trim() || isStarting}
+                    onClick={handleUrlSubmit}
+                    aria-label="Import YouTube URL"
+                  >
+                    <ArrowRight className="h-4 w-4" aria-hidden />
+                  </Button>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  A clear alternative to local footage. Downloads begin after connection checks.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium">Output mode</p>
+                  <p className="text-muted-foreground text-xs">
+                    {outputMode === 'longform' ? 'One 16:9 edit' : 'Multiple 9:16 clips'}
+                  </p>
+                </div>
+                <Select
+                  value={outputMode}
+                  onValueChange={(value) => setOutputMode(value as 'short' | 'longform')}
+                  disabled={isStarting}
+                >
+                  <SelectTrigger className="w-full sm:w-48" aria-label="Output mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="short">Short clips (9:16)</SelectItem>
+                    <SelectItem value="longform">Long-form (16:9)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {!showSetupCard && outputMode === 'short' && <ProcessingRecipe disabled={isStarting} />}
+
+        {!showSetupCard && outputMode === 'longform' && <PalettePicker disabled={isStarting} />}
+
+        <RecentProjectLibrary
+          projects={recents}
+          loading={recentsLoading}
+          error={recentsError}
+          busyPath={busyProjectPath}
+          onRetry={() => void refreshRecents()}
+          onOpen={(entry) => void handleOpenRecent(entry)}
+          onNewProject={() => setNewProjectOpen(true)}
+          onOpenProjectFile={() => void handleOpenProjectFile()}
+          onReveal={(entry) => void window.api.showItemInFolder(entry.path)}
+          onPin={(entry) =>
+            void runProjectAction(
+              entry,
+              async () => {
+                setRecents(await window.api.setRecentProjectPinned(entry.path, !entry.pinned));
+              },
+              entry.pinned ? 'Project unpinned' : 'Project pinned',
+            )
+          }
+          onRename={(entry, name) =>
+            void runProjectAction(
+              entry,
+              async () => {
+                await window.api.renameRecentProject(entry.path, name);
+              },
+              `Renamed to ${name}`,
+            )
+          }
+          onDuplicate={(entry) =>
+            void runProjectAction(
+              entry,
+              async () => {
+                await window.api.duplicateRecentProject(entry.path);
+              },
+              'Project duplicated',
+            )
+          }
+          onRemove={(entry) =>
+            void runProjectAction(
+              entry,
+              async () => {
+                await window.api.removeRecentProject(entry.path);
+              },
+              'Removed from Recents',
+            )
+          }
+          onDelete={(entry) =>
+            void runProjectAction(
+              entry,
+              async () => {
+                await window.api.deleteRecentProject(entry.path);
+              },
+              'Project file deleted',
+            )
+          }
+        />
       </div>
+
+      <NewProjectDialog
+        open={newProjectOpen}
+        busy={isStarting}
+        onOpenChange={setNewProjectOpen}
+        onChooseFile={chooseVideoPath}
+        onCreate={handleCreateProject}
+      />
     </div>
-  )
+  );
 }
