@@ -60,14 +60,14 @@ export interface BrandPack {
 // ---------------------------------------------------------------------------
 
 export const CATEGORY_DISPLAY_DEFAULTS: Record<EvidenceCategory, BRollDisplayMode> = {
-  // App UI needs to be seen — quick fullscreen flash.
+  // App UI needs to be seen — quick fullscreen flash (templates use yPos).
   'app-ui': 'fullscreen',
-  // Proof supports you talking — keep your face on screen.
-  'community-proof': 'split-top',
+  // Proof floats over you talking as a rounded card — your face stays on screen.
+  'community-proof': 'floating-card',
   // Stats are animated hyperframes on top of the speaker.
   'growth-stat': 'pip',
-  // The one allowed "ad" moment — fullscreen at the end.
-  cta: 'fullscreen',
+  // The Skool screenshot floats as a rounded card in the bottom half, over you.
+  cta: 'floating-card',
 };
 
 export const CATEGORY_DURATION_DEFAULTS: Record<EvidenceCategory, number> = {
@@ -105,6 +105,18 @@ export const PROMO_TEMPLATE_IDS = {
   publishToPlatforms: 'promo-publish',
   /** Implemented: catalog/promo-feature-flash.html */
   featureFlash: 'promo-feature-flash',
+  repurposeStack: 'promo-repurpose-stack',
+  brandScore: 'promo-brand-score',
+  contentCalendar: 'promo-content-calendar',
+  platformExport: 'promo-platform-export',
+  hookTest: 'promo-hook-test',
+  beforeAfter: 'promo-before-after',
+  analyticsSpike: 'promo-analytics-spike',
+  captionSync: 'promo-caption-sync',
+  testimonialCard: 'promo-testimonial-card',
+  approvalFlow: 'promo-approval-flow',
+  brandKitScan: 'promo-brand-kit-scan',
+  contentLottery: 'promo-content-lottery',
 } as const;
 
 function template(
@@ -172,6 +184,78 @@ export function buildDefaultBrandPack(): BrandPack {
         'ads dashboard',
         'callout',
         'highlight',
+      ]),
+      template('tpl-repurpose-stack', 'app-ui', PROMO_TEMPLATE_IDS.repurposeStack, [
+        'repurpose',
+        'formats',
+        'atomize',
+        'workflow',
+      ]),
+      template('tpl-brand-score', 'app-ui', PROMO_TEMPLATE_IDS.brandScore, [
+        'brand score',
+        'consistency',
+        'on brand',
+        'quality',
+      ]),
+      template('tpl-content-calendar', 'app-ui', PROMO_TEMPLATE_IDS.contentCalendar, [
+        'calendar',
+        'schedule',
+        'planning',
+        'content plan',
+      ]),
+      template('tpl-platform-export', 'app-ui', PROMO_TEMPLATE_IDS.platformExport, [
+        'distribution',
+        'platforms',
+        'export',
+        'channels',
+      ]),
+      template('tpl-hook-test', 'app-ui', PROMO_TEMPLATE_IDS.hookTest, [
+        'hook test',
+        'ab test',
+        'experiment',
+        'optimization',
+      ]),
+      template('tpl-before-after', 'app-ui', PROMO_TEMPLATE_IDS.beforeAfter, [
+        'before after',
+        'transformation',
+        'workflow',
+        'automation',
+      ]),
+      template('tpl-analytics-spike', 'growth-stat', PROMO_TEMPLATE_IDS.analyticsSpike, [
+        'analytics',
+        'reach',
+        'growth',
+        'performance',
+      ]),
+      template('tpl-caption-sync', 'app-ui', PROMO_TEMPLATE_IDS.captionSync, [
+        'captions',
+        'sync',
+        'subtitles',
+        'editing',
+      ]),
+      template('tpl-testimonial-card', 'community-proof', PROMO_TEMPLATE_IDS.testimonialCard, [
+        'testimonial',
+        'customer story',
+        'creator result',
+        'proof',
+      ]),
+      template('tpl-approval-flow', 'app-ui', PROMO_TEMPLATE_IDS.approvalFlow, [
+        'approval',
+        'review',
+        'collaboration',
+        'pipeline',
+      ]),
+      template('tpl-brand-kit-scan', 'app-ui', PROMO_TEMPLATE_IDS.brandKitScan, [
+        'brand kit',
+        'brand scan',
+        'style guide',
+        'quality control',
+      ]),
+      template('tpl-content-lottery', 'app-ui', PROMO_TEMPLATE_IDS.contentLottery, [
+        'content ideas',
+        'ranking',
+        'pick',
+        'next post',
       ]),
     ],
   };

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   type BrandPack,
@@ -13,10 +15,11 @@ function beat(category: EvidenceBeat['category'], timestamp: number): EvidenceBe
 }
 
 describe('brand-pack — default pack', () => {
-  it('ships template assets for app-ui and growth-stat', () => {
+  it('ships template assets for all Promo Mode evidence categories', () => {
     const pack = buildDefaultBrandPack();
     const cats = new Set(pack.assets.map((a) => a.category));
     expect(cats.has('app-ui')).toBe(true);
+    expect(cats.has('community-proof')).toBe(true);
     expect(cats.has('growth-stat')).toBe(true);
     expect(pack.assets.every((a) => a.kind === 'template')).toBe(true);
   });
@@ -29,22 +32,52 @@ describe('brand-pack — default pack', () => {
       'promo-publish',
       'promo-feature-flash',
       'big-stat',
+      'promo-repurpose-stack',
+      'promo-brand-score',
+      'promo-content-calendar',
+      'promo-platform-export',
+      'promo-hook-test',
+      'promo-before-after',
+      'promo-analytics-spike',
+      'promo-caption-sync',
+      'promo-testimonial-card',
+      'promo-approval-flow',
+      'promo-brand-kit-scan',
+      'promo-content-lottery',
     ]);
     for (const a of pack.assets) {
-      expect(implemented.has(a.templateId ?? '')).toBe(true);
+      const templateId = a.templateId ?? '';
+      expect(implemented.has(templateId)).toBe(true);
+      expect(existsSync(join(__dirname, '../hyperframes/catalog', `${templateId}.html`))).toBe(
+        true,
+      );
     }
   });
 
-  it('ships the three new Media Master app-ui templates', () => {
+  it('ships all 16 Promo Mode templates in their expected categories', () => {
     const pack = buildDefaultBrandPack();
-    const templateIds = new Set(pack.assets.map((a) => a.templateId));
-    expect(templateIds.has('promo-chat-exchange')).toBe(true);
-    expect(templateIds.has('promo-publish')).toBe(true);
-    expect(templateIds.has('promo-feature-flash')).toBe(true);
-    // All three register under the app-ui category.
-    for (const id of ['promo-chat-exchange', 'promo-publish', 'promo-feature-flash']) {
-      const asset = pack.assets.find((a) => a.templateId === id);
-      expect(asset?.category).toBe('app-ui');
+    const expected: Record<string, string> = {
+      'promo-agent-toast': 'app-ui',
+      'promo-chat-exchange': 'app-ui',
+      'promo-publish': 'app-ui',
+      'promo-feature-flash': 'app-ui',
+      'promo-repurpose-stack': 'app-ui',
+      'promo-brand-score': 'app-ui',
+      'promo-content-calendar': 'app-ui',
+      'promo-platform-export': 'app-ui',
+      'promo-hook-test': 'app-ui',
+      'promo-before-after': 'app-ui',
+      'promo-analytics-spike': 'growth-stat',
+      'promo-caption-sync': 'app-ui',
+      'promo-testimonial-card': 'community-proof',
+      'promo-approval-flow': 'app-ui',
+      'promo-brand-kit-scan': 'app-ui',
+      'promo-content-lottery': 'app-ui',
+    };
+    const assets = new Map(pack.assets.map((asset) => [asset.templateId, asset]));
+    expect(Object.keys(expected)).toHaveLength(16);
+    for (const [templateId, category] of Object.entries(expected)) {
+      expect(assets.get(templateId)?.category).toBe(category);
     }
   });
 
@@ -84,8 +117,8 @@ describe('brand-pack — resolver', () => {
   it('returns null for a category with no assets', () => {
     const pack = buildDefaultBrandPack();
     const resolver = new BrandPackResolver(pack);
-    // community-proof has no template in the default pack (capture-only).
-    expect(resolver.resolve(beat('community-proof', 3))).toBeNull();
+    // CTA remains capture-only in the default pack.
+    expect(resolver.resolve(beat('cta', 3))).toBeNull();
   });
 
   it('resolves the forced CTA asset when present', () => {
@@ -108,10 +141,9 @@ describe('brand-pack — resolver', () => {
 
   it('drops beats with no matching asset in resolveEvidence', () => {
     const pack = buildDefaultBrandPack();
-    const beats = [beat('app-ui', 3), beat('community-proof', 7)];
+    const beats = [beat('app-ui', 3), beat('community-proof', 7), beat('cta', 9)];
     const resolved = resolveEvidence(beats, pack);
-    // Only app-ui resolves against the default (template-only) pack.
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0].beat.category).toBe('app-ui');
+    expect(resolved).toHaveLength(2);
+    expect(resolved.map((item) => item.beat.category)).toEqual(['app-ui', 'community-proof']);
   });
 });
