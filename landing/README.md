@@ -23,7 +23,7 @@ Open <http://localhost:4173>.
 
 Production: <https://landing-phi-dun.vercel.app>
 
-The Apple Silicon DMG is hosted in the public `batchclip-downloads` Vercel Blob store and linked from `index.html`. The Windows control remains disabled until an EXE installer is published.
+The Apple Silicon DMG and Windows x64 EXE are hosted in the public `batchclip-downloads` Vercel Blob store and linked from `index.html`. The Windows 0.1.0 installer is 178,488,699 bytes with SHA-256 `ea9e59134ccc85aff2af1e63bd6dcd6588c31b046808ac93074e8e53c92ec638`.
 
 Deploy updates with:
 

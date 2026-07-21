@@ -62,8 +62,8 @@ Keep the requested EZ Coder page skeleton, then make every distinctive detail be
 
 ## Components and states
 
-- Navigation links, the primary CTA, and macOS download have hover, focus-visible, and press feedback.
-- The unavailable Windows release uses native `disabled` state and explains the missing installer in nearby text.
+- Navigation links, the primary CTA, and both platform downloads have hover, focus-visible, and press feedback.
+- Both available releases use native download links; the Windows card states the unsigned-installer warning nearby.
 - FAQ uses native `<details>` and `<summary>` keyboard behavior.
 - Gallery items are native buttons with accessible names.
 - Lightbox uses native `<dialog>`, labelled caption, Escape close, arrow navigation, close control, backdrop close, and focus return.
@@ -114,5 +114,6 @@ The revision removed that glow and raised the interactive border token to `#875d
 - **Media verified:** the example output is 1080×1920, 30 fps, and 62 seconds.
 - **Performance unverified:** no field Core Web Vitals exist yet. The likely LCP image is eager with fixed dimensions; below-fold gallery images are lazy; fonts use `font-display: swap`; video does not autoplay.
 - **Deployment passed:** Vercel production alias is `https://landing-phi-dun.vercel.app`.
-- **Download passed:** the 193 MB Apple Silicon DMG is stored in the public `batchclip-downloads` Vercel Blob store and linked from the macOS card.
+- **Downloads passed:** the 193 MB Apple Silicon DMG and 170 MB Windows x64 EXE are stored in the public `batchclip-downloads` Vercel Blob store and linked from their platform cards.
+- **Windows artifact verified:** the hosted 0.1.0 EXE is 178,488,699 bytes and matches SHA-256 `ea9e59134ccc85aff2af1e63bd6dcd6588c31b046808ac93074e8e53c92ec638`.
 - **Browser policy:** current Chromium, Safari, and Firefox releases with native `<dialog>` support.
