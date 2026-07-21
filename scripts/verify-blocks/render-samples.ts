@@ -296,7 +296,13 @@ function placeholderCell(dst: string, text: string): void {
 }
 
 /** Tile a row-major sequence of equal-size PNGs into one cols×rows grid PNG. */
-function buildGrid(seqDir: string, cols: number, rows: number, outPath: string): void {
+function buildGrid(
+  seqDir: string,
+  cols: number,
+  rows: number,
+  outPath: string,
+  backgroundColor: string,
+): void {
   const res = spawnSync(
     ffmpeg(),
     [
@@ -306,7 +312,7 @@ function buildGrid(seqDir: string, cols: number, rows: number, outPath: string):
       '-i',
       join(seqDir, 'seq_%03d.png'),
       '-vf',
-      `tile=${cols}x${rows}:padding=4:margin=4:color=#23100c`,
+      `tile=${cols}x${rows}:padding=4:margin=4:color=${backgroundColor}`,
       '-frames:v',
       '1',
       outPath,
@@ -386,7 +392,7 @@ async function main(): Promise<void> {
     }
 
     const gridPath = join(outDir, '_grid.png');
-    buildGrid(seqDir, SKIN_IDS.length, BLOCK_KINDS.length, gridPath);
+    buildGrid(seqDir, SKIN_IDS.length, BLOCK_KINDS.length, gridPath, palette.background);
     rmSync(seqDir, { recursive: true, force: true });
     console.log(`\nGrid → ${gridPath}\n`);
   }

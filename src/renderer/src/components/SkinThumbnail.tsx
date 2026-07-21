@@ -22,6 +22,11 @@ export const LONGFORM_SKINS: ReadonlyArray<{
     description: 'Hard borders and offset shapes',
   },
   { id: 'blueprint', label: 'Blueprint', description: 'Drafting grid and technical labels' },
+  {
+    id: 'ezcoder',
+    label: 'EZ Coder',
+    description: 'Developer workbench with connected status nodes',
+  },
   { id: 'aurora-glass', label: 'Aurora Glass', description: 'Soft light and a glass panel' },
   { id: 'bento', label: 'Bento', description: 'Focused card with a bold chip' },
   { id: 'terminal', label: 'Terminal', description: 'Monospace data panel' },
@@ -47,7 +52,7 @@ function SkinContent({ skin, palette, kicker, headline }: SkinContentProps): Rea
       <span
         className={cn(
           'truncate text-[clamp(6px,3.8cqw,11px)] font-semibold uppercase tracking-[0.16em] opacity-75',
-          (skin === 'terminal' || skin === 'blueprint') && 'font-mono',
+          (skin === 'terminal' || skin === 'blueprint' || skin === 'ezcoder') && 'font-mono',
           skin === 'print-magazine' && 'font-serif normal-case italic tracking-normal',
         )}
       >
@@ -152,6 +157,60 @@ function SkinContent({ skin, palette, kicker, headline }: SkinContentProps): Rea
             A.01
           </span>
           {sharedCopy}
+        </span>
+      </>
+    );
+  }
+
+  if (skin === 'ezcoder') {
+    return (
+      <>
+        <span
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage: `radial-gradient(circle at 18% 24%, ${palette.accent} 0 1px, transparent 1.5px), radial-gradient(circle at 76% 32%, ${palette.accent2 ?? palette.accent} 0 1px, transparent 1.5px), radial-gradient(circle at 58% 78%, ${palette.accent} 0 1px, transparent 1.5px)`,
+            backgroundSize: '24% 34%, 31% 42%, 27% 38%',
+          }}
+        />
+        <span
+          className="relative z-10 flex w-[84%] flex-col overflow-hidden rounded-[clamp(5px,2cqw,12px)] border"
+          style={{
+            borderColor: `${palette.foreground}24`,
+            backgroundColor: `${palette.background}F2`,
+          }}
+        >
+          <span
+            className="flex items-center justify-between border-b px-[6%] py-[3%]"
+            style={{ borderColor: `${palette.foreground}1F` }}
+          >
+            <span className="flex items-center gap-[4%]">
+              <span
+                className="h-[clamp(3px,2cqw,6px)] w-[clamp(3px,2cqw,6px)] rounded-full"
+                style={{ backgroundColor: palette.accent }}
+              />
+              <span
+                className="whitespace-nowrap font-mono text-[clamp(5px,3cqw,9px)] font-semibold tracking-[0.08em]"
+                style={{ color: palette.accent }}
+              >
+                EZ CODER
+              </span>
+            </span>
+            <span
+              className="rounded-full border px-[4%] py-[1%] font-mono text-[clamp(4px,2.4cqw,7px)]"
+              style={{ borderColor: `${palette.accent}66`, color: palette.accent }}
+            >
+              READY
+            </span>
+          </span>
+          <span className="flex items-center gap-[6%] px-[7%] py-[6%]">
+            <span
+              className="h-[clamp(6px,4.5cqw,14px)] w-[clamp(6px,4.5cqw,14px)] shrink-0 rounded-full"
+              style={{
+                background: `linear-gradient(135deg, ${palette.accent}, ${palette.accent2 ?? '#9b8cf7'})`,
+              }}
+            />
+            {sharedCopy}
+          </span>
         </span>
       </>
     );

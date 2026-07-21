@@ -1,13 +1,12 @@
 /**
- * MapBlock — a stylized world/region map with one or more highlighted location
+ * MapBlock — a recognizable world map with one or more highlighted location
  * pins + labels. Used when the speaker references places, markets, or expansion
  * ("we shipped to 30 countries").
  *
- * Self-contained: NO mapping library, NO tile fetch, NO geocoding. The landmass
- * is a low-detail decorative SVG silhouette (abstract continents over a faint
- * graticule grid) that simply reads as "a map". Pins are placed by normalized
- * x/y (0-1) coordinates supplied in props — not real lat/long — and drop + pulse
- * in via the Remotion frame clock.
+ * Self-contained: NO mapping library, tile fetch, or geocoding. The landmass is
+ * a simplified equirectangular SVG silhouette inside a globe frame. Pins use
+ * normalized x/y coordinates supplied in props — not real lat/long — and drop
+ * + pulse in via the Remotion frame clock.
  *
  * A *content block*: it composes a `BlockSkin` (via `skinId`) so the same block
  * renders in every skin. All motion is frame-clock driven (CSS transitions are
@@ -25,25 +24,60 @@ import { Heading, Kicker, SKIN_CONTENT_WIDTH, SKINS } from '../../shared/skins';
 import type { MapBlockProps } from './types';
 
 /* ------------------------------------------------------------------ */
-/*  Decorative landmass — low-detail abstract continents (viewBox      */
-/*  1000×500). Not geographically accurate; just needs to read as a    */
-/*  map. Filled from fg/accent at low alpha.                            */
+/*  Simplified world silhouette — recognizable equirectangular coast   */
+/*  shapes within a globe frame (viewBox 1000×500).                    */
 /* ------------------------------------------------------------------ */
 
-const CONTINENTS: string[] = [
-  // North America
-  'M120,92 C160,70 232,80 252,120 C272,150 240,182 252,212 C228,212 208,190 178,196 C148,202 138,168 118,150 C98,130 95,106 120,92 Z',
-  // South America
-  'M252,262 C282,250 302,282 296,322 C290,362 270,402 250,432 C234,410 230,370 236,340 C240,310 230,282 252,262 Z',
-  // Europe
-  'M472,112 C502,100 522,116 516,142 C510,162 486,166 470,156 C454,146 450,122 472,112 Z',
-  // Africa
-  'M482,192 C522,180 556,212 550,262 C544,312 514,360 490,382 C470,360 466,320 472,290 C477,252 456,212 482,192 Z',
-  // Asia
-  'M560,90 C642,68 762,80 822,120 C862,150 822,182 790,188 C740,198 690,172 640,178 C600,182 560,152 560,120 Z',
-  // Australia
-  'M782,332 C822,320 862,336 856,366 C850,392 814,402 790,392 C770,384 762,346 782,332 Z',
-];
+const CONTINENTS = [
+  {
+    id: 'north-america',
+    path: 'M58,103 L88,77 L137,63 L184,70 L210,91 L248,82 L282,104 L267,128 L238,137 L226,158 L202,166 L190,198 L165,218 L148,202 L131,177 L103,166 L90,143 L64,133 L48,116 Z',
+  },
+  {
+    id: 'greenland',
+    path: 'M236,42 L273,27 L307,43 L297,76 L270,94 L243,77 Z',
+  },
+  {
+    id: 'central-america',
+    path: 'M165,216 L190,218 L211,232 L226,247 L216,258 L192,246 L176,235 Z',
+  },
+  {
+    id: 'south-america',
+    path: 'M220,251 L253,245 L282,266 L290,298 L278,326 L269,357 L249,391 L231,431 L214,415 L204,380 L190,348 L186,314 L199,286 L207,263 Z',
+  },
+  {
+    id: 'europe',
+    path: 'M445,112 L466,95 L492,99 L504,87 L519,99 L543,104 L554,122 L537,135 L520,132 L510,148 L489,143 L475,153 L458,141 L438,137 Z',
+  },
+  {
+    id: 'africa',
+    path: 'M456,164 L489,150 L529,158 L558,183 L562,221 L548,256 L531,288 L515,333 L491,366 L469,343 L454,307 L432,278 L425,235 L437,198 Z',
+  },
+  {
+    id: 'asia',
+    path: 'M532,94 L577,72 L631,69 L675,81 L716,74 L762,91 L807,99 L848,121 L873,143 L853,163 L817,158 L792,177 L758,170 L731,190 L697,183 L674,199 L650,184 L621,177 L602,156 L571,151 L549,130 Z',
+  },
+  {
+    id: 'arabia-india',
+    path: 'M561,189 L589,180 L615,201 L631,226 L648,238 L634,267 L612,247 L595,224 L572,218 Z M660,207 L687,221 L705,247 L691,285 L671,268 L660,239 Z',
+  },
+  {
+    id: 'southeast-asia',
+    path: 'M716,208 L744,220 L759,242 L785,250 L774,270 L747,261 L731,243 L709,235 Z M798,205 L811,215 L805,241 L793,231 Z',
+  },
+  {
+    id: 'japan',
+    path: 'M840,151 L850,167 L845,190 L837,177 Z',
+  },
+  {
+    id: 'australia',
+    path: 'M764,326 L801,310 L843,317 L873,341 L868,374 L842,398 L804,401 L776,383 L752,355 Z',
+  },
+  {
+    id: 'new-zealand',
+    path: 'M894,375 L904,390 L899,415 L889,401 Z',
+  },
+] as const;
 
 /* ------------------------------------------------------------------ */
 /*  Pin                                                                 */
@@ -193,10 +227,9 @@ export const MapBlock: React.FC<MapBlockProps> = ({
   const motion = useBlockMotion();
   const cw = SKIN_CONTENT_WIDTH[skinId];
 
-  // Map box: a 2:1 world ratio fitted to the content width (height capped so it
-  // never crowds the heading on the wide editorial surface).
-  const mapW = cw;
-  const mapH = Math.min(Math.round(cw * 0.5), 660);
+  // Keep a true 2:1 world ratio so coastlines stay recognizable on every skin.
+  const mapW = Math.min(cw, 1320);
+  const mapH = Math.round(mapW * 0.5);
 
   // Pins are positioned by percentage, so coordinate is clamped to a sensible
   // inner band to keep markers/labels from clipping the map edges.
@@ -222,52 +255,71 @@ export const MapBlock: React.FC<MapBlockProps> = ({
               position: 'relative',
               width: mapW,
               height: mapH,
-              marginTop: 56,
+              margin: '56px auto 0',
             }}
           >
-            {/* Stylized map silhouette + graticule grid. */}
+            {/* Globe frame, graticule, and recognizable continent silhouettes. */}
             <svg
               width={mapW}
               height={mapH}
               viewBox="0 0 1000 500"
-              preserveAspectRatio="none"
+              preserveAspectRatio="xMidYMid meet"
               style={{ position: 'absolute', inset: 0 }}
+              role="img"
+              aria-label="World map"
             >
-              {/* Graticule — faint latitude/longitude grid for geographic feel. */}
-              {[125, 250, 375, 500, 625, 750, 875].map((gx) => (
-                <line
-                  key={`v${gx}`}
-                  x1={gx}
-                  y1={0}
-                  x2={gx}
-                  y2={500}
-                  stroke={pal.foreground}
-                  strokeWidth={1}
-                  opacity={0.06}
-                />
-              ))}
-              {[125, 250, 375].map((gy) => (
-                <line
-                  key={`h${gy}`}
-                  x1={0}
-                  y1={gy}
-                  x2={1000}
-                  y2={gy}
-                  stroke={pal.foreground}
-                  strokeWidth={1}
-                  opacity={0.06}
-                />
-              ))}
-              {/* Continents — decorative, not accurate. */}
-              {CONTINENTS.map((d, i) => (
-                <path
-                  key={i}
-                  d={d}
-                  fill={`${pal.foreground}1f`}
-                  stroke={`${accent}88`}
-                  strokeWidth={1.5}
-                />
-              ))}
+              <defs>
+                <clipPath id="world-map-frame">
+                  <ellipse cx={500} cy={250} rx={472} ry={220} />
+                </clipPath>
+              </defs>
+              <ellipse
+                cx={500}
+                cy={250}
+                rx={472}
+                ry={220}
+                fill={`${pal.foreground}05`}
+                stroke={`${accent}80`}
+                strokeWidth={2}
+              />
+              <g clipPath="url(#world-map-frame)">
+                {[125, 250, 375, 500, 625, 750, 875].map((gx) => (
+                  <ellipse
+                    key={`longitude-${gx}`}
+                    cx={500}
+                    cy={250}
+                    rx={Math.abs(gx - 500)}
+                    ry={220}
+                    fill="none"
+                    stroke={pal.foreground}
+                    strokeWidth={1}
+                    opacity={0.07}
+                  />
+                ))}
+                {[125, 250, 375].map((gy) => (
+                  <line
+                    key={`latitude-${gy}`}
+                    x1={28}
+                    y1={gy}
+                    x2={972}
+                    y2={gy}
+                    stroke={pal.foreground}
+                    strokeWidth={1}
+                    opacity={0.07}
+                  />
+                ))}
+                {CONTINENTS.map((continent) => (
+                  <path
+                    key={continent.id}
+                    d={continent.path}
+                    fill={`${pal.foreground}24`}
+                    stroke={`${accent}8f`}
+                    strokeWidth={1.8}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                ))}
+              </g>
             </svg>
 
             {/* Pins overlaid in HTML so labels stay crisp; positioned by % of

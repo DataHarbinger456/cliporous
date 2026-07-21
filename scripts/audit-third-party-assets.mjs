@@ -124,9 +124,9 @@ const expectedPackages = new Map([
 ]);
 
 const expectedPackageFamilies = [
-  [/^node_modules\/@rspack\/binding-/, new Set(['1.7.6'])],
-  [/(^|node_modules\/)@esbuild\//, new Set(['0.25.0', '0.25.12', '0.27.7'])],
-  [/(^|node_modules\/)esbuild$/, new Set(['0.25.0', '0.25.12', '0.27.7'])],
+  [/^node_modules\/@rspack\/binding-/, new Set(['1.7.6', '1.7.11'])],
+  [/(^|node_modules\/)@esbuild\//, new Set(['0.25.0', '0.25.12', '0.27.7', '0.28.1'])],
+  [/(^|node_modules\/)esbuild$/, new Set(['0.25.0', '0.25.12', '0.27.7', '0.28.1'])],
 ];
 
 const releaseBlockers = [];

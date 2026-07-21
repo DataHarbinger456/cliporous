@@ -174,17 +174,25 @@ describe('resolveLongformBlockCompositionId', () => {
     ['feature-grid', 'FeatureGrid'],
   ];
 
-  it('reconstructs the registered ${Base}-${skinId} composition id', () => {
+  it('reconstructs the registered base and skin composition id', () => {
     for (const [kind, base] of cases) {
       expect(resolveLongformBlockCompositionId(kind, 'editorial')).toBe(`${base}-editorial`);
       expect(resolveLongformBlockCompositionId(kind, 'terminal')).toBe(`${base}-terminal`);
+      expect(resolveLongformBlockCompositionId(kind, 'ezcoder')).toBe(`${base}-ezcoder`);
     }
   });
 
   it('uses a real skin id as the default', () => {
-    expect(['aurora-glass', 'editorial', 'bento', 'terminal']).toContain(
-      DEFAULT_LONGFORM_BLOCK_SKIN,
-    );
+    expect([
+      'aurora-glass',
+      'editorial',
+      'bento',
+      'terminal',
+      'print-magazine',
+      'neo-brutalist',
+      'blueprint',
+      'ezcoder',
+    ]).toContain(DEFAULT_LONGFORM_BLOCK_SKIN);
   });
 });
 

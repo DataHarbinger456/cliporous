@@ -90,6 +90,111 @@ export interface SkinChrome {
   fg: string;
 }
 
+interface HeadingTypography {
+  fontFamily: string;
+  fontWeight: number;
+  scale: number;
+  charWidthRatio: number;
+  letterSpacing?: number;
+}
+
+const DEFAULT_HEADING_TYPOGRAPHY: HeadingTypography = {
+  fontFamily: 'Bebas Neue',
+  fontWeight: 400,
+  scale: 1,
+  charWidthRatio: CHAR_WIDTH_RATIO.bebas,
+};
+
+const EZCODER_HEADING_TYPOGRAPHY: HeadingTypography = {
+  fontFamily: 'Geist',
+  fontWeight: 700,
+  scale: 0.86,
+  charWidthRatio: CHAR_WIDTH_RATIO.geist,
+  letterSpacing: -3,
+};
+
+const HeadingTypographyContext = React.createContext(DEFAULT_HEADING_TYPOGRAPHY);
+
+type Rgb = readonly [number, number, number];
+
+function parseHexColor(value: string): Rgb | null {
+  const hex = value.trim().replace(/^#/, '');
+  const expanded =
+    hex.length === 3
+      ? hex
+          .split('')
+          .map((channel) => `${channel}${channel}`)
+          .join('')
+      : hex;
+  if (!/^[0-9a-f]{6}$/i.test(expanded)) return null;
+  return [
+    Number.parseInt(expanded.slice(0, 2), 16),
+    Number.parseInt(expanded.slice(2, 4), 16),
+    Number.parseInt(expanded.slice(4, 6), 16),
+  ];
+}
+
+function mixColors(base: Rgb, overlay: Rgb, amount: number): Rgb {
+  return [
+    Math.round(base[0] + (overlay[0] - base[0]) * amount),
+    Math.round(base[1] + (overlay[1] - base[1]) * amount),
+    Math.round(base[2] + (overlay[2] - base[2]) * amount),
+  ];
+}
+
+function hslChannels(rgb: Rgb): string {
+  const red = rgb[0] / 255;
+  const green = rgb[1] / 255;
+  const blue = rgb[2] / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  let hue = 0;
+
+  if (delta > 0) {
+    if (max === red) hue = (green - blue) / delta + (green < blue ? 6 : 0);
+    else if (max === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue /= 6;
+  }
+
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  return `${Math.round(hue * 360)} ${Math.round(saturation * 100)}% ${Math.round(lightness * 100)}%`;
+}
+
+/** Make shadcn surfaces inherit the active render palette instead of app-global brown tokens. */
+function paletteCssVariables({ accent, bg, fg }: SkinChrome): React.CSSProperties {
+  const background = parseHexColor(bg) ?? ([15, 17, 21] as const);
+  const foreground = parseHexColor(fg) ?? ([244, 246, 248] as const);
+  const primary = parseHexColor(accent) ?? ([77, 157, 255] as const);
+  const card = mixColors(background, foreground, 0.055);
+  const secondary = mixColors(background, foreground, 0.1);
+  const muted = mixColors(background, foreground, 0.16);
+  const mutedForeground = mixColors(foreground, background, 0.38);
+  const border = mixColors(background, foreground, 0.22);
+
+  return {
+    '--background': hslChannels(background),
+    '--foreground': hslChannels(foreground),
+    '--card': hslChannels(card),
+    '--card-foreground': hslChannels(foreground),
+    '--popover': hslChannels(card),
+    '--popover-foreground': hslChannels(foreground),
+    '--primary': hslChannels(primary),
+    '--primary-foreground': hslChannels(background),
+    '--secondary': hslChannels(secondary),
+    '--secondary-foreground': hslChannels(foreground),
+    '--accent': hslChannels(primary),
+    '--accent-foreground': hslChannels(background),
+    '--muted': hslChannels(muted),
+    '--muted-foreground': hslChannels(mutedForeground),
+    '--border': hslChannels(border),
+    '--input': hslChannels(border),
+    '--ring': hslChannels(primary),
+  } as React.CSSProperties;
+}
+
 export interface BlockSkin {
   id: string;
   name: string;
@@ -116,13 +221,14 @@ const AuroraGlass: BlockSkin = {
       <Grain opacity={0.06} fg={fg} />
     </>
   ),
-  Surface: ({ accent, fg = BRAND_FG, children, width = 1340 }) => (
+  Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1340 }) => (
     <div
       style={{
+        ...paletteCssVariables({ accent, bg, fg }),
         width,
         padding: '88px 104px',
         borderRadius: 36,
-        background: 'rgba(20,9,6,0.55)',
+        background: `${bg}8c`,
         backdropFilter: 'blur(34px)',
         border: `1px solid ${accent}55`,
         boxShadow: `0 40px 120px rgba(0,0,0,0.55), inset 0 1px 0 ${fg}22, 0 0 60px ${accent}22`,
@@ -167,8 +273,10 @@ const Editorial: BlockSkin = {
       <Grain opacity={0.05} fg={fg} />
     </>
   ),
-  Surface: ({ children, width = 1620 }) => (
-    <div style={{ width, padding: '0 24px' }}>{children}</div>
+  Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1620 }) => (
+    <div style={{ ...paletteCssVariables({ accent, bg, fg }), width, padding: '0 24px' }}>
+      {children}
+    </div>
   ),
   Chip: ({ accent, index, size = 96 }) => (
     <span
@@ -194,13 +302,14 @@ const Bento: BlockSkin = {
   name: 'Bento Spotlight',
   accent: BRAND_ACCENT,
   Background: ({ accent }) => <Aurora accent={accent} intensity={0.8} />,
-  Surface: ({ accent, fg = BRAND_FG, children, width = 1480 }) => (
+  Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1480 }) => (
     <div
       style={{
+        ...paletteCssVariables({ accent, bg, fg }),
         width,
         padding: '72px 80px',
         borderRadius: 32,
-        background: `radial-gradient(120% 90% at 50% 0%, ${accent}1f 0%, rgba(12,5,3,0.7) 60%)`,
+        background: `radial-gradient(120% 90% at 50% 0%, ${accent}1f 0%, ${bg}b3 60%)`,
         backdropFilter: 'blur(24px)',
         border: `1px solid ${accent}44`,
         boxShadow: `0 30px 80px rgba(0,0,0,0.5), inset 0 1px 0 ${fg}1a`,
@@ -240,10 +349,12 @@ const Terminal: BlockSkin = {
   name: 'Terminal Data',
   accent: BRAND_ACCENT,
   Background: ({ accent }) => <GridOverlay color={accent} opacity={0.05} cellSize={64} />,
-  Surface: ({ accent, children, width = 1320 }) => (
-    <DarkCard accentColor={accent} width={width} padding={72}>
-      {children}
-    </DarkCard>
+  Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1320 }) => (
+    <div style={{ ...paletteCssVariables({ accent, bg, fg }), width }}>
+      <DarkCard accentColor={accent} width={width} padding={72}>
+        {children}
+      </DarkCard>
+    </div>
   ),
   Chip: ({ accent, index, size = 30 }) => (
     <span
@@ -324,6 +435,7 @@ const PrintMagazine: BlockSkin = {
   Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1440 }) => (
     <div
       style={{
+        ...paletteCssVariables({ accent, bg, fg }),
         width,
         padding: '96px 112px',
         background: `${bg}d9`,
@@ -416,6 +528,7 @@ const NeoBrutalist: BlockSkin = {
   Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1440 }) => (
     <div
       style={{
+        ...paletteCssVariables({ accent, bg, fg }),
         width,
         padding: '88px 96px',
         background: bg,
@@ -560,7 +673,7 @@ const Blueprint: BlockSkin = {
     </AbsoluteFill>
   ),
   Surface: ({ accent, bg = BRAND_BG, fg = BRAND_FG, children, width = 1380 }) => (
-    <div style={{ position: 'relative', width }}>
+    <div style={{ ...paletteCssVariables({ accent, bg, fg }), position: 'relative', width }}>
       {/* Thin-stroke framed panel with a dashed inner rule. */}
       <div
         style={{
@@ -660,6 +773,218 @@ const Blueprint: BlockSkin = {
   ),
 };
 
+/* ===================================================================== */
+/*  Skin: EZ Coder workbench                                             */
+/* ===================================================================== */
+
+const EZCODER_SECONDARY = '#9b8cf7';
+
+interface EzcoderNode {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  secondary: boolean;
+}
+
+const EZCODER_NODES: EzcoderNode[] = Array.from({ length: 22 }, (_, index) => ({
+  id: `ezcoder-node-${index}`,
+  x: 120 + random(`ezcoder-node-x-${index}`) * 1680,
+  y: 80 + random(`ezcoder-node-y-${index}`) * 920,
+  radius: 2 + random(`ezcoder-node-r-${index}`) * 2.5,
+  secondary: random(`ezcoder-node-tone-${index}`) > 0.78,
+}));
+
+/**
+ * Developer-tool backdrop taken from EZ Coder's home constellation: sparse
+ * connected status nodes, cool charcoal depth, and a blue-to-periwinkle signal.
+ * Motion is deliberately slow so the data block remains the focal point.
+ */
+const EzcoderBackground: React.FC<SkinChrome> = ({ accent, bg }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const time = frame / fps;
+  const nodes = EZCODER_NODES.map((node, index) => ({
+    ...node,
+    x: node.x + Math.sin(time * 0.22 + index * 1.7) * 9,
+    y: node.y + Math.cos(time * 0.18 + index * 1.3) * 7,
+  }));
+  const links: Array<{ key: string; a: EzcoderNode; b: EzcoderNode; opacity: number }> = [];
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
+      if (!a || !b) continue;
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      if (distance > 310) continue;
+      links.push({
+        key: `${i}-${j}`,
+        a,
+        b,
+        opacity: (1 - distance / 310) * 0.28,
+      });
+    }
+  }
+
+  return (
+    <AbsoluteFill
+      style={{
+        overflow: 'hidden',
+        background: [
+          `radial-gradient(circle at 18% 22%, ${accent}1f 0%, transparent 32%)`,
+          `radial-gradient(circle at 82% 74%, ${EZCODER_SECONDARY}1c 0%, transparent 30%)`,
+          bg,
+        ].join(', '),
+      }}
+    >
+      <svg width="100%" height="100%" style={{ opacity: 0.72 }} aria-hidden="true">
+        {links.map((link) => (
+          <line
+            key={link.key}
+            x1={link.a.x}
+            y1={link.a.y}
+            x2={link.b.x}
+            y2={link.b.y}
+            stroke={accent}
+            strokeWidth={1.25}
+            opacity={link.opacity}
+          />
+        ))}
+        {nodes.map((node) => (
+          <circle
+            key={node.id}
+            cx={node.x}
+            cy={node.y}
+            r={node.radius}
+            fill={node.secondary ? EZCODER_SECONDARY : accent}
+            opacity={node.secondary ? 0.9 : 0.76}
+          />
+        ))}
+      </svg>
+      <AbsoluteFill
+        style={{
+          background: `radial-gradient(ellipse 72% 78% at 50% 50%, transparent 34%, ${bg}d9 100%)`,
+        }}
+      />
+    </AbsoluteFill>
+  );
+};
+
+const EzcoderSurface: BlockSkin['Surface'] = ({ accent, bg, fg, children, width = 1440 }) => (
+  <HeadingTypographyContext.Provider value={EZCODER_HEADING_TYPOGRAPHY}>
+    <div
+      style={{
+        ...paletteCssVariables({ accent, bg, fg }),
+        position: 'relative',
+        width,
+        overflow: 'hidden',
+        borderRadius: 24,
+        background: `linear-gradient(180deg, ${fg}08 0%, transparent 160px), ${bg}f2`,
+        border: `1px solid ${fg}24`,
+      }}
+    >
+      <div
+        style={{
+          height: 5,
+          background: `linear-gradient(90deg, ${accent}, ${EZCODER_SECONDARY}, ${accent})`,
+        }}
+      />
+      <div
+        style={{
+          height: 78,
+          padding: '0 36px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: `1px solid ${fg}1f`,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span
+            style={{
+              width: 13,
+              height: 13,
+              borderRadius: '50%',
+              background: accent,
+              boxShadow: `0 0 18px ${accent}8c`,
+            }}
+          />
+          <span
+            style={{
+              fontFamily: 'JetBrains Mono',
+              fontSize: 18,
+              fontWeight: 600,
+              letterSpacing: 2.5,
+              background: `linear-gradient(100deg, ${accent}, ${EZCODER_SECONDARY})`,
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              color: 'transparent',
+            }}
+          >
+            EZ CODER
+          </span>
+          <span style={{ fontFamily: 'JetBrains Mono', fontSize: 15, color: `${fg}73` }}>
+            / OUTPUT
+          </span>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '7px 16px',
+            borderRadius: 999,
+            border: `1px solid ${accent}66`,
+            background: `linear-gradient(180deg, ${accent}2e, ${accent}12)`,
+            color: accent,
+            fontFamily: 'JetBrains Mono',
+            fontSize: 14,
+            fontWeight: 600,
+            letterSpacing: 1.5,
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent }} />
+          READY
+        </div>
+      </div>
+      <div style={{ padding: '64px 84px 76px' }}>{children}</div>
+    </div>
+  </HeadingTypographyContext.Provider>
+);
+
+const Ezcoder: BlockSkin = {
+  id: 'ezcoder',
+  name: 'EZ Coder',
+  accent: '#4d9dff',
+  Background: EzcoderBackground,
+  Surface: EzcoderSurface,
+  Chip: ({ accent, bg, fg, index, size = 62 }) => (
+    <div
+      style={{
+        flexShrink: 0,
+        minWidth: size,
+        height: size,
+        padding: `0 ${Math.round(size * 0.28)}px`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 999,
+        border: `1px solid ${fg}2e`,
+        background: `linear-gradient(180deg, ${accent}, ${EZCODER_SECONDARY})`,
+        boxShadow: `0 1px 2px ${bg}80, inset 0 1px 0 ${fg}47`,
+        color: '#f4f8ff',
+        fontFamily: 'JetBrains Mono',
+        fontSize: size * 0.42,
+        fontWeight: 600,
+        lineHeight: 1,
+      }}
+    >
+      {String(index).padStart(2, '0')}
+    </div>
+  ),
+};
+
 export const SKINS = {
   'aurora-glass': AuroraGlass,
   editorial: Editorial,
@@ -668,6 +993,7 @@ export const SKINS = {
   'print-magazine': PrintMagazine,
   'neo-brutalist': NeoBrutalist,
   blueprint: Blueprint,
+  ezcoder: Ezcoder,
 } as const;
 
 export type SkinId = keyof typeof SKINS;
@@ -677,13 +1003,11 @@ export type SkinId = keyof typeof SKINS;
 /* ===================================================================== */
 
 /**
- * Usable *content* width inside each skin's Surface — the outer width minus the
- * Surface's horizontal padding (aurora 104·2, editorial 24·2, bento 80·2,
- * terminal DarkCard 72·2). Blocks read this to size their inner text/columns to
- * the actual space available so the same block fills every skin consistently
- * instead of bunching to one corner on the wide editorial surface.
+ * Usable *content* width inside each skin's Surface. Blocks read this to size
+ * inner text and columns to the actual space available instead of bunching to
+ * one corner on wider surfaces.
  *
- * Keep in sync with the padding in each `Surface` above.
+ * Keep each value in sync with its `Surface` width and horizontal padding.
  */
 export const SKIN_CONTENT_WIDTH: Record<SkinId, number> = {
   'aurora-glass': 1340 - 104 * 2, // 1132
@@ -693,6 +1017,7 @@ export const SKIN_CONTENT_WIDTH: Record<SkinId, number> = {
   'print-magazine': 1440 - 112 * 2, // 1216
   'neo-brutalist': 1440 - 96 * 2, // 1248
   blueprint: 1380 - 96 * 2, // 1188
+  ezcoder: 1440 - 84 * 2, // 1272
 };
 
 /* ===================================================================== */
@@ -722,18 +1047,30 @@ export const Heading: React.FC<{
   size?: number;
   fg?: string;
   maxWidth?: number;
-}> = ({ children, size = 128, fg = BRAND_FG, maxWidth = 1120 }) => (
-  <FitText
-    maxWidth={maxWidth}
-    maxFontSize={size}
-    minFontSize={Math.round(size * 0.5)}
-    maxLines={3}
-    charWidthRatio={CHAR_WIDTH_RATIO.bebas}
-    style={{ fontFamily: 'Bebas Neue', lineHeight: 0.95, color: fg }}
-  >
-    {children}
-  </FitText>
-);
+}> = ({ children, size = 128, fg = BRAND_FG, maxWidth = 1120 }) => {
+  const typography = React.useContext(HeadingTypographyContext);
+  const maxFontSize = Math.round(size * typography.scale);
+
+  return (
+    <FitText
+      maxWidth={maxWidth}
+      maxFontSize={maxFontSize}
+      minFontSize={Math.round(maxFontSize * 0.5)}
+      maxLines={3}
+      charWidthRatio={typography.charWidthRatio}
+      letterSpacing={typography.letterSpacing}
+      style={{
+        fontFamily: typography.fontFamily,
+        fontWeight: typography.fontWeight,
+        lineHeight: 0.95,
+        color: fg,
+        letterSpacing: typography.letterSpacing,
+      }}
+    >
+      {children}
+    </FitText>
+  );
+};
 
 /* ===================================================================== */
 /*  Palette resolution                                                    */

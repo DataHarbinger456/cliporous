@@ -1,4 +1,3 @@
-
 /** Finite creator-work cues. These files are UI-only and never enter exported media. */
 export type StudioSound =
   | 'approve'

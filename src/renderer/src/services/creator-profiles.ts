@@ -85,6 +85,7 @@ function isLongformSkin(value: unknown): value is LongformSkinId {
     'print-magazine',
     'neo-brutalist',
     'blueprint',
+    'ezcoder',
   ].includes(String(value));
 }
 

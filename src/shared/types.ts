@@ -964,7 +964,8 @@ export type LongformSkinId =
   | 'terminal'
   | 'print-magazine'
   | 'neo-brutalist'
-  | 'blueprint';
+  | 'blueprint'
+  | 'ezcoder';
 
 /**
  * Identifier of the color palette applied to long-form block renders. This is a

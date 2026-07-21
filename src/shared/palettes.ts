@@ -45,6 +45,15 @@ export const BUILTIN_PALETTES: Palette[] = [
     builtin: true,
   },
   {
+    id: 'ezcoder',
+    name: 'EZ Coder',
+    background: '#0f1115',
+    foreground: '#f4f6f8',
+    accent: '#4d9dff',
+    accent2: '#9b8cf7',
+    builtin: true,
+  },
+  {
     id: 'midnight-cyan',
     name: 'Midnight Cyan',
     background: '#0a1626',

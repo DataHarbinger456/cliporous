@@ -63,5 +63,4 @@ describe('applyPhraseOverlays — graceful degrade', () => {
     expect(result.outputPath).toBe(baseOpts.inputPath);
     expect(result.stats).toEqual({ rendered: 0, dropped: 0 });
   });
-
 });
