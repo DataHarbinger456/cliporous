@@ -23,7 +23,7 @@ Open <http://localhost:4173>.
 
 Production: <https://landing-phi-dun.vercel.app>
 
-The Apple Silicon DMG and Windows x64 EXE are hosted in the public `batchclip-downloads` Vercel Blob store and linked from `index.html`. The Windows 0.1.0 installer is 178,488,699 bytes with SHA-256 `ea9e59134ccc85aff2af1e63bd6dcd6588c31b046808ac93074e8e53c92ec638`.
+The Apple Silicon DMG and Windows x64 EXE are published on the public GitHub release linked from `index.html`. BatchClip 0.1.1 checksums: macOS DMG `1cbed9389808738a21d59b1535113b4c84f1eef0b1ebbf897494d14ccde17194`; Windows EXE `3f3e44def75b89a0ee3e2a1219e9037753b5ffe8104397406ff53ed9546590fe`.
 
 Deploy updates with:
 

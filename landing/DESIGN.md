@@ -114,6 +114,6 @@ The revision removed that glow and raised the interactive border token to `#875d
 - **Media verified:** the example output is 1080×1920, 30 fps, and 62 seconds.
 - **Performance unverified:** no field Core Web Vitals exist yet. The likely LCP image is eager with fixed dimensions; below-fold gallery images are lazy; fonts use `font-display: swap`; video does not autoplay.
 - **Deployment passed:** Vercel production alias is `https://landing-phi-dun.vercel.app`.
-- **Downloads passed:** the 193 MB Apple Silicon DMG and 170 MB Windows x64 EXE are stored in the public `batchclip-downloads` Vercel Blob store and linked from their platform cards.
-- **Windows artifact verified:** the hosted 0.1.0 EXE is 178,488,699 bytes and matches SHA-256 `ea9e59134ccc85aff2af1e63bd6dcd6588c31b046808ac93074e8e53c92ec638`.
+- **Downloads ready:** the 275 MB Apple Silicon DMG and 217 MB Windows x64 EXE are published through the public GitHub release linked from their platform cards.
+- **Artifacts verified:** BatchClip 0.1.1 SHA-256 is `1cbed9389808738a21d59b1535113b4c84f1eef0b1ebbf897494d14ccde17194` for macOS and `3f3e44def75b89a0ee3e2a1219e9037753b5ffe8104397406ff53ed9546590fe` for Windows.
 - **Browser policy:** current Chromium, Safari, and Firefox releases with native `<dialog>` support.
