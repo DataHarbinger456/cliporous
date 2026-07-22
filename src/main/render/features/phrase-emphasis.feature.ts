@@ -53,14 +53,8 @@ export async function applyPhraseOverlays(
     return { outputPath: inputPath, tempFiles: [], stats: { rendered: 0, dropped: 0 } };
   }
 
-  console.warn('[longform] Phrase overlays are unavailable in this distribution build.');
-  return {
-    outputPath: inputPath,
-    tempFiles: [],
-    stats: { rendered: 0, dropped: phrases.length },
-  };
-
-  /*
+  // Dynamic import keeps @remotion/bundler (esbuild) out of the static module
+  // graph so importing the render pipeline in tests never loads it.
   const { renderRemotionSegment } = await import('../../remotion/render');
   const tempFiles: string[] = [];
   const overlays: PhraseOverlayInput[] = [];
@@ -86,11 +80,14 @@ export async function applyPhraseOverlays(
         outputPath: overlayPath,
       });
     } catch (err) {
-      // Graceful degrade (RF-003): a single phrase overlay failing to render
-      // (or Remotion being unavailable) must not kill the whole render. Skip
-      // this overlay and keep compositing the rest.
+      // Graceful degrade: one failed overlay must not kill the long-form render.
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[longform] Phrase overlay render failed ("${phrase.text}"): ${message}`);
+      try {
+        unlinkSync(overlayPath);
+      } catch {
+        // Ignore a missing or partially-created overlay.
+      }
       continue;
     }
     tempFiles.push(overlayPath);
@@ -101,8 +98,8 @@ export async function applyPhraseOverlays(
     });
   }
 
-  // Every phrase overlay failed to render → leave the base untouched so the
-  // caller can finalize the speaker cut instead (mirrors the Delos-card path).
+  // Every phrase overlay failed to render: leave the base untouched so the
+  // caller can finalize the speaker cut instead.
   if (overlays.length === 0) {
     return {
       outputPath: inputPath,
@@ -111,13 +108,17 @@ export async function applyPhraseOverlays(
     };
   }
 
-  await compositePhraseOverlays({ inputPath, outputPath, overlays, qualityParams });
+  try {
+    await compositePhraseOverlays({ inputPath, outputPath, overlays, qualityParams });
+  } catch (err) {
+    cleanupPhraseOverlayTempFiles(tempFiles);
+    throw err;
+  }
   return {
     outputPath,
     tempFiles,
     stats: { rendered: overlays.length, dropped: phrases.length - overlays.length },
   };
-  */
 }
 
 /** Best-effort cleanup of overlay temp files. */

@@ -2,10 +2,10 @@
 // Delos pop-up card feature (long-form / Hormozi 16:9 only).
 //
 // The THIRD long-form overlay layer, parallel to phrase emphasis. Delos HUD
-// cards float lower-center over the SPEAKER (the speaker stays on screen),
+// cards float upper-left over the SPEAKER (the speaker stays on screen),
 // unlike full-frame content blocks which replace the speaker. Each card is an
-// alpha ProRes (.mov) widget rendered from the catalog `delos-*.html` templates
-// and composited onto the concatenated long-form timeline.
+// alpha ProRes (.mov) widget rendered by the shared Remotion pipeline and
+// composited onto the concatenated long-form timeline.
 //
 // Hard rule: a card may only appear during SPEAKER time. Any card whose range
 // is not fully inside a speaker range is rejected here (the render side is the
@@ -15,6 +15,9 @@
 // 9:16 feature list).
 // ---------------------------------------------------------------------------
 
+import { unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { DelosCardKind, DelosCardPlacement } from '@shared/types';
 import type { QualityParams } from '../../ffmpeg';
 import {
@@ -23,7 +26,6 @@ import {
   type CardKind,
   type CardWord,
 } from '../../hyperframes/card-content';
-import type { OverlayRequest } from '../../hyperframes/types';
 import { compositeDelosCards, type DelosCardOverlayInput } from '../longform-encode';
 import type { WordTimestamp } from '../point-coverage';
 
@@ -38,21 +40,6 @@ type _AssertCardKindMatch = (DelosCardKind extends CardKind ? true : never) &
   (CardKind extends DelosCardKind ? true : never);
 const _assertCardKindMatch: _AssertCardKindMatch = true;
 void _assertCardKindMatch;
-
-// ---------------------------------------------------------------------------
-// Geometry / positioning constants
-// ---------------------------------------------------------------------------
-
-/**
- * Card vertical anchor (0–100) baked into each card's `yPos` at render time.
- * The card is center-anchored inside its authored portrait canvas; because the
- * composite step scales that canvas to the full output height, this percentage
- * maps 1:1 onto the frame. 70 keeps the card in the lower band: well below the
- * speaker's eye-line (top third), with its bottom near the frame bottom for the
- * taller text-forward cards (~2% bleed margin) while shorter cards float a touch
- * higher but never reach the face.
- */
-export const DELOS_CARD_YPOS = 70;
 
 /** Default card accent when no palette accent is supplied. */
 const DEFAULT_CARD_ACCENT = '#9f75ff';
@@ -110,33 +97,37 @@ function cardContentToSlots(content: CardContent): Record<string, unknown> {
 }
 
 /**
- * Build a render-ready `OverlayRequest` for one card: distil the spoken window
- * into the card's content slots, then attach the decorative accent + lower-band
- * `yPos`. Timing uses absolute concat time (== source time, 1:1).
+ * Build render-ready props for one card: distil the spoken window into the
+ * card's content slots and attach the decorative accent. Timing uses absolute
+ * concat time (== source time, 1:1).
  *
  * Returns the request alongside whether its text came from the Gemini pass
  * (`usedAiText: true`) or the deterministic offline fallback. A Gemini failure
  * (rate-limit, network, bad JSON) is absorbed inside `buildCardContentWithSource`
  * and reported as `usedAiText: false` rather than silently swallowed (RF-008).
  */
+interface RenderableCard {
+  inputProps: Record<string, unknown>;
+  startTime: number;
+  duration: number;
+}
+
 async function buildCardRequest(
   card: DelosCardPlacement,
   words: WordTimestamp[] | undefined,
   accentColor: string,
   apiKey?: string,
-): Promise<{ request: OverlayRequest; usedAiText: boolean }> {
+): Promise<{ request: RenderableCard; usedAiText: boolean }> {
   const duration = Math.max(1, card.endTime - card.startTime);
   const windowWords = sliceWordsToWindow(words, card.startTime, card.endTime);
   const windowText =
     card.sourceText && card.sourceText.trim().length > 0
       ? card.sourceText
-      : windowWords.map((w) => w.text).join(' ');
+      : windowWords.map((word) => word.text).join(' ');
 
-  const props: Record<string, unknown> = {
+  const inputProps: Record<string, unknown> = {
+    kind: card.kind,
     accentColor,
-    // Center horizontally in-canvas; vertical drop handled by yPos. The slight
-    // RIGHT drift is applied at composite time, not here.
-    position: { x: 50, y: DELOS_CARD_YPOS },
   };
 
   let usedAiText = false;
@@ -148,18 +139,14 @@ async function buildCardRequest(
       apiKey ? { apiKey } : {},
     );
     usedAiText = source === 'ai';
-    Object.assign(props, cardContentToSlots(content));
+    Object.assign(inputProps, cardContentToSlots(content));
   } catch {
-    // Leave preset defaults — renderer fills sensible fallbacks per card kind.
+    // Leave composition defaults in place when content generation fails.
     usedAiText = false;
   }
 
   return {
-    request: {
-      block: card.kind,
-      props: props as OverlayRequest['props'],
-      timing: { start: card.startTime, duration },
-    },
+    request: { inputProps, startTime: card.startTime, duration },
     usedAiText,
   };
 }
@@ -169,7 +156,7 @@ async function buildCardRequest(
 // ---------------------------------------------------------------------------
 
 export interface ApplyDelosCardsOptions {
-  /** Concatenated base video (post phrase-overlay pass). */
+  /** Concatenated base video (post phrase-overlay pass; cards stay upper-left). */
   inputPath: string;
   /** Final output path. */
   outputPath: string;
@@ -222,6 +209,7 @@ export async function applyDelosCards(
     words,
     width,
     height,
+    fps,
     qualityParams,
     accentColor,
     apiKey,
@@ -236,12 +224,11 @@ export async function applyDelosCards(
     };
   }
 
-  // Dynamic import keeps the HyperFrames engine out of the static module graph
-  // so importing this feature in unit tests never spawns a renderer.
-  const { renderOverlays } = await import('../../hyperframes/renderer');
-
+  // Cards now share the packaged Remotion renderer used by blocks and phrases,
+  // instead of relying on the removed HyperFrames CLI.
+  const { renderRemotionSegment } = await import('../../remotion/render');
   const accent = accentColor ?? DEFAULT_CARD_ACCENT;
-  const requests: OverlayRequest[] = [];
+  const requests: RenderableCard[] = [];
   let aiText = 0;
   let fallbackText = 0;
   for (const card of surviving) {
@@ -251,24 +238,40 @@ export async function applyDelosCards(
     else fallbackText++;
   }
 
-  const results = await renderOverlays(requests);
-
   const tempFiles: string[] = [];
   const overlays: DelosCardOverlayInput[] = [];
-  results.forEach((result, i) => {
-    if (!result.movPath) return; // failed render — skip this card
-    const req = requests[i];
-    if (!req) return;
-    tempFiles.push(result.movPath);
+  for (const request of requests) {
+    const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const overlayPath = join(tmpdir(), `batchcontent-card-${stamp}.mov`);
+    try {
+      await renderRemotionSegment({
+        compositionId: 'DelosEvidenceCard',
+        inputProps: request.inputProps,
+        durationSec: request.duration,
+        fps,
+        width,
+        height,
+        transparent: true,
+        outputPath: overlayPath,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[longform] Evidence card render failed: ${message}`);
+      try {
+        unlinkSync(overlayPath);
+      } catch {
+        // Ignore a missing or partially-created overlay.
+      }
+      continue;
+    }
+    tempFiles.push(overlayPath);
     overlays.push({
-      overlayPath: result.movPath,
-      startTime: req.timing.start,
-      endTime: req.timing.start + req.timing.duration,
+      overlayPath,
+      startTime: request.startTime,
+      endTime: request.startTime + request.duration,
     });
-  });
+  }
 
-  // A surviving card with no .mov was dropped at render time (the warn-and-skip
-  // path in renderOverlays). Surface that count rather than swallowing it.
   const rendered = overlays.length;
   const dropped = surviving.length - rendered;
   const stats: DelosCardStats = { rendered, dropped, aiText, fallbackText };
@@ -277,14 +280,25 @@ export async function applyDelosCards(
     return { outputPath: inputPath, tempFiles, stats };
   }
 
-  await compositeDelosCards({
-    inputPath,
-    outputPath,
-    overlays,
-    width,
-    height,
-    qualityParams,
-  });
+  try {
+    await compositeDelosCards({
+      inputPath,
+      outputPath,
+      overlays,
+      width,
+      height,
+      qualityParams,
+    });
+  } catch (err) {
+    for (const tempFile of tempFiles) {
+      try {
+        unlinkSync(tempFile);
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
+    throw err;
+  }
 
   return { outputPath, tempFiles, stats };
 }

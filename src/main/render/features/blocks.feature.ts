@@ -11,8 +11,10 @@
 // id from a `(kind, skinId)` pair.
 // ---------------------------------------------------------------------------
 
+import { unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MAX_LONGFORM_BLOCK_SECONDS } from '@shared/longform-plan-timing';
 import type { Palette } from '@shared/palettes';
 import { getPaletteById } from '@shared/palettes';
 import type { BlockPlacement, LongformSkinId } from '@shared/types';
@@ -43,7 +45,7 @@ import type {
 } from '../../remotion/compositions/blocks/types';
 import { resolveLongformBlockCompositionId } from '../../remotion/registry';
 import { muxRemotionVisualWithAudio } from '../longform-encode';
-import { extendEndTimeForLastPoint, type WordTimestamp } from '../point-coverage';
+import type { WordTimestamp } from '../point-coverage';
 import type { RenderBatchOptions, RenderClipJob } from '../types';
 import type { PrepareResult, RenderFeature } from './feature';
 
@@ -58,18 +60,16 @@ import type { PrepareResult, RenderFeature } from './feature';
 
 /**
  * Map a block placement to the Remotion composition inputProps for `skinId`.
- * No accent is forced: when the plan omits `accentColor`, blocks fall through
- * to the resolved `palette` accent (brand purple) inside each composition. The
- * resolved color `palette` (background / foreground / accent axis) is merged
- * into every composition's inputProps so all block kinds color from it.
+ * The render-time selected palette is authoritative, including its accent; this
+ * prevents stale model-authored violet accents from overriding the user's choice.
  */
 export function buildBlockInputProps(
   placement: BlockPlacement,
   skinId: LongformSkinId,
   palette?: Palette,
 ): Record<string, unknown> {
-  const accentColor = placement.accentColor;
   const resolvedPalette = palette ?? placement.palette;
+  const accentColor = resolvedPalette?.accent ?? placement.accentColor;
   // `exactOptionalPropertyTypes` forbids `accentColor: undefined` /
   // `palette: undefined`, so only attach each key when it is actually present.
   const base = {
@@ -318,21 +318,17 @@ export function extractBlockItemTexts(placement: BlockPlacement): string[] {
 }
 
 /**
- * Extend a list-style block's `endTime` so it stays on screen until its last
- * row is spoken. Returns the (possibly unchanged) end time; never extends past
- * `clipEnd` and never shrinks. Non-list blocks pass through untouched.
+ * Keep the reviewed plan's end time authoritative while enforcing a hard display
+ * ceiling. Extending a block after planning can create a new overlap and can also
+ * match a repeated word near the video's end, pinning the full-frame graphic over
+ * every later edit. `words` remains in the signature for API compatibility.
  */
 export function extendBlockPlacementEndTime(
   placement: BlockPlacement,
-  words: WordTimestamp[] | undefined,
+  _words: WordTimestamp[] | undefined,
   clipEnd: number,
 ): number {
-  return extendEndTimeForLastPoint({
-    items: extractBlockItemTexts(placement),
-    currentEndTime: placement.endTime,
-    clipEnd,
-    words,
-  });
+  return Math.min(placement.endTime, clipEnd, placement.startTime + MAX_LONGFORM_BLOCK_SECONDS);
 }
 
 export interface RenderBlockOptions {
@@ -357,10 +353,7 @@ export interface RenderBlockOptions {
  * Render one content block to a normalized, concat-ready mp4 segment.
  * Returns the output path. Temp files are written under the OS temp dir.
  */
-export async function renderBlockSegment(_opts: RenderBlockOptions): Promise<string> {
-  throw new Error('Animated content blocks are unavailable in this distribution build.');
-  /*
-  const opts = _opts;
+export async function renderBlockSegment(opts: RenderBlockOptions): Promise<string> {
   const { placement, skinId, sourceVideoPath, width, height, fps, onProgress } = opts;
   const duration = Math.max(0.5, placement.endTime - placement.startTime);
   const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
@@ -375,35 +368,49 @@ export async function renderBlockSegment(_opts: RenderBlockOptions): Promise<str
   const { renderRemotionSegment } = await import('../../remotion/render');
 
   const visualPath = join(tmpdir(), `batchcontent-block-vis-${stamp}.mp4`);
-  await renderRemotionSegment({
-    compositionId,
-    inputProps,
-    durationSec: duration,
-    fps,
-    width,
-    height,
-    transparent: false,
-    outputPath: visualPath,
-    // Remotion render is the slow phase — map its 0..1 onto 0..95 of the
-    // segment band; the trailing mux completes the last 5%.
-    onProgress: onProgress ? (p) => onProgress(Math.min(95, p * 100)) : undefined,
-  });
-
   const outputPath = join(tmpdir(), `batchcontent-block-seg-${stamp}.mp4`);
-  await muxRemotionVisualWithAudio({
-    visualPath,
-    sourceVideoPath,
-    outputPath,
-    startTime: placement.startTime,
-    duration,
-    width,
-    height,
-    fps,
-  });
+  try {
+    await renderRemotionSegment({
+      compositionId,
+      inputProps,
+      durationSec: duration,
+      fps,
+      width,
+      height,
+      transparent: false,
+      outputPath: visualPath,
+      // Remotion render is the slow phase — map its 0..1 onto 0..95 of the
+      // segment band; the trailing mux completes the last 5%.
+      onProgress: onProgress ? (progress) => onProgress(Math.min(95, progress * 100)) : undefined,
+    });
 
-  onProgress?.(100);
-  return outputPath;
-  */
+    await muxRemotionVisualWithAudio({
+      visualPath,
+      sourceVideoPath,
+      outputPath,
+      startTime: placement.startTime,
+      duration,
+      width,
+      height,
+      fps,
+    });
+
+    onProgress?.(100);
+    return outputPath;
+  } catch (err) {
+    try {
+      unlinkSync(outputPath);
+    } catch {
+      // Ignore a missing or partially-created output.
+    }
+    throw err;
+  } finally {
+    try {
+      unlinkSync(visualPath);
+    } catch {
+      // Ignore a missing or partially-created visual.
+    }
+  }
 }
 
 /**

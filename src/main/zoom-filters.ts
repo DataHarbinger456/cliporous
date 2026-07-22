@@ -7,12 +7,12 @@
  *   3. Word Pulse   — Rhythmic ease-in-out zoom pulse per word (volt, prime styles)
  *   4. Zoom-Out Reveal — Pull-back from zoomed-in to 1.0x (ember, film B-roll)
  *
- * All builders return an FFmpeg filter string (crop=...+scale=...) that can be
- * inserted into a filter chain after the initial scale and before subtitle burn-in.
+ * Builders return FFmpeg filter strings that can be inserted after the initial
+ * scale and before subtitle burn-in. Snap zoom uses zoompan so its dimensions
+ * can change per frame; the crop filter only evaluates w/h during initialization.
  *
- * Uses crop+scale (not zoompan) for performance and Windows compatibility.
- * Avoids escaped commas — uses abs()-based min/max instead of multi-arg functions
- * inside option values.
+ * Expressions avoid linear nesting so long-form videos with hundreds of emphasis
+ * beats stay below FFmpeg's expression-parser recursion limit.
  */
 
 // ---------------------------------------------------------------------------
@@ -109,6 +109,19 @@ function assembleCropScale(
   return `crop=w='${nanSafe(cropW, 'iw')}':h='${nanSafe(cropH, 'ih')}':x='${nanSafe(cropX, '0')}':y='${nanSafe(cropY, '0')}',scale=${outW}:${outH}:flags=${SCALE_FLAGS}`;
 }
 
+/**
+ * Combine expressions as a balanced max tree. FFmpeg's evaluator rejects long
+ * left-deep arithmetic/if chains at roughly 100 nodes; balancing keeps parser
+ * depth logarithmic while max() prevents overlapping zoom beats from stacking.
+ */
+function balancedMax(expressions: string[]): string {
+  if (expressions.length === 0) return '0';
+  if (expressions.length === 1) return expressions[0] ?? '0';
+
+  const midpoint = Math.floor(expressions.length / 2);
+  return `max(${balancedMax(expressions.slice(0, midpoint))},${balancedMax(expressions.slice(midpoint))})`;
+}
+
 // ---------------------------------------------------------------------------
 // 1. Drift Zoom — Ken Burns slow drift
 // ---------------------------------------------------------------------------
@@ -173,11 +186,12 @@ export function buildDriftZoom(params: ZoomFilterParams): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Starts at 1.0×, instantly jumps to `zoomIntensity` at specified timestamps,
- * holds for the word duration, then snaps back. The transition happens in 2–3
- * frames (nearly instant).
+ * Starts at 1.0×, punches in to `zoomIntensity` at specified timestamps,
+ * holds for the emphasis duration, then snaps back over two frames.
  *
- * Used by: impact, rebel caption styles.
+ * Uses one balanced zoom expression instead of a linear chain of nested ifs.
+ * This matters for long-form speaker blocks: FFmpeg rejects deeply nested
+ * expressions after enough phrase beats, even when their parentheses are valid.
  */
 export function buildSnapZoom(params: ZoomFilterParams): string {
   const {
@@ -191,88 +205,43 @@ export function buildSnapZoom(params: ZoomFilterParams): string {
     faceYNorm = 0.38,
   } = params;
 
-  if (duration <= 0) return '';
+  if (duration <= 0 || fps <= 0) return '';
   if (emphasisTimestamps.length === 0) return '';
 
-  // Transition duration in seconds: 2–3 frames
-  const transFrames = 2;
-  const transDur = transFrames / fps;
-
-  // Build a piecewise zoom expression using nested if(between(t,...)):
-  // For each emphasis event we create:
-  //   rampIn  (transDur) : 1 → zoomIntensity (linear over 2–3 frames)
-  //   hold                : zoomIntensity constant
-  //   rampOut (transDur) : zoomIntensity → 1
-  // Outside all events: zoom = 1.0
-
-  interface SnapSegment {
-    start: number;
-    end: number;
-    zExpr: string;
-  }
-
-  const Z = zoomIntensity.toFixed(6);
-  const dZ = (zoomIntensity - 1).toFixed(6);
-  const TD = transDur.toFixed(4);
-  const segments: SnapSegment[] = [];
-
+  const transitionDuration = 2 / fps;
+  const zoomDelta = (zoomIntensity - 1).toFixed(6);
+  const clipEnd = startTime + duration;
+  const envelopes: string[] = [];
   const sorted = [...emphasisTimestamps].sort((a, b) => a.time - b.time);
 
-  for (const em of sorted) {
-    const absStart = startTime + em.time;
-    const absEnd = absStart + em.duration;
+  for (const emphasis of sorted) {
+    const rawStart = startTime + emphasis.time;
+    const emphasisStart = Math.max(startTime, rawStart);
+    const emphasisEnd = Math.min(clipEnd, rawStart + emphasis.duration);
+    if (emphasisEnd <= emphasisStart) continue;
 
-    // Ramp in: absStart - transDur → absStart
-    const rampInStart = Math.max(startTime, absStart - transDur);
-    if (absStart > rampInStart) {
-      const rs = rampInStart.toFixed(3);
-      const _re = absStart.toFixed(3);
-      // Linear from 1 to Z over transDur
-      segments.push({
-        start: rampInStart,
-        end: absStart,
-        zExpr: `1+${dZ}*(t-${rs})/${TD}`,
-      });
-    }
-
-    // Hold at peak
-    segments.push({
-      start: absStart,
-      end: absEnd,
-      zExpr: Z,
-    });
-
-    // Ramp out: absEnd → absEnd + transDur
-    const rampOutEnd = Math.min(startTime + duration, absEnd + transDur);
-    if (rampOutEnd > absEnd) {
-      const os = absEnd.toFixed(3);
-      // Linear from Z to 1 over transDur
-      segments.push({
-        start: absEnd,
-        end: rampOutEnd,
-        zExpr: `${Z}-${dZ}*(t-${os})/${TD}`,
-      });
-    }
+    const windowStart = Math.max(startTime, emphasisStart - transitionDuration);
+    const windowEnd = Math.min(clipEnd, emphasisEnd + transitionDuration);
+    const rampIn =
+      emphasisStart > windowStart
+        ? `(in_time-${windowStart.toFixed(3)})/${(emphasisStart - windowStart).toFixed(4)}`
+        : '1';
+    const rampOut =
+      windowEnd > emphasisEnd
+        ? `(${windowEnd.toFixed(3)}-in_time)/${(windowEnd - emphasisEnd).toFixed(4)}`
+        : '1';
+    const level = `min(1,min(${rampIn},${rampOut}))`;
+    envelopes.push(`between(in_time,${windowStart.toFixed(3)},${windowEnd.toFixed(3)})*${level}`);
   }
 
-  // Build nested if(between(...)) — fallback is 1.0 (no zoom)
-  const buildExpr = (exprFn: (z: string) => string): string => {
-    let expr = exprFn('1');
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const seg = segments[i];
-      const s = seg.start.toFixed(3);
-      const e = seg.end.toFixed(3);
-      expr = `if(between(t,${s},${e}),${exprFn(seg.zExpr)},${expr})`;
-    }
-    return expr;
-  };
+  if (envelopes.length === 0) return '';
 
-  const cropW = buildExpr((z) => `iw/(${z})`);
-  const cropH = buildExpr((z) => `ih/(${z})`);
-  const cropX = buildExpr((z) => centredX(z));
-  const cropY = buildExpr((z) => faceTrackY(z, faceYNorm));
+  const zoomExpression = `1+${zoomDelta}*${balancedMax(envelopes)}`;
+  const cropY = faceTrackY('zoom', faceYNorm);
 
-  return assembleCropScale(cropW, cropH, cropX, cropY, width, height);
+  // crop w/h are initialization-only in FFmpeg and cannot animate a zoom.
+  // zoompan evaluates z/x/y for every input frame and keeps a fixed output size.
+  return `zoompan=z='if(isnan(in_time),1,${zoomExpression})':x='iw/2-(iw/zoom/2)':y='${cropY}':d=1:s=${width}x${height}:fps=${fps}`;
 }
 
 // ---------------------------------------------------------------------------

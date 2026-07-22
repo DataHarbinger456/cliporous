@@ -10,10 +10,11 @@
 // short-form output stays byte-identical.
 // ---------------------------------------------------------------------------
 
-import { copyFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { Ch } from '@shared/ipc-channels';
+import { resolveLongformPlanOverlaps } from '@shared/longform-plan-timing';
 import { getPaletteById } from '@shared/palettes';
 import type {
   BlockPlacement,
@@ -34,6 +35,7 @@ import {
   applyDelosCards,
   type DelosCardStats,
   filterCardsToSpeakerRanges,
+  type SpeakerRange,
 } from './features/delos-card.feature';
 import {
   applyPhraseOverlays,
@@ -41,7 +43,11 @@ import {
   type PhraseOverlayStats,
 } from './features/phrase-emphasis.feature';
 import { toFFmpegPath } from './helpers';
-import { encodeSpeakerSegment } from './longform-encode';
+import {
+  concatNormalizedSegments,
+  encodeSpeakerSegment,
+  type NormalizedConcatSegment,
+} from './longform-encode';
 import type { WordTimestamp } from './point-coverage';
 import { resolveQualityParams } from './quality';
 import { classifyRenderError } from './render-error-map';
@@ -171,38 +177,23 @@ export function buildTimeline(
   return timeline;
 }
 
-// ---------------------------------------------------------------------------
-// Concat (demuxer, stream copy)
-// ---------------------------------------------------------------------------
+/** Merge touching speaker/fallback ranges so cards may span a failed block seam. */
+export function mergeSpeakerRanges(ranges: SpeakerRange[]): SpeakerRange[] {
+  const sorted = ranges
+    .filter((range) => range.end > range.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  const merged: SpeakerRange[] = [];
 
-function concatSegments(segmentFiles: string[], outputPath: string): Promise<void> {
-  const listFile = join(tmpdir(), `batchcontent-lf-list-${Date.now()}.txt`);
-  const listContent = segmentFiles.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-  writeFileSync(listFile, listContent, 'utf-8');
+  for (const range of sorted) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 0.001) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
 
-  return new Promise<void>((resolve, reject) => {
-    ffmpeg()
-      .input(listFile)
-      .inputOptions(['-f', 'concat', '-safe', '0'])
-      .outputOptions(['-c', 'copy', '-movflags', '+faststart', '-y'])
-      .on('end', () => {
-        try {
-          unlinkSync(listFile);
-        } catch {
-          /* ignore */
-        }
-        resolve();
-      })
-      .on('error', (err: Error) => {
-        try {
-          unlinkSync(listFile);
-        } catch {
-          /* ignore */
-        }
-        reject(err);
-      })
-      .save(toFFmpegPath(outputPath));
-  });
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,11 +272,14 @@ export async function renderLongformVideo(
     sendError('Long-form render requires a source job.');
     return;
   }
-  const plan = options.longformEditPlan;
-  if (!plan) {
+  const requestedPlan = options.longformEditPlan;
+  if (!requestedPlan) {
     sendError('Long-form render requires a longformEditPlan.');
     return;
   }
+  // Older saved projects may predate plan-time collision resolution. Normalize
+  // defensively so unsupported cross-layer overlaps never reach compositing.
+  const plan = resolveLongformPlanOverlaps(requestedPlan);
 
   const qualityParams = resolveQualityParams(options.renderQuality);
   const encoder = getEncoder(qualityParams);
@@ -383,6 +377,8 @@ export async function renderLongformVideo(
 
     // ── Encode every timeline block to a normalized segment ────────────────
     const segmentFiles: string[] = [];
+    const concatInputs: NormalizedConcatSegment[] = [];
+    const failedBlockRanges: SpeakerRange[] = [];
     let droppedBlocks = 0;
     for (let i = 0; i < timeline.length; i++) {
       const block = timeline[i];
@@ -413,6 +409,7 @@ export async function renderLongformVideo(
           emitSegmentProgress,
         );
         segmentFiles.push(out);
+        concatInputs.push({ path: out, duration: block.endTime - block.startTime });
         tempFiles.push(out);
       } else {
         window.webContents.send(Ch.Send.RENDER_CLIP_PREPARE, {
@@ -432,6 +429,7 @@ export async function renderLongformVideo(
             onProgress: emitSegmentProgress,
           });
           segmentFiles.push(out);
+          concatInputs.push({ path: out, duration: block.endTime - block.startTime });
           tempFiles.push(out);
         } catch (err) {
           // Graceful degrade (RF-003): a single content-block render failure
@@ -444,6 +442,7 @@ export async function renderLongformVideo(
               `substituting speaker shot for ${block.startTime}s–${block.endTime}s: ${message}`,
           );
           droppedBlocks++;
+          failedBlockRanges.push({ start: block.startTime, end: block.endTime });
           const out = await encodeSpeakerForRange(
             block.startTime,
             block.endTime,
@@ -451,6 +450,7 @@ export async function renderLongformVideo(
             emitSegmentProgress,
           );
           segmentFiles.push(out);
+          concatInputs.push({ path: out, duration: block.endTime - block.startTime });
           tempFiles.push(out);
         }
       }
@@ -471,7 +471,7 @@ export async function renderLongformVideo(
     window.webContents.send(Ch.Send.RENDER_CLIP_PROGRESS, { clipId: job.clipId, percent: 72 });
     const concatPath = join(tmpdir(), `batchcontent-lf-concat-${Date.now()}.mp4`);
     tempFiles.push(concatPath);
-    await concatSegments(segmentFiles, concatPath);
+    await concatNormalizedSegments(concatInputs, concatPath, LANDSCAPE_FPS);
 
     // ── Phrase overlay pass ──────────────────────────────────────────────────
     const sourceName = options.sourceMeta?.name
@@ -484,9 +484,15 @@ export async function renderLongformVideo(
     // Keep only phrases that begin inside a SPEAKER block: a phrase composited
     // over a full-frame content block would obscure it and read as a bug, since
     // phrase overlays are meant to float over the speaker.
-    const speakerRanges = timeline
-      .filter((b): b is SpeakerBlock => b.kind === 'speaker')
-      .map((b) => ({ start: b.startTime, end: b.endTime }));
+    // A failed full-frame block was encoded as the speaker shot, so it must also
+    // become eligible for phrases/cards. Merge it with adjacent speaker ranges
+    // before gating overlays; otherwise a failed visual still suppresses them.
+    const speakerRanges = mergeSpeakerRanges([
+      ...timeline
+        .filter((block): block is SpeakerBlock => block.kind === 'speaker')
+        .map((block) => ({ start: block.startTime, end: block.endTime })),
+      ...failedBlockRanges,
+    ]);
     const inSpeakerBlock = (t: number): boolean =>
       speakerRanges.some((r) => t >= r.start && t < r.end);
     const phrases = plan.phrases.filter(
@@ -496,7 +502,7 @@ export async function renderLongformVideo(
     // ── Delos pop-up cards ───────────────────────────────────────────────────
     // Candidates from the plan, gated to SPEAKER time so a pop-up never lands
     // on top of a full-frame content block (this is the single source of truth
-    // for that rule). These composite lower-center over the speaker.
+    // for that rule). These composite upper-left, clear of bottom phrases.
     const cards = filterCardsToSpeakerRanges(plan.cards ?? [], speakerRanges);
     const haveCards = cards.length > 0;
 

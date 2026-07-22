@@ -17,18 +17,24 @@ vi.mock('electron', () => ({
   BrowserWindow: class {},
 }));
 
+import {
+  MAX_LONGFORM_BLOCK_SECONDS,
+  resolveLongformPlanOverlaps,
+} from '@shared/longform-plan-timing';
 import { getPaletteById } from '@shared/palettes';
 import type { BlockPlacement, LongformBlockKind, LongformEditPlan } from '@shared/types';
 import {
   DEFAULT_LONGFORM_BLOCK_SKIN,
   resolveLongformBlockCompositionId,
 } from '../remotion/registry';
-import { buildBlockInputProps } from './features/blocks.feature';
+import { buildBlockInputProps, extendBlockPlacementEndTime } from './features/blocks.feature';
+import { buildNormalizedConcatFilter } from './longform-encode';
 import {
   buildLongformRenderReconciliation,
   buildLongformRenderSummary,
   buildTimeline,
   MIN_GAP_BETWEEN_BLOCKS,
+  mergeSpeakerRanges,
 } from './longform-pipeline';
 
 function emptyPlan(over: Partial<LongformEditPlan> = {}): LongformEditPlan {
@@ -90,6 +96,107 @@ describe('buildTimeline — blocks', () => {
     });
     const timeline = buildTimeline(plan, 30);
     expect(timeline.filter((b) => b.kind === 'block')).toHaveLength(1);
+  });
+
+  it('keeps the reviewed block end authoritative even when list text repeats later', () => {
+    const placement = block(10, 11);
+    const endTime = extendBlockPlacementEndTime(
+      placement,
+      [
+        { text: 'a', start: 10.2, end: 10.4 },
+        { text: 'b', start: 12, end: 12.2 },
+        { text: 'b', start: 118, end: 118.2 },
+      ],
+      120,
+    );
+
+    expect(endTime).toBe(placement.endTime);
+  });
+
+  it('caps a malformed block so it cannot cover the rest of the video', () => {
+    const placement = block(10, 120);
+    const endTime = extendBlockPlacementEndTime(
+      placement,
+      [
+        { text: 'a', start: 10.2, end: 10.4 },
+        { text: 'b', start: 11, end: 11.2 },
+        // A later repeated match previously extended the block to the end.
+        { text: 'b', start: 118, end: 118.2 },
+      ],
+      120,
+    );
+
+    expect(endTime).toBe(10 + MAX_LONGFORM_BLOCK_SECONDS);
+    const timeline = buildTimeline(emptyPlan({ blocks: [placement] }), 120, 0, 0);
+    expect(timeline.find((item) => item.kind === 'block')?.endTime).toBe(endTime);
+    expect(timeline.at(-1)?.kind).toBe('speaker');
+    expect(timeline.at(-1)?.endTime).toBe(120);
+  });
+});
+
+describe('resolveLongformPlanOverlaps — safe stacking', () => {
+  it('clamps a malformed early block before resolving later edits', () => {
+    const plan = resolveLongformPlanOverlaps(
+      emptyPlan({
+        blocks: [block(2, 300), block(20, 24)],
+        phrases: [{ text: 'STILL HERE', startTime: 12, endTime: 14 }],
+        cards: [{ kind: 'delos-console', startTime: 12, endTime: 15, sourceText: 'Proof' }],
+      }),
+    );
+
+    expect(plan.blocks.map(({ startTime, endTime }) => [startTime, endTime])).toEqual([
+      [2, 2 + MAX_LONGFORM_BLOCK_SECONDS],
+      [20, 24],
+    ]);
+    expect(plan.phrases).toHaveLength(1);
+    expect(plan.cards).toHaveLength(1);
+  });
+
+  it('keeps phrase/card stacking but still gives full-frame blocks exclusive timing', () => {
+    const plan = resolveLongformPlanOverlaps(
+      emptyPlan({
+        blocks: [block(20, 24)],
+        phrases: [
+          { text: 'SAFE WITH CARD', startTime: 10, endTime: 13 },
+          { text: 'BLOCKED BY BLOCK', startTime: 21, endTime: 23 },
+        ],
+        cards: [
+          { kind: 'delos-console', startTime: 11, endTime: 14, sourceText: 'Proof' },
+          { kind: 'delos-console', startTime: 21, endTime: 23, sourceText: 'Hidden' },
+        ],
+      }),
+    );
+
+    expect(plan.phrases.map((phrase) => phrase.text)).toEqual(['SAFE WITH CARD']);
+    expect(plan.cards?.map((card) => card.sourceText)).toEqual(['Proof']);
+  });
+});
+
+describe('buildNormalizedConcatFilter', () => {
+  it('resets timestamps and trims every segment to its authoritative timeline duration', () => {
+    const filter = buildNormalizedConcatFilter(
+      [
+        { path: '/tmp/speaker.mp4', duration: 2 },
+        { path: '/tmp/block.mp4', duration: 4.25 },
+      ],
+      30,
+    );
+
+    expect(filter).toContain('trim=duration=2.000,setpts=PTS-STARTPTS');
+    expect(filter).toContain('trim=duration=4.250,setpts=PTS-STARTPTS');
+    expect(filter).toContain('[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]');
+  });
+});
+
+describe('mergeSpeakerRanges', () => {
+  it('joins a failed block range to surrounding speaker ranges', () => {
+    expect(
+      mergeSpeakerRanges([
+        { start: 0, end: 10 },
+        { start: 14, end: 30 },
+        { start: 10, end: 14 },
+      ]),
+    ).toEqual([{ start: 0, end: 30 }]);
   });
 });
 
@@ -222,6 +329,18 @@ describe('buildBlockInputProps — palette wiring', () => {
       expect(props.skinId).toBe('editorial');
       expect(props.palette).toBe(palette);
     }
+  });
+
+  it('makes the selected palette accent override a stale placement accent', () => {
+    const palette = getPaletteById('slate-emerald');
+    const props = buildBlockInputProps(
+      { ...numberedList, accentColor: '#9f75ff' },
+      'editorial',
+      palette,
+    );
+
+    expect(props.accentColor).toBe(palette.accent);
+    expect(props.palette).toBe(palette);
   });
 
   it('omits the palette key entirely when none is supplied', () => {

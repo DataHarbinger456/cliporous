@@ -4,8 +4,7 @@
 //   1. filterCardsToSpeakerRanges rejects any card that intersects a full-frame
 //      block (i.e. is not fully contained by a speaker range) and keeps cards
 //      that sit entirely within speaker time.
-//   2. DELOS_CARD_YPOS keeps cards in the lower band, below the eye-line.
-//   3. planDelosCards spaces cards ~one per 15–20s and biases toward
+//   2. planDelosCards spaces cards ~one per 15–20s and biases toward
 //      text-forward kinds with no immediate same-kind repeats.
 // ---------------------------------------------------------------------------
 
@@ -17,11 +16,7 @@ import {
   SECONDS_PER_CARD,
   selectCardKind,
 } from '../../ai/longform-edit-plan';
-import {
-  DELOS_CARD_YPOS,
-  filterCardsToSpeakerRanges,
-  type SpeakerRange,
-} from './delos-card.feature';
+import { filterCardsToSpeakerRanges, type SpeakerRange } from './delos-card.feature';
 
 // WordTimestamp from point-coverage and the shared type are structurally equal;
 // the import path here is only for the helper builders below.
@@ -87,24 +82,15 @@ describe('filterCardsToSpeakerRanges', () => {
   });
 });
 
-describe('DELOS_CARD_YPOS', () => {
-  it('places the card in the lower band, clear of the top-third eye-line', () => {
-    // Top third (face zone) is yPos < ~33. Bottom edge is 100. The card anchor
-    // must sit well into the lower band but not be pinned to the very bottom.
-    expect(DELOS_CARD_YPOS).toBeGreaterThan(60);
-    expect(DELOS_CARD_YPOS).toBeLessThan(90);
-  });
-});
-
 describe('planDelosCards density', () => {
-  it('emits roughly one card per 15–20s of speech', () => {
-    // 120s of continuous speech → ~120/17 ≈ 7 cards.
+  it('emits roughly one card candidate per 12s of speech', () => {
+    // 120s of continuous speech → ~120/12 = 10 candidates before plan conflicts.
     const cards = planDelosCards(words(120), 120);
-    expect(cards.length).toBeGreaterThanOrEqual(5);
-    expect(cards.length).toBeLessThanOrEqual(8);
+    expect(cards.length).toBeGreaterThanOrEqual(9);
+    expect(cards.length).toBeLessThanOrEqual(11);
   });
 
-  it('spaces consecutive card starts at least ~15s apart', () => {
+  it('spaces consecutive card starts by the configured cadence', () => {
     const cards = planDelosCards(words(180), 180);
     for (let i = 1; i < cards.length; i++) {
       const gap = cards[i].startTime - cards[i - 1].startTime;

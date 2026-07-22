@@ -69,6 +69,7 @@ import {
   WaveformCard,
 } from './compositions/blocks';
 import { Timeline, type TimelineProps } from './compositions/blocks/Timeline';
+import { DelosEvidenceCard, type DelosEvidenceCardProps } from './compositions/DelosEvidenceCard';
 import { FullscreenQuote, type FullscreenQuoteProps } from './compositions/FullscreenQuote';
 import {
   FullscreenQuotePlusBroll,
@@ -273,6 +274,28 @@ export const RemotionRoot: React.FC = () => {
             fontSize: 150,
             animationType: 'scale-in',
           } satisfies PhraseOverlayProps
+        }
+      />
+
+      <Composition
+        id="DelosEvidenceCard"
+        component={DelosEvidenceCard as any}
+        durationInFrames={FPS * 4}
+        fps={FPS}
+        width={LANDSCAPE_WIDTH}
+        height={LANDSCAPE_HEIGHT}
+        defaultProps={
+          {
+            kind: 'delos-console',
+            title: 'Revenue momentum',
+            statusText: 'VERIFIED',
+            metrics: [
+              { label: 'Growth', value: '+42%' },
+              { label: 'Retention', value: '96%' },
+              { label: 'Runway', value: '18 mo' },
+            ],
+            accentColor: BRAND_ACCENT,
+          } satisfies DelosEvidenceCardProps
         }
       />
 

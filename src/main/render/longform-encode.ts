@@ -251,6 +251,103 @@ export function muxRemotionVisualWithAudio(opts: MuxRemotionVisualOptions): Prom
 }
 
 // ---------------------------------------------------------------------------
+// Timestamp-safe segment concatenation
+// ---------------------------------------------------------------------------
+
+export interface NormalizedConcatSegment {
+  path: string;
+  /** Authoritative timeline duration; media metadata must not extend this span. */
+  duration: number;
+}
+
+/** Build an A/V concat graph that resets timestamps and enforces every planned span. */
+export function buildNormalizedConcatFilter(
+  segments: readonly NormalizedConcatSegment[],
+  fps: number,
+): string {
+  const steps: string[] = [];
+  const inputs: string[] = [];
+
+  segments.forEach((segment, index) => {
+    const duration = Math.max(0.001, segment.duration).toFixed(3);
+    steps.push(
+      `[${index}:v]fps=${fps},tpad=stop_mode=clone:stop_duration=${duration},` +
+        `trim=duration=${duration},setpts=PTS-STARTPTS,format=yuv420p[v${index}]`,
+    );
+    steps.push(
+      `[${index}:a]aresample=48000,apad=pad_dur=${duration},` +
+        `atrim=duration=${duration},asetpts=PTS-STARTPTS[a${index}]`,
+    );
+    inputs.push(`[v${index}][a${index}]`);
+  });
+
+  steps.push(`${inputs.join('')}concat=n=${segments.length}:v=1:a=1[outv][outa]`);
+  return steps.join(';');
+}
+
+/**
+ * Decode and rebuild segment timestamps before the overlay passes. Stream-copying
+ * mixed Remotion/hardware/software H.264 segments can preserve a stale frame for
+ * minutes at a codec or timestamp boundary, so this seam is intentionally encoded.
+ */
+export function concatNormalizedSegments(
+  segments: readonly NormalizedConcatSegment[],
+  outputPath: string,
+  fps: number,
+): Promise<void> {
+  if (segments.length === 0) {
+    return Promise.reject(new Error('Cannot concatenate an empty segment list.'));
+  }
+
+  const filterComplex = buildNormalizedConcatFilter(segments, fps);
+  const qp = getIntermediateQuality();
+
+  return new Promise<void>((resolve, reject) => {
+    let fallbackAttempted = false;
+
+    const run = (encoder: string, presetFlag: string[], useHwAccel: boolean): void => {
+      const cmd = ffmpeg();
+      let stderr = '';
+      for (const segment of segments) {
+        cmd.input(toFFmpegPath(segment.path));
+        if (useHwAccel) cmd.inputOptions(['-hwaccel', 'auto']);
+      }
+
+      cmd
+        .outputOptions([
+          '-filter_complex',
+          filterComplex,
+          '-map',
+          '[outv]',
+          '-map',
+          '[outa]',
+          ...intermediateSink(encoder, presetFlag, fps),
+        ])
+        .on('stderr', (line: string) => {
+          stderr += `${line}\n`;
+        })
+        .on('end', () => resolve())
+        .on('error', (err: Error) => {
+          if (!fallbackAttempted && isGpuSessionError(`${err.message}\n${stderr}`)) {
+            fallbackAttempted = true;
+            disableGpuEncoderForSession();
+            const fallback = getSoftwareEncoder(qp);
+            run(fallback.encoder, fallback.presetFlag, false);
+          } else {
+            const tail = stderr.split('\n').slice(-10).join('\n');
+            reject(new Error(`${err.message}\n[stderr tail] ${tail}`));
+          }
+        })
+        .save(toFFmpegPath(outputPath));
+    };
+
+    const gpuDisabled = isGpuEncoderDisabled();
+    const selected = gpuDisabled ? getSoftwareEncoder(qp) : getEncoder(qp);
+    run(selected.encoder, selected.presetFlag, !gpuDisabled && selected.encoder !== 'libx264');
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Phrase overlay compositing
 // ---------------------------------------------------------------------------
 
@@ -356,7 +453,7 @@ export function compositePhraseOverlays(opts: CompositePhraseOverlaysOptions): P
 }
 
 // ---------------------------------------------------------------------------
-// Delos pop-up card compositing (lower-center, additive overlay layer)
+// Delos pop-up card compositing (upper-left, additive overlay layer)
 // ---------------------------------------------------------------------------
 
 export interface DelosCardOverlayInput {
@@ -381,27 +478,15 @@ export interface CompositeDelosCardsOptions {
 }
 
 /**
- * Horizontal nudge (pixels) applied to the otherwise-centered card so it drifts
- * slightly right of dead-center — a softer, less symmetrical look.
- */
-const CARD_RIGHT_DRIFT_PX = 70;
-
-/**
  * Composite N alpha Delos cards onto the base video in a single encode.
  *
- * Each card's portrait MOV is scaled so its full authored canvas matches the
- * output frame HEIGHT, then overlaid at the lower-center (slightly right). The
- * card's vertical position within that canvas is baked in at render time via
- * its `yPos` variable (kept in the lower band, below the speaker's eye-line),
- * so scaling the canvas to frame height makes `yPos%` map 1:1 onto the frame.
- * Each input is time-shifted with `-itsoffset` and gated with `enable=between`.
+ * Each card's transparent Remotion canvas matches the 16:9 output and places
+ * the card in the upper-left. The lower-third therefore remains clear for a
+ * simultaneous phrase overlay. Each input is time-shifted with `-itsoffset`
+ * and gated with `enable=between`.
  */
 export function compositeDelosCards(opts: CompositeDelosCardsOptions): Promise<void> {
   const { inputPath, outputPath, overlays, width, height, qualityParams } = opts;
-
-  // Center the scaled overlay horizontally, then nudge right. The overlay width
-  // (`w`) is unknown until scale runs, so compute x in-filter via (W-w)/2.
-  const overlayX = `(W-w)/2+${CARD_RIGHT_DRIFT_PX}`;
 
   return new Promise<void>((resolve, reject) => {
     let fallbackAttempted = false;
@@ -416,17 +501,18 @@ export function compositeDelosCards(opts: CompositeDelosCardsOptions): Promise<v
         cmd.inputOptions(['-itsoffset', ov.startTime.toFixed(3)]);
       }
 
-      // Scale each card canvas to the frame height, then overlay lower-center.
+      // Normalize each transparent canvas to the frame, preserving its authored
+      // upper-left placement, then layer it without an extra positional drift.
       const steps: string[] = [];
       let prev = '0:v';
       overlays.forEach((ov, i) => {
         const inIdx = i + 1;
         const scaled = `c${i}`;
         const outLabel = `v${i + 1}`;
-        const enable = `between(t\\,${ov.startTime.toFixed(3)}\\,${ov.endTime.toFixed(3)})`;
-        steps.push(`[${inIdx}:v]scale=-2:${height}[${scaled}]`);
+        const enable = `between(t,${ov.startTime.toFixed(3)},${ov.endTime.toFixed(3)})`;
+        steps.push(`[${inIdx}:v]scale=${width}:${height}[${scaled}]`);
         steps.push(
-          `[${prev}][${scaled}]overlay=${overlayX}:0:eof_action=pass:enable='${enable}'[${outLabel}]`,
+          `[${prev}][${scaled}]overlay=0:0:eof_action=pass:enable='${enable}'[${outLabel}]`,
         );
         prev = outLabel;
       });
@@ -469,10 +555,6 @@ export function compositeDelosCards(opts: CompositeDelosCardsOptions): Promise<v
         })
         .save(toFFmpegPath(outputPath));
     };
-
-    // Mark `width` as intentionally part of the contract even though the
-    // horizontal position is computed in-filter from the main input width.
-    void width;
 
     const gpuDisabled = isGpuEncoderDisabled();
     const { encoder, presetFlag } = gpuDisabled
