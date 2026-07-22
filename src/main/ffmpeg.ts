@@ -2,7 +2,7 @@ import { type ChildProcess, execSync, spawn, spawnSync } from 'node:child_proces
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { app } from 'electron';
 import { OUTPUT_HEIGHT, OUTPUT_WIDTH } from './aspect-ratios';
 
@@ -32,23 +32,41 @@ function resolveBinaryPath(name: string): string | null {
       return resourceBin;
     }
 
-    // The supported Apple Silicon build ships Remotion's matching FFmpeg toolchain.
-    // asarUnpack keeps the executables and adjacent dylibs together on disk.
     if (process.platform === 'darwin' && process.arch === 'arm64') {
-      const remotionBin = join(
-        process.resourcesPath,
-        'app.asar.unpacked',
-        'node_modules',
-        '@remotion',
-        'compositor-darwin-arm64',
-        name,
-      );
-      searchedPaths.push(
-        `Remotion compositor: ${remotionBin} (exists: ${existsSync(remotionBin)})`,
-      );
-      if (existsSync(remotionBin)) {
-        console.log(`[FFmpeg] Found ${name} in the packaged Remotion toolchain: ${remotionBin}`);
-        return remotionBin;
+      // ffmpeg-static is a self-contained full build with libass and the filters
+      // used by BatchClip. Remotion's FFmpeg build intentionally omits many of them.
+      if (name === 'ffmpeg') {
+        const staticFfmpeg = join(
+          process.resourcesPath,
+          'app.asar.unpacked',
+          'node_modules',
+          'ffmpeg-static',
+          'ffmpeg',
+        );
+        searchedPaths.push(`ffmpeg-static: ${staticFfmpeg} (exists: ${existsSync(staticFfmpeg)})`);
+        if (existsSync(staticFfmpeg)) {
+          console.log(`[FFmpeg] Found packaged ffmpeg-static binary: ${staticFfmpeg}`);
+          return staticFfmpeg;
+        }
+      }
+
+      // Remotion supplies ffprobe and its shared libraries in one unpacked directory.
+      if (name === 'ffprobe') {
+        const remotionBin = join(
+          process.resourcesPath,
+          'app.asar.unpacked',
+          'node_modules',
+          '@remotion',
+          'compositor-darwin-arm64',
+          name,
+        );
+        searchedPaths.push(
+          `Remotion compositor: ${remotionBin} (exists: ${existsSync(remotionBin)})`,
+        );
+        if (existsSync(remotionBin)) {
+          console.log(`[FFmpeg] Found ${name} in the packaged Remotion toolchain: ${remotionBin}`);
+          return remotionBin;
+        }
       }
     }
   }
@@ -67,6 +85,29 @@ function resolveBinaryPath(name: string): string | null {
     console.warn(`  - ${p}`);
   }
   return null;
+}
+
+/** Environment required by packaged media binaries.
+ *
+ * Remotion's macOS ffprobe links dylibs by filename rather than @rpath, so dyld
+ * must be pointed at the directory where the package keeps those libraries.
+ */
+export function buildMediaProcessEnv(
+  binaryPath: string,
+  platform = process.platform,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  pathDelimiter = delimiter,
+): NodeJS.ProcessEnv {
+  const env = { ...baseEnv };
+  if (platform !== 'darwin' || !binaryPath.includes('/@remotion/compositor-darwin-arm64/')) {
+    return env;
+  }
+
+  const libraryDir = dirname(binaryPath);
+  env.DYLD_LIBRARY_PATH = [libraryDir, baseEnv.DYLD_LIBRARY_PATH]
+    .filter(Boolean)
+    .join(pathDelimiter);
+  return env;
 }
 
 let ffmpegReady = false;
@@ -133,6 +174,7 @@ function detectHardwareEncoder(): HwEncoder {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildMediaProcessEnv(bin),
     });
     for (const enc of hwEncoderPriority) {
       if (output.includes(enc)) {
@@ -169,6 +211,7 @@ function nvencSupportsBRefMode(): boolean {
       encoding: 'utf-8',
       timeout: 5_000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildMediaProcessEnv(bin),
     });
     if (!helpOut.includes('b_ref_mode')) {
       cachedNvencSupportsBRefMode = false;
@@ -178,7 +221,11 @@ function nvencSupportsBRefMode(): boolean {
     execSync(
       `"${bin}" -hide_banner -f lavfi -i "testsrc=size=64x64:rate=5:duration=0.2" ` +
         `-c:v h264_nvenc -preset p1 -b_ref_mode middle -f null -`,
-      { timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] },
+      {
+        timeout: 5_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: buildMediaProcessEnv(bin),
+      },
     );
     cachedNvencSupportsBRefMode = true;
     console.log('[FFmpeg] NVENC b_ref_mode=middle supported (Turing+)');
@@ -207,6 +254,7 @@ export function hasScaleCuda(): boolean {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildMediaProcessEnv(bin),
     });
     cachedHasScaleCuda = output.includes('scale_cuda');
     console.log(`[FFmpeg] scale_cuda available: ${cachedHasScaleCuda}`);
@@ -646,7 +694,10 @@ export class FfmpegCommand extends EventEmitter {
     const bin = resolvedFfmpegPath ?? 'ffmpeg';
     const args = this.buildArgs();
 
-    this.proc = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = spawn(bin, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildMediaProcessEnv(bin),
+    });
 
     const cmdLine = `${bin} ${args.join(' ')}`;
     this.emit('start', cmdLine);
@@ -1101,7 +1152,10 @@ export function getWaveformPeaks(
       's16le', // raw signed 16-bit little-endian PCM
       '-', // pipe to stdout
     ],
-    { maxBuffer: 20 * 1024 * 1024 }, // 20 MB — ample for any clip
+    {
+      maxBuffer: 20 * 1024 * 1024, // 20 MB — ample for any clip
+      env: buildMediaProcessEnv(bin),
+    },
   );
 
   if (result.error || !result.stdout || result.stdout.length === 0) {

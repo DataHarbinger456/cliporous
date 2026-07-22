@@ -164,7 +164,7 @@ assert_release_contents() {
 
   local sqlite="$unpacked/better-sqlite3/build/Release/better_sqlite3.node"
   local compositor_dir="$unpacked/@remotion/compositor-darwin-arm64"
-  local ffmpeg="$compositor_dir/ffmpeg"
+  local ffmpeg="$unpacked/ffmpeg-static/ffmpeg"
   local ffprobe="$compositor_dir/ffprobe"
   local compositor="$compositor_dir/remotion"
   local rspack
@@ -181,6 +181,12 @@ assert_release_contents() {
   [ -x "$ffprobe" ] || fail "Packaged ffprobe is not executable"
   [ -x "$compositor" ] || fail "Packaged Remotion compositor is not executable"
   [ -x "$esbuild" ] || fail "Packaged esbuild is not executable"
+  "$ffmpeg" -hide_banner -filters 2>/dev/null | grep ' ass ' >/dev/null \
+    || fail "Packaged FFmpeg is missing the libass subtitle filter"
+  "$ffmpeg" -hide_banner -filters 2>/dev/null | grep ' overlay ' >/dev/null \
+    || fail "Packaged FFmpeg is missing the overlay filter"
+  DYLD_LIBRARY_PATH="$compositor_dir" "$ffprobe" -version >/dev/null 2>&1 \
+    || fail "Packaged ffprobe cannot load its adjacent dylibs"
 
   [ -f "$app_resources/python/download.py" ] || fail "Missing packaged Python download script"
   [ -f "$app_resources/python/face_detect.py" ] || fail "Missing packaged Python face detection script"
@@ -222,13 +228,15 @@ cd "$STAGE"
 step "Installing locked macOS arm64 dependencies"
 target_macos_arm64 npm ci --ignore-scripts --include=optional
 target_macos_arm64 node node_modules/electron/install.js
+target_macos_arm64 node node_modules/ffmpeg-static/install.js
 target_macos_arm64 ./node_modules/.bin/electron-builder install-app-deps --platform=darwin --arch=arm64
 chmod 755 \
   node_modules/@remotion/compositor-darwin-arm64/remotion \
   node_modules/@remotion/compositor-darwin-arm64/ffmpeg \
   node_modules/@remotion/compositor-darwin-arm64/ffprobe \
+  node_modules/ffmpeg-static/ffmpeg \
   node_modules/@esbuild/darwin-arm64/bin/esbuild
-assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/ffmpeg
+assert_arm64_macho node_modules/ffmpeg-static/ffmpeg
 assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/ffprobe
 assert_arm64_macho node_modules/better-sqlite3/build/Release/better_sqlite3.node
 assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/remotion
