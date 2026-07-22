@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build and verify the unsigned BatchClip 0.1.0 DMG for macOS 11+ on Apple Silicon.
+# Build and verify the unsigned BatchClip DMG for macOS 11+ on Apple Silicon.
 #
 # Usage: npm run release:mac
-# Output: dist/release/macos-arm64/BatchClip-0.1.0-mac-arm64.dmg
+# Output: dist/release/macos-arm64/BatchClip-<version>-mac-arm64.dmg
 
 set -euo pipefail
 
@@ -210,8 +210,6 @@ assert_release_contents() {
   || fail "The macOS release must be built on macOS (found $(uname -s))"
 [ "$(uname -m)" = "arm64" ] \
   || fail "The macOS release must be built on Apple Silicon (found $(uname -m))"
-[ "$VERSION" = "0.1.0" ] \
-  || fail "This release pipeline is locked to BatchClip 0.1.0 (found $VERSION)"
 [ -f "$ROOT/build/icon.icns" ] || fail "Missing approved macOS icon: build/icon.icns"
 [ -f "$ROOT/build/icon.png" ] || fail "Missing approved runtime icon: build/icon.png"
 
