@@ -23,8 +23,13 @@ vi.mock('@google/genai', () => ({
   GoogleGenAI: class {},
 }));
 
+import { longformLayersMayOverlap, longformRangesOverlap } from '@shared/longform-plan-timing';
 import type { BlockPlacement } from '@shared/types';
-import { diversifyBlocks, generateLongformEditPlan } from './longform-edit-plan';
+import {
+  diversifyBlocks,
+  generateLongformEditPlan,
+  MAX_CONSECUTIVE_EVIDENCE_CARDS,
+} from './longform-edit-plan';
 
 /** Minimal valid bar-chart block for variety-pass tests. */
 function bar(startTime: number): BlockPlacement {
@@ -61,6 +66,14 @@ function words(): WordTimestamp[] {
     { text: 'numbers', start: 120, end: 120.5 },
     { text: 'matter', start: 120.5, end: 121 },
   ];
+}
+
+function denseWords(duration: number): WordTimestamp[] {
+  return Array.from({ length: duration * 2 }, (_, index) => ({
+    text: `word${index}`,
+    start: index * 0.5,
+    end: index * 0.5 + 0.35,
+  }));
 }
 
 describe('generateLongformEditPlan — content blocks', () => {
@@ -455,6 +468,81 @@ describe('generateLongformEditPlan — content blocks', () => {
     if (list.kind === 'numbered-list') {
       expect(list.items).toHaveLength(5); // sliced from 7
     }
+  });
+
+  it('fills sparse plans, varies evidence cards, and only keeps spatially safe overlaps', async () => {
+    callMock.mockResolvedValue(JSON.stringify({ phrases: [], blocks: [] }));
+
+    const plan = await generateLongformEditPlan({
+      apiKey: ['unit', 'test'].join('-'),
+      words: denseWords(180),
+      videoDuration: 180,
+    });
+    const beats = [
+      ...plan.blocks.map((item) => ({ type: 'block' as const, item })),
+      ...plan.phrases.map((item) => ({ type: 'phrase' as const, item })),
+      ...(plan.cards ?? []).map((item) => ({ type: 'card' as const, item })),
+    ].sort((left, right) => left.item.startTime - right.item.startTime);
+
+    expect(beats[0]?.type).toBe('card');
+    expect(beats.length).toBeGreaterThan(12);
+    for (let left = 0; left < beats.length; left++) {
+      const leftBeat = beats[left];
+      if (!leftBeat) continue;
+      for (let right = left + 1; right < beats.length; right++) {
+        const rightBeat = beats[right];
+        if (!rightBeat) continue;
+        if (longformRangesOverlap(leftBeat.item, rightBeat.item)) {
+          expect(longformLayersMayOverlap(leftBeat.type, rightBeat.type)).toBe(true);
+        }
+      }
+    }
+
+    let cardRun = 0;
+    let longestCardRun = 0;
+    for (const beat of beats) {
+      cardRun = beat.type === 'card' ? cardRun + 1 : 0;
+      longestCardRun = Math.max(longestCardRun, cardRun);
+    }
+    expect(longestCardRun).toBeLessThanOrEqual(MAX_CONSECUTIVE_EVIDENCE_CARDS);
+  });
+
+  it('keeps a content block and drops phrase/card beats that overlap it', async () => {
+    callMock.mockResolvedValue(
+      JSON.stringify({
+        phrases: [
+          { text: 'OVERLAPS BLOCK', start: 11, end: 12 },
+          { text: 'AFTER BLOCK', start: 14, end: 15 },
+        ],
+        blocks: [
+          {
+            kind: 'stat-hero',
+            start: 10,
+            end: 14,
+            kicker: 'PROOF',
+            heading: 'One Number',
+            value: 42,
+            label: 'customers',
+          },
+        ],
+      }),
+    );
+
+    const plan = await generateLongformEditPlan({
+      apiKey: ['unit', 'test'].join('-'),
+      words: denseWords(60),
+      videoDuration: 60,
+    });
+
+    expect(plan.blocks).toHaveLength(1);
+    expect(plan.phrases.some((phrase) => phrase.text === 'OVERLAPS BLOCK')).toBe(false);
+    expect(plan.phrases.some((phrase) => phrase.text === 'AFTER BLOCK')).toBe(true);
+    const plannedBlock = plan.blocks[0];
+    expect(
+      plannedBlock
+        ? plan.cards?.some((card) => longformRangesOverlap(card, plannedBlock))
+        : undefined,
+    ).toBe(false);
   });
 });
 

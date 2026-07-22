@@ -1,3 +1,10 @@
+import {
+  longformLayersMayOverlap,
+  longformRangesOverlap,
+  MAX_LONGFORM_BLOCK_SECONDS,
+  removeLongformPlanRangeConflicts,
+  resolveLongformPlanOverlaps,
+} from '@shared/longform-plan-timing';
 import type {
   BlockPlacement,
   DelosCardPlacement,
@@ -231,10 +238,18 @@ export function updateLongformPlanItem(
 ): LongformEditPlan {
   const next = clonePlan(plan);
   const startTime = Math.max(0, update.startTime);
-  const endTime = Math.max(startTime + 0.2, update.endTime);
+  const requestedEndTime = Math.max(startTime + 0.2, update.endTime);
+  const endTime =
+    ref.type === 'block'
+      ? Math.min(requestedEndTime, startTime + MAX_LONGFORM_BLOCK_SECONDS)
+      : requestedEndTime;
+  let editedItem: PhraseEmphasis | BlockPlacement | DelosCardPlacement | undefined;
   if (ref.type === 'phrase') {
     const item = next.phrases[ref.index];
-    if (item) Object.assign(item, { text: update.title.trim(), startTime, endTime });
+    if (item) {
+      Object.assign(item, { text: update.title.trim(), startTime, endTime });
+      editedItem = item;
+    }
   } else if (ref.type === 'block') {
     const item = next.blocks[ref.index];
     if (item) {
@@ -244,13 +259,17 @@ export function updateLongformPlanItem(
         startTime,
         endTime,
       });
+      editedItem = item;
     }
   } else {
     const item = next.cards?.[ref.index];
-    if (item) Object.assign(item, { sourceText: update.title.trim(), startTime, endTime });
+    if (item) {
+      Object.assign(item, { sourceText: update.title.trim(), startTime, endTime });
+      editedItem = item;
+    }
   }
   next.generatedAt = Date.now();
-  return next;
+  return editedItem ? removeLongformPlanRangeConflicts(next, editedItem, ref) : next;
 }
 
 export function removeLongformPlanItem(
@@ -276,27 +295,43 @@ export function mergePreservedLongformItems(
   generated: LongformEditPlan,
   preservedItems: readonly PreservedLongformItem[],
 ): LongformEditPlan {
-  const next = clonePlan(generated);
-  for (const preserved of preservedItems) {
-    if (preserved.type === 'phrase') {
-      const item = structuredClone(preserved.item as PhraseEmphasis);
-      next.phrases = next.phrases.filter((candidate) => !nearSameSlot(candidate, item));
-      next.phrases.push(item);
-    } else if (preserved.type === 'block') {
-      const item = structuredClone(preserved.item as BlockPlacement);
-      next.blocks = next.blocks.filter((candidate) => !nearSameSlot(candidate, item));
-      next.blocks.push(item);
-    } else {
-      const item = structuredClone(preserved.item as DelosCardPlacement);
-      const cards = (next.cards ?? []).filter((candidate) => !nearSameSlot(candidate, item));
-      cards.push(item);
-      next.cards = cards;
+  let next = resolveLongformPlanOverlaps(clonePlan(generated));
+  const acceptedPreserved: Array<Pick<PreservedLongformItem, 'type' | 'item'>> = [];
+  const chronological = [...preservedItems].sort(
+    (left, right) => left.item.startTime - right.item.startTime,
+  );
+
+  for (const preserved of chronological) {
+    const item = structuredClone(preserved.item);
+    if (
+      acceptedPreserved.some(
+        (candidate) =>
+          !longformLayersMayOverlap(candidate.type, preserved.type) &&
+          longformRangesOverlap(candidate.item, item),
+      )
+    ) {
+      continue;
     }
+
+    if (preserved.type === 'phrase') {
+      next.phrases = next.phrases.filter((candidate) => !nearSameSlot(candidate, item));
+    } else if (preserved.type === 'block') {
+      next.blocks = next.blocks.filter((candidate) => !nearSameSlot(candidate, item));
+    } else {
+      next.cards = (next.cards ?? []).filter((candidate) => !nearSameSlot(candidate, item));
+    }
+    next = removeLongformPlanRangeConflicts(next, item, undefined, preserved.type);
+
+    if (preserved.type === 'phrase') next.phrases.push(item as PhraseEmphasis);
+    else if (preserved.type === 'block') next.blocks.push(item as BlockPlacement);
+    else {
+      next.cards ??= [];
+      next.cards.push(item as DelosCardPlacement);
+    }
+    acceptedPreserved.push({ type: preserved.type, item });
   }
-  next.phrases.sort((left, right) => left.startTime - right.startTime);
-  next.blocks.sort((left, right) => left.startTime - right.startTime);
-  next.cards?.sort((left, right) => left.startTime - right.startTime);
-  return next;
+
+  return resolveLongformPlanOverlaps(next);
 }
 
 function comparableKey(item: LongformPlanItemView): string {

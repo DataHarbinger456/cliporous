@@ -1475,7 +1475,7 @@ export interface LongformEditPlan {
   /** Full-frame skinned content-block placements. */
   blocks: BlockPlacement[];
   /**
-   * Delos pop-up card placements — the additive lower-center overlay layer.
+   * Delos pop-up card placements — the additive upper-left overlay layer.
    * Optional for back-compat with plans serialized before this layer existed.
    */
   cards?: DelosCardPlacement[];

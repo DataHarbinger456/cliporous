@@ -1,3 +1,4 @@
+import { MAX_LONGFORM_BLOCK_SECONDS } from '@shared/longform-plan-timing';
 import type { LongformEditPlan, WordTimestamp } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import {
@@ -71,6 +72,24 @@ describe('long-form Cut Plan helpers', () => {
     expect(plan.phrases[0]?.text).toBe('BUILD TRUST');
     expect(edited.phrases[0]).toMatchObject({ text: 'PROVE IT', startTime: 6, endTime: 7 });
     expect(removed.cards).toEqual([]);
+  });
+
+  it('keeps safe phrase/card stacking while clamping manual block timing', () => {
+    const plan = makePlan();
+    const editedPhrase = updateLongformPlanItem(
+      plan,
+      { type: 'phrase', index: 0 },
+      { title: 'PROVE IT', startTime: 12, endTime: 14 },
+    );
+    const editedBlock = updateLongformPlanItem(
+      plan,
+      { type: 'block', index: 0 },
+      { title: 'Evidence wins', startTime: 100, endTime: 300 },
+    );
+
+    expect(editedPhrase.cards).toEqual(plan.cards);
+    expect(editedPhrase.phrases[0]).toMatchObject({ startTime: 12, endTime: 14 });
+    expect(editedBlock.blocks[0]?.endTime).toBe(100 + MAX_LONGFORM_BLOCK_SECONDS);
   });
 
   it('preserves creator-locked beats across regeneration and reports version differences', () => {

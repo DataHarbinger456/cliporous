@@ -13,6 +13,11 @@
 // ---------------------------------------------------------------------------
 
 import { GoogleGenAI } from '@google/genai';
+import {
+  longformRangesOverlap,
+  MAX_LONGFORM_BLOCK_SECONDS,
+  resolveLongformPlanOverlaps,
+} from '@shared/longform-plan-timing';
 import type {
   BlockPlacement,
   DelosCardKind,
@@ -374,7 +379,9 @@ function parseBlocks(
     const accentColor = str(b.accentColor);
     const common = {
       startTime: start,
-      endTime: end,
+      // A malformed model response must be bounded before overlap resolution;
+      // otherwise one early block can suppress every later edit in the window.
+      endTime: Math.min(end, start + MAX_LONGFORM_BLOCK_SECONDS),
       kicker,
       heading,
       ...(accentColor ? { accentColor } : {}),
@@ -736,6 +743,152 @@ export function diversifyBlocks(blocks: BlockPlacement[]): BlockPlacement[] {
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic pacing + opening variety
+// ---------------------------------------------------------------------------
+
+/** Maximum speaker-only gap in the first minute before a transcript phrase is added. */
+const INTRO_MAX_UNEDITED_SECONDS = 8;
+/** Maximum speaker-only gap after the first minute. */
+const BODY_MAX_UNEDITED_SECONDS = 14;
+/** Evidence remains one ingredient, never a long uninterrupted sequence. */
+export const MAX_CONSECUTIVE_EVIDENCE_CARDS = 2;
+
+interface TimedBeat {
+  startTime: number;
+  endTime: number;
+}
+
+function buildTranscriptPhrase(
+  words: readonly WordTimestamp[],
+  rangeStart: number,
+  rangeEnd: number,
+): PhraseEmphasis | null {
+  if (rangeEnd <= rangeStart) return null;
+  const anchorIndex = words.findIndex(
+    (word) => word.start >= rangeStart && word.start < rangeEnd && word.end > word.start,
+  );
+  if (anchorIndex < 0) return null;
+
+  const phraseWords: WordTimestamp[] = [];
+  for (let index = anchorIndex; index < words.length && phraseWords.length < 5; index++) {
+    const word = words[index];
+    if (!word || word.start >= rangeEnd) break;
+    const previous = phraseWords.at(-1);
+    if (previous && word.start - previous.end > 0.8) break;
+    if (word.text.trim()) phraseWords.push(word);
+  }
+  if (phraseWords.length < 2) return null;
+
+  const first = phraseWords[0];
+  const last = phraseWords.at(-1);
+  if (!first || !last) return null;
+  return {
+    text: phraseWords
+      .map((word) => word.text.trim())
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .toUpperCase(),
+    startTime: first.start,
+    endTime: last.end,
+  };
+}
+
+/**
+ * Fill genuinely empty stretches with short transcript-grounded phrase beats.
+ * This is deterministic insurance for sparse or partially failed AI windows;
+ * authored blocks/phrases remain untouched and always take priority.
+ */
+export function addPacingPhraseFallbacks(
+  phrases: PhraseEmphasis[],
+  blocks: BlockPlacement[],
+  words: readonly WordTimestamp[],
+  videoDuration: number,
+): PhraseEmphasis[] {
+  const fallbackPhrases: PhraseEmphasis[] = [];
+  const occupied: TimedBeat[] = [...blocks, ...phrases].sort(
+    (left, right) => left.startTime - right.startTime || left.endTime - right.endTime,
+  );
+  let cursor = 0;
+
+  while (cursor < videoDuration) {
+    const covering = occupied.find((beat) => beat.startTime <= cursor && beat.endTime > cursor);
+    if (covering) {
+      cursor = covering.endTime;
+      continue;
+    }
+
+    const next = occupied.find((beat) => beat.startTime > cursor);
+    const maxGap =
+      cursor < INTRO_PHRASE_SECONDS ? INTRO_MAX_UNEDITED_SECONDS : BODY_MAX_UNEDITED_SECONDS;
+    if (next && next.startTime - cursor <= maxGap) {
+      cursor = Math.max(cursor + 0.05, next.endTime);
+      continue;
+    }
+
+    const target = cursor + maxGap;
+    const searchEnd = Math.min(videoDuration, target + 4, next?.startTime ?? videoDuration);
+    const candidate = buildTranscriptPhrase(words, Math.max(cursor, target - 1), searchEnd);
+    if (candidate && !occupied.some((beat) => longformRangesOverlap(beat, candidate))) {
+      fallbackPhrases.push(candidate);
+      occupied.push(candidate);
+      occupied.sort(
+        (left, right) => left.startTime - right.startTime || left.endTime - right.endTime,
+      );
+      cursor = candidate.endTime;
+    } else {
+      cursor = target;
+    }
+  }
+
+  return [...phrases, ...fallbackPhrases].sort(
+    (left, right) => left.startTime - right.startTime || left.endTime - right.endTime,
+  );
+}
+
+/**
+ * Break a card-only run with nearby spoken words. If no usable phrase exists,
+ * drop the excess card rather than present an endless evidence-card sequence.
+ */
+export function enforceEvidenceCardVariety(
+  plan: LongformEditPlan,
+  words: readonly WordTimestamp[],
+  maxConsecutiveCards: number = MAX_CONSECUTIVE_EVIDENCE_CARDS,
+): LongformEditPlan {
+  const beats = [
+    ...plan.blocks.map((item) => ({ type: 'block' as const, item })),
+    ...plan.phrases.map((item) => ({ type: 'phrase' as const, item })),
+    ...(plan.cards ?? []).map((item) => ({ type: 'card' as const, item })),
+  ].sort(
+    (left, right) =>
+      left.item.startTime - right.item.startTime || left.item.endTime - right.item.endTime,
+  );
+
+  const blocks: BlockPlacement[] = [];
+  const phrases: PhraseEmphasis[] = [];
+  const cards: DelosCardPlacement[] = [];
+  let consecutiveCards = 0;
+  let previousEnd = 0;
+
+  for (const beat of beats) {
+    if (beat.type === 'card' && consecutiveCards >= maxConsecutiveCards) {
+      const interruption = buildTranscriptPhrase(words, previousEnd, beat.item.startTime);
+      if (!interruption) continue;
+      phrases.push(interruption);
+      consecutiveCards = 0;
+    }
+
+    if (beat.type === 'block') blocks.push(beat.item);
+    else if (beat.type === 'phrase') phrases.push(beat.item);
+    else cards.push(beat.item);
+
+    consecutiveCards = beat.type === 'card' ? consecutiveCards + 1 : 0;
+    previousEnd = Math.max(previousEnd, beat.item.endTime);
+  }
+
+  return resolveLongformPlanOverlaps({ ...plan, blocks, phrases, cards });
+}
+
+// ---------------------------------------------------------------------------
 // Delos pop-up card placement (approach A — transcript post-process)
 //
 // Cards are the additive lower-center overlay layer that keeps the speaker on
@@ -743,14 +896,14 @@ export function diversifyBlocks(blocks: BlockPlacement[]): BlockPlacement[] {
 // placement: we walk the transcript in fixed strides and emit one candidate
 // card per stride, choosing the kind from cheap keyword signals. Content is
 // filled later by `buildCardContent()` against each card's spoken window, and
-// the render-side timeline is the SINGLE source of truth for rejecting any card
-// that would overlap a full-frame content block.
+// the final plan assembly rejects cards that overlap blocks or phrase overlays;
+// the renderer keeps a defensive gate for older serialized plans.
 // ---------------------------------------------------------------------------
 
-/** Target spacing between card STARTS (seconds). One card per ~15–20s. */
-export const SECONDS_PER_CARD = 17;
-/** How long each card stays on screen (seconds). */
-export const CARD_DISPLAY_SECONDS = 5;
+/** Target spacing between card STARTS (seconds). Faster than the old 17s pace. */
+export const SECONDS_PER_CARD = 12;
+/** How long each card stays on screen (seconds). Short enough to keep the edit moving. */
+export const CARD_DISPLAY_SECONDS = 4;
 /** A card needs at least this many spoken words in its window to be worth it. */
 const MIN_CARD_WORDS = 4;
 
@@ -823,8 +976,9 @@ export function selectCardKind(
  * Walk the transcript in ~`SECONDS_PER_CARD` strides and emit one candidate
  * Delos card per stride that carries enough speech. Cards are anchored to the
  * first spoken word at/after each stride boundary and span `CARD_DISPLAY_SECONDS`
- * (clamped to the video). These are CANDIDATES only — the render-side timeline
- * drops any that overlap a full-frame block, so this pass is block-agnostic.
+ * (clamped to the video). These are CANDIDATES only — final plan assembly drops
+ * any that overlap a full-frame block or phrase overlay, so this pass stays
+ * block-agnostic.
  */
 export function planDelosCards(
   words: WordTimestamp[],
@@ -986,18 +1140,39 @@ export async function generateLongformEditPlan(
 
   const diversifiedBlocks = diversifyBlocks(allBlocks);
 
-  // Delos pop-up cards are candidates across the whole transcript; the render
-  // timeline drops any that land during a full-frame block.
-  const cards = planDelosCards(words, totalDuration);
+  // Resolve model-authored collisions first. Full-frame blocks win over phrase
+  // overlays because the renderer cannot composite either layer concurrently.
+  const authoredPlan = resolveLongformPlanOverlaps({
+    phrases: [...allPhrases].sort(byStart),
+    blocks: diversifiedBlocks,
+    cards: [],
+    reasoning: '',
+    generatedAt,
+  });
+
+  // Sparse/failed AI windows receive transcript-grounded phrase beats before
+  // deterministic cards are considered. Cards then fill only genuinely free
+  // ranges, so review timing matches what the renderer can actually show.
+  const pacedPhrases = addPacingPhraseFallbacks(
+    authoredPlan.phrases,
+    authoredPlan.blocks,
+    words,
+    totalDuration,
+  );
+  const cardCandidates = planDelosCards(words, totalDuration);
+  const collisionFreePlan = resolveLongformPlanOverlaps({
+    ...authoredPlan,
+    phrases: pacedPhrases,
+    cards: cardCandidates,
+  });
+  const finalPlan = enforceEvidenceCardVariety(collisionFreePlan, words);
 
   const partialNote =
     failedWindows > 0 ? ` ${failedWindows} of ${attemptedWindows} windows failed.` : '';
 
   return {
-    phrases: [...allPhrases].sort(byStart),
-    blocks: diversifiedBlocks,
-    cards,
-    reasoning: `Generated from ${words.length} words across ${Math.ceil(totalDuration / windowSeconds)} window(s). ${diversifiedBlocks.length} block(s), ${cards.length} card(s).${partialNote}`,
+    ...finalPlan,
+    reasoning: `Generated from ${words.length} words across ${Math.ceil(totalDuration / windowSeconds)} window(s). ${finalPlan.blocks.length} block(s), ${finalPlan.cards?.length ?? 0} card(s), ${finalPlan.phrases.length} phrase beat(s); timing conflicts resolved before review.${partialNote}`,
     generatedAt,
   };
 }
