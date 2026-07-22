@@ -163,10 +163,10 @@ assert_release_contents() {
   assert_asar_path "out/main/catalog/presets.json"
 
   local sqlite="$unpacked/better-sqlite3/build/Release/better_sqlite3.node"
-  local ffmpeg="$unpacked/ffmpeg-static/ffmpeg"
-  local ffprobe="$unpacked/@ffprobe-installer/darwin-arm64/ffprobe"
-  local compositor="$unpacked/@remotion/compositor-darwin-arm64/remotion"
-  local compositor_ffmpeg="$unpacked/@remotion/compositor-darwin-arm64/ffmpeg"
+  local compositor_dir="$unpacked/@remotion/compositor-darwin-arm64"
+  local ffmpeg="$compositor_dir/ffmpeg"
+  local ffprobe="$compositor_dir/ffprobe"
+  local compositor="$compositor_dir/remotion"
   local rspack
   rspack="$(find "$unpacked/@rspack" -type f -name 'rspack.darwin-arm64.node' -print -quit)"
   local esbuild="$unpacked/@esbuild/darwin-arm64/bin/esbuild"
@@ -175,7 +175,6 @@ assert_release_contents() {
   assert_arm64_macho "$ffmpeg"
   assert_arm64_macho "$ffprobe"
   assert_arm64_macho "$compositor"
-  assert_arm64_macho "$compositor_ffmpeg"
   assert_arm64_macho "$rspack"
   assert_arm64_macho "$esbuild"
   [ -x "$ffmpeg" ] || fail "Packaged FFmpeg is not executable"
@@ -226,16 +225,13 @@ step "Installing locked macOS arm64 dependencies"
 target_macos_arm64 npm ci --ignore-scripts --include=optional
 target_macos_arm64 node node_modules/electron/install.js
 target_macos_arm64 ./node_modules/.bin/electron-builder install-app-deps --platform=darwin --arch=arm64
-rm -f node_modules/ffmpeg-static/ffmpeg node_modules/ffmpeg-static/ffmpeg.exe
-target_macos_arm64 node node_modules/ffmpeg-static/install.js
 chmod 755 \
-  node_modules/ffmpeg-static/ffmpeg \
-  node_modules/@ffprobe-installer/darwin-arm64/ffprobe \
   node_modules/@remotion/compositor-darwin-arm64/remotion \
   node_modules/@remotion/compositor-darwin-arm64/ffmpeg \
+  node_modules/@remotion/compositor-darwin-arm64/ffprobe \
   node_modules/@esbuild/darwin-arm64/bin/esbuild
-assert_arm64_macho node_modules/ffmpeg-static/ffmpeg
-assert_arm64_macho node_modules/@ffprobe-installer/darwin-arm64/ffprobe
+assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/ffmpeg
+assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/ffprobe
 assert_arm64_macho node_modules/better-sqlite3/build/Release/better_sqlite3.node
 assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/remotion
 assert_arm64_macho node_modules/@rspack/binding-darwin-arm64/rspack.darwin-arm64.node

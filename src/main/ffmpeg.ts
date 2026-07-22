@@ -23,13 +23,33 @@ function resolveBinaryPath(name: string): string | null {
   const binary = `${name}${ext}`;
   const searchedPaths: string[] = [];
 
-  // Production: check extraResources/bin
+  // Production: prefer the audited platform binaries copied into extraResources/bin.
   if (app.isPackaged) {
     const resourceBin = join(process.resourcesPath, 'bin', binary);
     searchedPaths.push(`resources/bin: ${resourceBin} (exists: ${existsSync(resourceBin)})`);
     if (existsSync(resourceBin)) {
       console.log(`[FFmpeg] Found ${name} at: ${resourceBin}`);
       return resourceBin;
+    }
+
+    // The supported Apple Silicon build ships Remotion's matching FFmpeg toolchain.
+    // asarUnpack keeps the executables and adjacent dylibs together on disk.
+    if (process.platform === 'darwin' && process.arch === 'arm64') {
+      const remotionBin = join(
+        process.resourcesPath,
+        'app.asar.unpacked',
+        'node_modules',
+        '@remotion',
+        'compositor-darwin-arm64',
+        name,
+      );
+      searchedPaths.push(
+        `Remotion compositor: ${remotionBin} (exists: ${existsSync(remotionBin)})`,
+      );
+      if (existsSync(remotionBin)) {
+        console.log(`[FFmpeg] Found ${name} in the packaged Remotion toolchain: ${remotionBin}`);
+        return remotionBin;
+      }
     }
   }
 

@@ -156,7 +156,10 @@ assert_release_contents() {
   find "$resources/music" -type f -print -quit | grep -q . \
     || fail "No packaged music resources found"
 
-  if find "$STAGE_OUTPUT" -iname '*arm64*' -print -quit | grep -q .; then
+  local arm64_paths
+  arm64_paths="$(find "$STAGE_OUTPUT" -iname '*arm64*' -print)"
+  if [ -n "$arm64_paths" ]; then
+    printf '%s\n' "$arm64_paths" >&2
     fail "Windows arm64 content was generated"
   fi
 }
@@ -169,10 +172,43 @@ cd "$STAGE"
 
 step "Installing locked Windows x64 dependencies"
 target_windows_x64 npm ci --ignore-scripts --include=optional
-# Cross-target installs omit the host Rollup binary needed for the build step.
-ROLLUP_VERSION="$(node -p "require('./node_modules/rollup/package.json').version")"
+# Cross-target installs omit the host Rollup and esbuild binaries needed for the build step.
+# Extract only those packages so npm does not reify host optional dependencies into
+# the Windows dependency tree (which would leak Darwin/arm64 binaries into the installer).
+HOST_PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
+HOST_ARCH="$(uname -m | sed 's/aarch64/arm64/')"
+HOST_BUILD_PACKAGES=()
 
-npm install --no-save --ignore-scripts "@rollup/rollup-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/')@$ROLLUP_VERSION"
+extract_host_package() {
+  local package="$1"
+  local destination="$2"
+  local tarball
+  tarball="$(npm pack "$package" --silent)"
+  mkdir -p "$destination"
+  tar -xzf "$tarball" --strip-components=1 -C "$destination"
+  rm -f "$tarball"
+  HOST_BUILD_PACKAGES+=("$destination")
+}
+
+ROLLUP_NAME="rollup-$HOST_PLATFORM-$HOST_ARCH"
+while IFS= read -r manifest; do
+  package_dir="${manifest%/package.json}"
+  dependency_dir="$(dirname "$package_dir")"
+  package_version="$(node -p "require('./$manifest').version")"
+  extract_host_package \
+    "@rollup/$ROLLUP_NAME@$package_version" \
+    "$dependency_dir/@rollup/$ROLLUP_NAME"
+done < <(find node_modules -path '*/rollup/package.json' -print | sort)
+
+ESBUILD_NAME="$HOST_PLATFORM-$HOST_ARCH"
+while IFS= read -r manifest; do
+  package_dir="${manifest%/package.json}"
+  dependency_dir="$(dirname "$package_dir")"
+  package_version="$(node -p "require('./$manifest').version")"
+  extract_host_package \
+    "@esbuild/$ESBUILD_NAME@$package_version" \
+    "$dependency_dir/@esbuild/$ESBUILD_NAME"
+done < <(find node_modules -path '*/esbuild/package.json' -print | sort)
 
 target_windows_x64 ./node_modules/.bin/electron-builder install-app-deps --platform=win32 --arch=x64
 
@@ -184,6 +220,12 @@ ok "Bundled FFmpeg, ffprobe, and native modules target Windows x64"
 step "Building the Electron application"
 npm run build
 ok "Electron application built"
+
+# Host-native packages were build tools only. Remove them before electron-builder
+# collects the Windows production dependency tree.
+for package_path in "${HOST_BUILD_PACKAGES[@]}"; do
+  rm -rf "$package_path"
+done
 
 step "Packaging unsigned per-user Windows x64 NSIS installer"
 unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD CSC_NAME
