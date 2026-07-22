@@ -50,22 +50,23 @@ function resolveBinaryPath(name: string): string | null {
         }
       }
 
-      // Remotion supplies ffprobe and its shared libraries in one unpacked directory.
+      // ffprobe-installer supplies a self-contained binary. Unlike Remotion's
+      // ffprobe, it has no adjacent dylibs that Finder-launched apps must resolve.
       if (name === 'ffprobe') {
-        const remotionBin = join(
+        const staticFfprobe = join(
           process.resourcesPath,
           'app.asar.unpacked',
           'node_modules',
-          '@remotion',
-          'compositor-darwin-arm64',
-          name,
+          '@ffprobe-installer',
+          'darwin-arm64',
+          'ffprobe',
         );
         searchedPaths.push(
-          `Remotion compositor: ${remotionBin} (exists: ${existsSync(remotionBin)})`,
+          `ffprobe-installer: ${staticFfprobe} (exists: ${existsSync(staticFfprobe)})`,
         );
-        if (existsSync(remotionBin)) {
-          console.log(`[FFmpeg] Found ${name} in the packaged Remotion toolchain: ${remotionBin}`);
-          return remotionBin;
+        if (existsSync(staticFfprobe)) {
+          console.log(`[FFmpeg] Found packaged ffprobe binary: ${staticFfprobe}`);
+          return staticFfprobe;
         }
       }
     }

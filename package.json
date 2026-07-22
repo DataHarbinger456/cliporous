@@ -46,6 +46,7 @@
     "@dnd-kit/modifiers": "^9.0.0",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@fontsource/inter": "^5.2.8",
     "@google/genai": "^1.49.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -135,6 +136,7 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/**",
+      "node_modules/@ffprobe-installer/**",
       "node_modules/@remotion/compositor-*/**",
       "node_modules/@rspack/binding-*/**",
       "node_modules/@esbuild/**",

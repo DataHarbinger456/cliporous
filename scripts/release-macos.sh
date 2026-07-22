@@ -165,7 +165,7 @@ assert_release_contents() {
   local sqlite="$unpacked/better-sqlite3/build/Release/better_sqlite3.node"
   local compositor_dir="$unpacked/@remotion/compositor-darwin-arm64"
   local ffmpeg="$unpacked/ffmpeg-static/ffmpeg"
-  local ffprobe="$compositor_dir/ffprobe"
+  local ffprobe="$unpacked/@ffprobe-installer/darwin-arm64/ffprobe"
   local compositor="$compositor_dir/remotion"
   local rspack
   rspack="$(find "$unpacked/@rspack" -type f -name 'rspack.darwin-arm64.node' -print -quit)"
@@ -185,8 +185,8 @@ assert_release_contents() {
     || fail "Packaged FFmpeg is missing the libass subtitle filter"
   "$ffmpeg" -hide_banner -filters 2>/dev/null | grep ' overlay ' >/dev/null \
     || fail "Packaged FFmpeg is missing the overlay filter"
-  DYLD_LIBRARY_PATH="$compositor_dir" "$ffprobe" -version >/dev/null 2>&1 \
-    || fail "Packaged ffprobe cannot load its adjacent dylibs"
+  "$ffprobe" -version >/dev/null 2>&1 \
+    || fail "Packaged ffprobe cannot start without external libraries"
 
   [ -f "$app_resources/python/download.py" ] || fail "Missing packaged Python download script"
   [ -f "$app_resources/python/face_detect.py" ] || fail "Missing packaged Python face detection script"
@@ -234,10 +234,11 @@ chmod 755 \
   node_modules/@remotion/compositor-darwin-arm64/remotion \
   node_modules/@remotion/compositor-darwin-arm64/ffmpeg \
   node_modules/@remotion/compositor-darwin-arm64/ffprobe \
+  node_modules/@ffprobe-installer/darwin-arm64/ffprobe \
   node_modules/ffmpeg-static/ffmpeg \
   node_modules/@esbuild/darwin-arm64/bin/esbuild
 assert_arm64_macho node_modules/ffmpeg-static/ffmpeg
-assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/ffprobe
+assert_arm64_macho node_modules/@ffprobe-installer/darwin-arm64/ffprobe
 assert_arm64_macho node_modules/better-sqlite3/build/Release/better_sqlite3.node
 assert_arm64_macho node_modules/@remotion/compositor-darwin-arm64/remotion
 assert_arm64_macho node_modules/@rspack/binding-darwin-arm64/rspack.darwin-arm64.node
