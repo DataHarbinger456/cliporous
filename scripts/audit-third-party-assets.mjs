@@ -15,10 +15,8 @@ const expectedAssets = new Map(
       'c1b3cc7eec42bd9c4f6247169bb887b4a9bc904abfd2a7f7f9231ed357844993',
     'resources/bin/FFMPEG-GPL-3.0.txt':
       '8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903',
-    'resources/bin/ffmpeg.exe':
-      '9959487dde724f9b3b997a2353517f43c12e1d96b6225029d0f0453242b4a370',
-    'resources/bin/ffprobe.exe':
-      '39b64ebddfc338436f2c1d9e5f691a3d82565f37a092349cbd07ea5397bb2651',
+    'resources/bin/ffmpeg.exe': '9959487dde724f9b3b997a2353517f43c12e1d96b6225029d0f0453242b4a370',
+    'resources/bin/ffprobe.exe': '39b64ebddfc338436f2c1d9e5f691a3d82565f37a092349cbd07ea5397bb2651',
     'resources/fonts/.gitkeep': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     'resources/fonts/Anton-Regular.ttf':
       'a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab',
@@ -62,6 +60,8 @@ const expectedAssets = new Map(
       'b400fc584e10aff25d0e775ce181b4fc1c5ea1b5dc37b81aeb2084375b945790',
     'resources/fonts/StyleScript-Regular.ttf':
       'e77c77bfaf9f79d5a1a5d4e8d3674ee7fa98dce1deb4ee8cdf1aef70b5229408',
+    'resources/brand/app-icon-concept.png':
+      '5f5dc1a2d8bd8c4928af1cff69d6dde1e84612ba3e7d8b40986beb89a98f93b4',
     'resources/music/README.md': '673c49f8021ab71e21eb4c8e976d2e5fa8e6de5ebc60e1b3ce4d488632eb88a1',
     'resources/sfx/README.md': '5c31ae822f178efe742e4f12813ed86b67c2927fa44f383e80fcb8cf4b6830cd',
     'resources/sfx/bass-drop.mp3':
@@ -76,42 +76,42 @@ const expectedAssets = new Map(
       'd8e0d949ef8da2da95e86dfb98168a8fdea06932e82bfbfdf967f96c822a02a2',
     'resources/sfx/word-pop.mp3':
       '8ae8c9581173692884cc067139539f5c491ef867656019490114ee345a26773a',
-    'build/dmg-background.png': '06e4332668605ae992d4a59880e3275ea390f6d2780cfb5ed7f55da842f0e51e',
-    'build/icon.icns': '14e7b559deb5dd9fd1d3d85eef7ce49f2797baccc4917c9f37cf4d4b96a23b89',
-    'build/icon.ico': '45d173371c80be82395a713cbbd9d9330b44ed5c80e0613bb42eea8e5815069f',
+    'build/dmg-background.png': '5131352c34de4b4859cb3729ab17dfe1f41dfd1daa906b57ea7d60d3d8f1a138',
+    'build/icon.icns': 'c042a8f282e9c3aaae966b150cbe7915da2e8426bef5e54c47413c995beeecf4',
+    'build/icon.ico': 'de3910a248f2e9e30091365d936d4c53a10cebb2c1eb0a08591c2fdb648e8a4e',
     'build/icon.iconset/icon_128x128.png':
-      'f49645ddf1a7ecf02c8c4ae2c80a3c92845c410ec276800c52fdb53ce2fe7411',
+      '81c5879b15ae94a994e02b297a7947580663c9b1da573fc2b452074027a5df13',
     'build/icon.iconset/icon_128x128@2x.png':
-      'db01598bfe41e0fbc77aa54614bb7cc100d145fd0f43e9b4440e7ebf8c19c26f',
+      '49f247545dec5b8df91215d0e465c758d753ac8c7d64f4bdfa11e322d66cfeb2',
     'build/icon.iconset/icon_16x16.png':
-      '12cdcf27c59fb8ba003bc9edd19760cf8bfb411dd2b6e41655440d7e35ce24eb',
+      '44205147bd474b7c023c79c34e8f4533586243bcc8e5dcf2a11df679b00593bf',
     'build/icon.iconset/icon_16x16@2x.png':
-      'dfe5f2cb352e7dd0cd57fe4f8986a2d6d76339790770a62394e12f6e27b31a58',
+      '0fec342a31fae7f15da4363c12ad252faafe437f85bf300bd663eee3cd10b877',
     'build/icon.iconset/icon_256x256.png':
-      'db01598bfe41e0fbc77aa54614bb7cc100d145fd0f43e9b4440e7ebf8c19c26f',
+      '49f247545dec5b8df91215d0e465c758d753ac8c7d64f4bdfa11e322d66cfeb2',
     'build/icon.iconset/icon_256x256@2x.png':
-      '63ef9332dceb0a4e84e63f26014d07d12ad351771c3de387774ff12767fc3c0b',
+      'ee415f769b033b0b0c8c72c8b2419bf4396780dbe32055e1b5d9c07d088e9514',
     'build/icon.iconset/icon_32x32.png':
-      'dfe5f2cb352e7dd0cd57fe4f8986a2d6d76339790770a62394e12f6e27b31a58',
+      '0fec342a31fae7f15da4363c12ad252faafe437f85bf300bd663eee3cd10b877',
     'build/icon.iconset/icon_32x32@2x.png':
-      '7aba4f2d326b3c67e20cafb7db05f0a98accbc840ff54a495cd46d3ffdb2c41b',
+      '832f030a40b92211937a5610c19b919822f2fc819c1584ed1723733126f56530',
     'build/icon.iconset/icon_512x512.png':
-      '63ef9332dceb0a4e84e63f26014d07d12ad351771c3de387774ff12767fc3c0b',
+      'ee415f769b033b0b0c8c72c8b2419bf4396780dbe32055e1b5d9c07d088e9514',
     'build/icon.iconset/icon_512x512@2x.png':
-      'a4fd8962a0019196c416964426f7f90d901a91dc53ec1d7010ead316f53455ae',
-    'build/icon.png': 'a4fd8962a0019196c416964426f7f90d901a91dc53ec1d7010ead316f53455ae',
-    'build/icon.svg': '67dc85296f208133cc04439d09950977963a57c0986a7d8d53d4a162de3479b8',
-    'build/icons/1024x1024.png': 'a4fd8962a0019196c416964426f7f90d901a91dc53ec1d7010ead316f53455ae',
-    'build/icons/128x128.png': 'f49645ddf1a7ecf02c8c4ae2c80a3c92845c410ec276800c52fdb53ce2fe7411',
-    'build/icons/16x16.png': '12cdcf27c59fb8ba003bc9edd19760cf8bfb411dd2b6e41655440d7e35ce24eb',
-    'build/icons/256x256.png': 'db01598bfe41e0fbc77aa54614bb7cc100d145fd0f43e9b4440e7ebf8c19c26f',
-    'build/icons/32x32.png': 'dfe5f2cb352e7dd0cd57fe4f8986a2d6d76339790770a62394e12f6e27b31a58',
-    'build/icons/48x48.png': '97c0a2b30d84b2e35327dfb06e5e9ce4cc35e4301b3471819d8c27d7d2c1c023',
-    'build/icons/512x512.png': '63ef9332dceb0a4e84e63f26014d07d12ad351771c3de387774ff12767fc3c0b',
-    'build/icons/64x64.png': '7aba4f2d326b3c67e20cafb7db05f0a98accbc840ff54a495cd46d3ffdb2c41b',
-    'build/installerHeader.bmp': '3156ffe5e1facacdc8c5069f12305c76fdb84d3e3e7c3e900affb148ede34f94',
+      '8772c5fd11ad5319fb4f657f8f96820e48e51cd4024c44aeeb9e4b9d2b95a65b',
+    'build/icon.png': '8772c5fd11ad5319fb4f657f8f96820e48e51cd4024c44aeeb9e4b9d2b95a65b',
+    'build/icon.svg': 'eb60503667b438603258e015268a8c494b8473b031b5bb64f09656576dfd980e',
+    'build/icons/1024x1024.png': '8772c5fd11ad5319fb4f657f8f96820e48e51cd4024c44aeeb9e4b9d2b95a65b',
+    'build/icons/128x128.png': '81c5879b15ae94a994e02b297a7947580663c9b1da573fc2b452074027a5df13',
+    'build/icons/16x16.png': '44205147bd474b7c023c79c34e8f4533586243bcc8e5dcf2a11df679b00593bf',
+    'build/icons/256x256.png': '49f247545dec5b8df91215d0e465c758d753ac8c7d64f4bdfa11e322d66cfeb2',
+    'build/icons/32x32.png': '0fec342a31fae7f15da4363c12ad252faafe437f85bf300bd663eee3cd10b877',
+    'build/icons/48x48.png': '96bfb0232d8994b42485a9691689093254d672928a2064b783df2635e5a2c786',
+    'build/icons/512x512.png': 'ee415f769b033b0b0c8c72c8b2419bf4396780dbe32055e1b5d9c07d088e9514',
+    'build/icons/64x64.png': '832f030a40b92211937a5610c19b919822f2fc819c1584ed1723733126f56530',
+    'build/installerHeader.bmp': '3c52446706d8874658308ff55f1381e0de7a97f95b7f86e6bdb54a5045ed085b',
     'build/installerSidebar.bmp':
-      '57cd308e5f29093d477bdd28dad41b06680588c05e0a59afb3f26ccf9787c84f',
+      'c59a7dad4513f075669a6d28c4e89dc643378d7a27cb1eeeef8c71342836e866',
   }),
 );
 

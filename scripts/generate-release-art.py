@@ -2,6 +2,9 @@
 """Generate deterministic BatchClip release artwork from the product color tokens."""
 
 from pathlib import Path
+from shutil import which
+from subprocess import run
+
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,46 +21,28 @@ def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(ROOT / "resources" / "fonts" / name), size)
 
 
-def draw_mark(canvas: Image.Image, box: tuple[int, int, int, int]) -> None:
+def draw_mark(canvas: Image.Image) -> None:
+    """Draw a portrait clip pulled from a wider film strip."""
     draw = ImageDraw.Draw(canvas)
-    left, top, right, bottom = box
-    width = right - left
-    radius = max(8, width // 7)
-    draw.rounded_rectangle(box, radius=radius, fill=CREAM, outline=VIOLET, width=max(2, width // 48))
+    draw.rounded_rectangle((150, 342, 874, 682), radius=74, fill=ESPRESSO)
 
-    pad = width * 0.2
-    body_top = top + width * 0.43
-    body = (left + pad, body_top, right - pad, bottom - pad)
-    draw.rounded_rectangle(body, radius=max(4, width // 24), fill=ESPRESSO)
+    for left in (211, 755):
+        for top in (388, 483, 578):
+            draw.rounded_rectangle(
+                (left, top, left + 58, top + 58),
+                radius=14,
+                fill=CREAM,
+            )
 
-    slate = [
-        (left + pad, top + width * 0.28),
-        (right - pad * 0.55, top + width * 0.18),
-        (right - pad * 0.4, top + width * 0.34),
-        (left + pad * 1.1, top + width * 0.44),
-    ]
-    draw.polygon(slate, fill=ESPRESSO)
-    stripe_width = max(3, width // 38)
-    for fraction in (0.34, 0.52, 0.7):
-        x = left + width * fraction
-        draw.line(
-            (x, top + width * 0.26, x + width * 0.1, top + width * 0.38),
-            fill=CREAM,
-            width=stripe_width,
-        )
-    playhead_x = left + width * 0.57
-    draw.line(
-        (playhead_x, body_top + width * 0.07, playhead_x, bottom - pad - width * 0.07),
-        fill=VIOLET,
-        width=max(3, width // 30),
-    )
+    draw.rounded_rectangle((366, 252, 658, 772), radius=52, fill=VIOLET)
+    draw.polygon(((458, 432), (458, 592), (588, 512)), fill=CREAM)
 
 
 def make_icon() -> Image.Image:
     image = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((52, 52, 972, 972), radius=220, fill=ESPRESSO)
-    draw_mark(image, (220, 220, 804, 804))
+    draw.rounded_rectangle((52, 52, 972, 972), radius=240, fill=CREAM)
+    draw_mark(image)
     return image
 
 
@@ -75,9 +60,17 @@ def save_icons(icon: Image.Image) -> None:
     iconset = BUILD / "icon.iconset"
     iconset.mkdir(exist_ok=True)
     for size in (16, 32, 128, 256, 512):
-        icon.resize((size, size), Image.Resampling.LANCZOS).save(iconset / f"icon_{size}x{size}.png")
+        icon.resize((size, size), Image.Resampling.LANCZOS).save(
+            iconset / f"icon_{size}x{size}.png"
+        )
         icon.resize((size * 2, size * 2), Image.Resampling.LANCZOS).save(
             iconset / f"icon_{size}x{size}@2x.png"
+        )
+
+    if iconutil := which("iconutil"):
+        run(
+            [iconutil, "--convert", "icns", str(iconset), "--output", str(BUILD / "icon.icns")],
+            check=True,
         )
 
     linux_icons = BUILD / "icons"
