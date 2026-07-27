@@ -77,32 +77,13 @@ function getTemplate(archetype: Archetype, editStyleId: string): EditStyleTempla
 }
 
 /**
- * Resolve a (archetype, editStyleId) pair into a concrete zoom +
- * caption-position + caption-margin bundle. Archetypes own their layout —
- * there are no style variants underneath.
+ * Resolve an archetype and edit-style pair into concrete zoom, picker-facing
+ * caption metadata, and title-overlay geometry. Subtitle render geometry is
+ * global and is not owned by archetype templates.
  */
-/**
- * Defaults applied when a template does not declare a value. These mirror
- * the legacy hardcoded values that previously lived inside the render
- * pipeline (captions.ts ARCHETYPE_MARGIN_V, hook-title.ts y=147).
- *
- * Speaker archetypes anchor low (lower-third, ~230px above the bottom of
- * a 1920px canvas). Image / quote archetypes anchor near the vertical
- * midpoint (960 = 1920/2).
- */
-const DEFAULT_CAPTION_MARGIN_V: Record<Archetype, number> = {
-  'talking-head': 230,
-  'tight-punch': 230,
-  'wide-breather': 230,
-  'quote-lower': 230,
-  'split-image': 960,
-  'fullscreen-image': 960,
-  'fullscreen-quote': 960,
-};
-
-/** Default hook title Y position — 220px on the 1920px canvas (≈11.46%). */
+/** Default hook title Y position: 220px on the locked 1920px canvas. */
 const DEFAULT_HOOK_TITLE_Y = 220;
-/** Default rehook pill Y position — mirrors the hook title default. */
+/** Default rehook pill Y position mirrors the hook title default. */
 const DEFAULT_REHOOK_Y = 220;
 
 export function resolveTemplate(archetype: Archetype, editStyleId: string): ResolvedTemplate {
@@ -115,7 +96,6 @@ export function resolveTemplate(archetype: Archetype, editStyleId: string): Reso
     zoomStyle: tpl.zoomStyle ?? editStyle.defaultZoomStyle,
     zoomIntensity: tpl.zoomIntensity ?? editStyle.defaultZoomIntensity,
     captionPosition: tpl.captionPosition ?? 'lower-third',
-    captionMarginV: tpl.captionMarginV ?? DEFAULT_CAPTION_MARGIN_V[archetype],
     hookTitleY: tpl.hookTitleY ?? DEFAULT_HOOK_TITLE_Y,
     rehookY: tpl.rehookY ?? DEFAULT_REHOOK_Y,
     captionMode: tpl.captionMode,

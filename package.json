@@ -33,6 +33,7 @@
     "shellcheck": "shellcheck scripts/*.sh scripts/**/*.sh",
     "verify": "npm run check && npm run typecheck && npm test",
     "audit:third-party": "node scripts/audit-third-party-assets.mjs",
+    "verify:captions": "bash scripts/verify-caption-stability/run.sh",
     "setup:python": "bash scripts/setup-python.sh",
     "verify:blocks": "bash scripts/verify-blocks/run.sh",
     "verify:longform-render": "bash scripts/verify-longform-render/run.sh",

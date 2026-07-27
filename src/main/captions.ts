@@ -1,32 +1,23 @@
 // ---------------------------------------------------------------------------
-// Captions — three modes, one builder.
+// Captions — three modes, one stable editorial track.
 //
-// V2 caption pipeline. Every other animation/level/box variation from V1 has
-// been removed. Captions render in exactly one of three visual modes:
-//
-//   1. 'standard'           — Inter Bold, white (#ffffff) on every word.
-//                             Soft 0-offset black halo behind the text. No
-//                             per-word color/font swap.
-//   2. 'emphasis'            — Inter Bold base. Words flagged as emphasis
-//                             are recolored to the accent (purple #9f75ff).
-//                             Same black halo behind every word.
-//   3. 'emphasis_highlight'  — Same color treatment as 'emphasis', plus a
-//                             font swap on emphasized words to the
-//                             condensed display font (Bebas Neue).
-//
-// Visual ground truth: see .ezcoder/examples/standard*.jpg.
-//
-// ASS tag reference (libass / Aegisub / SubtitleEdit / mpv style snippets):
-//   • {\fnFontName}  — switch font family
-//   • {\1c&HBBGGRR&} — set primary fill color (note: ASS uses BBGGRR, no '#')
-//   • {\b1}          — bold on, {\b0} off
-//   • {\r}           — reset all overrides to the Default style
+// Ordinary subtitle events share one explicit center anchor and one visual
+// font size for the whole clip. fullscreen-quote is the sole exception: the
+// transcript becomes centered, full-frame hero typography for that window.
 // ---------------------------------------------------------------------------
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { DEFAULT_EDIT_STYLE_ID, isSpeakerFullscreen, resolveTemplate } from './edit-styles';
+import {
+  CAPTION_HORIZONTAL_INSET_FRACTION,
+  CAPTION_MAX_WIDTH_FRACTION,
+  DEFAULT_SUBTITLE_POSITION,
+  resolveSubtitleAnchor,
+  type SubtitleAnchor,
+  type SubtitlePosition,
+} from '@shared/caption-layout';
+import { type Archetype, DEFAULT_EDIT_STYLE_ID, resolveTemplate } from './edit-styles';
 import { minEmphasisDwellEnd } from './emphasis-dwell';
 
 // ---------------------------------------------------------------------------
@@ -43,44 +34,22 @@ export interface WordInput {
   start: number;
   /** Seconds, clip-relative. */
   end: number;
-  /**
-   * Emphasis flag. Truthy values ('emphasis', 'supersize', 'box', or `true`)
-   * promote the word to the emphasis treatment in 'emphasis' /
-   * 'emphasis_highlight' modes. 'normal' / falsy = ordinary word.
-   *
-   * Accepts the legacy V1 string union so upstream callers don't need to
-   * change shape — V2 collapses every non-normal level into a single
-   * boolean-grade emphasis state.
-   */
+  /** Legacy emphasis values are collapsed into one emphasized treatment. */
   emphasis?: 'normal' | 'emphasis' | 'supersize' | 'box' | boolean;
 }
 
 /**
- * Caption style input. V2 reads only a small subset of these fields; the rest
- * are tolerated for backwards compatibility with V1 call sites that still
- * hand-construct `CaptionStyleInput` objects elsewhere in the codebase.
- *
- * The fields actually consumed by V2:
- *   • `fontSize`        — fraction of frame height (e.g. 0.065)
- *   • `wordsPerLine`    — max words per dialogue line
- *   • `captionMode`     — which of the three modes to render in
- *   • `accentColor`     — accent for 'emphasis_highlight' mode (defaults to PRESTYJ purple)
- *
- * Optional layout knobs honoured by V2:
- *   • `outline`, `shadow`, `borderStyle`, `backColor`, `outlineColor`
- *   • `shadowDistance`, `shadowAngle`, `shadowSoftness`, `shadowOpacity`, `shadowColor`
+ * Caption style input. V2 consumes `fontSize`, `wordsPerLine`, `captionMode`,
+ * and `accentColor`; the remaining fields are tolerated for V1 call sites.
  */
 export interface CaptionStyleInput {
-  /** Which V2 mode to render. Falls back to 'standard' if omitted. */
   captionMode?: CaptionMode;
-  /** Accent color hex for 'emphasis_highlight' mode. Defaults to '#9f75ff'. */
   accentColor?: string;
-
-  /** Fraction of frame height — e.g. 0.065 → 7% of 1280px. */
+  /** Fraction of frame height, e.g. 0.065 on a 1080×1920 canvas. */
   fontSize: number;
+  /** Maximum words in one caption event. */
   wordsPerLine: number;
 
-  // ── Backwards-compat fields (tolerated, mostly ignored) ─────────────────
   fontName?: string;
   primaryColor?: string;
   highlightColor?: string;
@@ -91,17 +60,12 @@ export interface CaptionStyleInput {
   outline?: number;
   shadow?: number;
   borderStyle?: number;
-  /** V1 animation enum — V2 ignores this. Kept to avoid TS errors at call sites. */
   animation?: string;
-
-  // Directional drop shadow knobs (passed through to the Style header).
   shadowDistance?: number;
   shadowAngle?: number;
   shadowSoftness?: number;
   shadowOpacity?: number;
   shadowColor?: string;
-
-  // Legacy box/emphasis knobs — ignored.
   emphasisScale?: number;
   emphasisFontWeight?: number;
   supersizeScale?: number;
@@ -120,412 +84,568 @@ export interface ShotCaptionOverride {
   style: CaptionStyleInput;
 }
 
-/** Per-archetype caption window — marginV + fontSize override per timestamp. */
+/** Per-archetype caption window in clip-relative seconds. */
 export interface ArchetypeWindow {
-  /** Clip-relative seconds. */
   startTime: number;
-  /** Clip-relative seconds. */
   endTime: number;
   archetype: Archetype;
 }
 
-/**
- * Per-archetype caption marginV is now sourced from the resolved
- * per-archetype template (`resolveTemplate(archetype, editStyleId).captionMarginV`).
- * Edits to `src/main/edit-styles/prestyj/templates/*.ts` drive caption
- * placement at render time.
- */
-
-/**
- * Per-archetype caption fontSize as a fraction of frame height. Matches the
- * sizing strategy in the segment-overlap-cleanup plan: speakers stay at the
- * style default; fullscreen-image bumps slightly; fullscreen-quote becomes
- * the hero (no other text on screen).
- */
-const ARCHETYPE_FONT_SIZE_FRACTION: Record<Archetype, number> = {
-  'talking-head': 0.065,
-  'tight-punch': 0.065,
-  'wide-breather': 0.065,
-  'quote-lower': 0.065,
-  'split-image': 0.065,
-  'fullscreen-image': 0.075,
-  'fullscreen-quote': 0.095,
-};
+/** Optional layout and presentation inputs shared by preview and export. */
+export interface CaptionGenerationOptions {
+  frameWidth?: number;
+  frameHeight?: number;
+  /** Center of the reserved ordinary subtitle block, in canvas percent. */
+  position?: SubtitlePosition;
+  shotOverrides?: ShotCaptionOverride[];
+  archetypeWindows?: ArchetypeWindow[];
+  editStyleId?: string;
+}
 
 // ---------------------------------------------------------------------------
-// V2 design constants — locked.
+// Locked visual constants
 // ---------------------------------------------------------------------------
 
-/** Standard caption font: clean blocky sans-serif (Inter Bold, weight 700). */
 export const STANDARD_FONT = 'Inter';
-/** Display font for the 'emphasis_highlight' font-swap variant (condensed all-caps display). */
 export const FANCY_FONT = 'Bebas Neue';
-/** Standard text color across all three modes — clean white. */
 export const STANDARD_COLOR = '#ffffff';
-/** Default accent for emphasis (PRESTYJ purple). */
 export const DEFAULT_ACCENT = '#9f75ff';
 
-// ---------------------------------------------------------------------------
-// Per-archetype caption visual override
-//
-// fullscreen-quote is the only archetype that breaks the global caption
-// look. Its segment is a solid sand backdrop (no video), and the quote IS
-// the frame — so the captions swap to a dark-brown serif italic with the
-// halo turned off so it reads like print, not subtitle.
-// ---------------------------------------------------------------------------
+const DEFAULT_FRAME_WIDTH = 1080;
+const DEFAULT_FRAME_HEIGHT = 1920;
+const FULLSCREEN_QUOTE_FONT_SIZE_FRACTION = 0.095;
+const LINE_HEIGHT_FACTOR = 0.85;
+const SHADOW_BLUR = 12;
+const SHADOW_THICKNESS = 6;
+const SHADOW_COLOR = '#000000';
+const CAPTION_LEAD_IN_SECONDS = 0.08;
+const CAPTION_LEAD_OUT_SECONDS = 0.2;
+const MIN_OVERSIZED_TOKEN_SCALE_PERCENT = 20;
 
 interface ArchetypeCaptionOverride {
-  /** Font family name (must match a registered face in resources/fonts/). */
   font: string;
-  /** Primary fill color, CSS hex. */
   color: string;
-  /** When true, italic flag (`\i1`) is applied to every word. */
   italic?: boolean;
-  /** When true, the soft black halo (outline + blur) is suppressed. */
   killHalo?: boolean;
 }
 
-const ARCHETYPE_CAPTION_OVERRIDES: Partial<Record<Archetype, ArchetypeCaptionOverride>> = {
-  'fullscreen-quote': {
-    font: 'Instrument Serif',
-    color: '#23100c',
-    italic: true,
-    killHalo: true,
-  },
+const FULLSCREEN_QUOTE_VISUAL: ArchetypeCaptionOverride = {
+  font: 'Instrument Serif',
+  color: '#23100c',
+  italic: true,
+  killHalo: true,
 };
 
-// ── Drop-shadow look (centered black glow behind white text) ───────────────
-// Implemented in libass with BorderStyle=1, Shadow=0 (no offset), and a
-// thick black Outline that the per-event \blur tag converts into a soft
-// 0-offset halo. This produces the requested
-// "0 offset, 100% opacity, ~75% blur" drop shadow.
-const SHADOW_BLUR = 12; // \blur radius — strong soft halo
-const SHADOW_THICKNESS = 6; // outline radius for the black halo
-const SHADOW_COLOR = '#000000';
-
-// 9:16 reference frame.
-const DEFAULT_FRAME_WIDTH = 1080;
-const DEFAULT_FRAME_HEIGHT = 1920;
-
 // ---------------------------------------------------------------------------
-// Color + time helpers
+// Color, time, and text measurement helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Convert a CSS hex (`#RRGGBB`, `#AARRGGBB`, `#RGB`) to ASS `&HAABBGGRR`.
- * ASS bytes are alpha→blue→green→red and alpha is *inverted*: 00 = opaque.
- */
+/** Convert CSS hex to ASS `&HAABBGGRR` (ASS alpha is inverted). */
 function hexToASS(hex: string): string {
   const h = hex.replace('#', '');
-  let r = 0,
-    g = 0,
-    b = 0,
-    a = 0;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let a = 0;
   if (h.length === 8) {
-    a = parseInt(h.slice(0, 2), 16);
-    r = parseInt(h.slice(2, 4), 16);
-    g = parseInt(h.slice(4, 6), 16);
-    b = parseInt(h.slice(6, 8), 16);
+    a = Number.parseInt(h.slice(0, 2), 16);
+    r = Number.parseInt(h.slice(2, 4), 16);
+    g = Number.parseInt(h.slice(4, 6), 16);
+    b = Number.parseInt(h.slice(6, 8), 16);
   } else if (h.length === 6) {
-    r = parseInt(h.slice(0, 2), 16);
-    g = parseInt(h.slice(2, 4), 16);
-    b = parseInt(h.slice(4, 6), 16);
+    r = Number.parseInt(h.slice(0, 2), 16);
+    g = Number.parseInt(h.slice(2, 4), 16);
+    b = Number.parseInt(h.slice(4, 6), 16);
   } else if (h.length === 3) {
-    r = parseInt(h[0] + h[0], 16);
-    g = parseInt(h[1] + h[1], 16);
-    b = parseInt(h[2] + h[2], 16);
+    r = Number.parseInt(h[0] + h[0], 16);
+    g = Number.parseInt(h[1] + h[1], 16);
+    b = Number.parseInt(h[2] + h[2], 16);
   } else {
     return '&H00FFFFFF';
   }
-  const pad = (n: number) => n.toString(16).toUpperCase().padStart(2, '0');
+  const pad = (value: number): string => value.toString(16).toUpperCase().padStart(2, '0');
   return `&H${pad(a)}${pad(b)}${pad(g)}${pad(r)}`;
 }
 
-/** Format seconds → ASS H:MM:SS.cc (centiseconds). */
+/** Format seconds as ASS H:MM:SS.cc without producing an invalid `.100`. */
 function formatASSTime(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  const cs = Math.round((s % 1) * 100);
-  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+  const totalCentiseconds = Math.max(0, Math.round(seconds * 100));
+  const hours = Math.floor(totalCentiseconds / 360_000);
+  const minutes = Math.floor((totalCentiseconds % 360_000) / 6_000);
+  const wholeSeconds = Math.floor((totalCentiseconds % 6_000) / 100);
+  const centiseconds = totalCentiseconds % 100;
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
 }
 
-/** Coerce the legacy emphasis enum/boolean into a single boolean. */
-function isEmphasized(w: WordInput): boolean {
-  const e = w.emphasis;
-  if (e === undefined || e === null) return false;
-  if (typeof e === 'boolean') return e;
-  return e === 'emphasis' || e === 'supersize' || e === 'box';
+function isEmphasized(word: WordInput): boolean {
+  const emphasis = word.emphasis;
+  if (typeof emphasis === 'boolean') return emphasis;
+  return emphasis === 'emphasis' || emphasis === 'supersize' || emphasis === 'box';
 }
 
-// ---------------------------------------------------------------------------
-// Word grouping
-// ---------------------------------------------------------------------------
-
-interface WordGroup {
-  words: WordInput[];
-  start: number;
-  end: number;
+function isCjk(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x2e80 && codePoint <= 0x9fff) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff)
+  );
 }
 
-/**
- * Caption lead-in / lead-out padding (seconds).
- *
- * NeMo Parakeet — like every modern ASR — reports word boundaries at the
- * PERCEPTUAL edge of the phoneme, which lands ~80–200 ms before the audible
- * onset and ~150–300 ms before the audible decay. Captions timed exactly to
- * those raw boundaries feel like they're racing ahead of the speaker.
- *
- * We expand each caption group's display window by these constants, then
- * clamp the result against neighbouring groups so consecutive lines never
- * visually overlap.
- */
-const CAPTION_LEAD_IN_SECONDS = 0.08;
-const CAPTION_LEAD_OUT_SECONDS = 0.2;
+function isEmoji(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x1f000 && codePoint <= 0x1faff) || (codePoint >= 0x2600 && codePoint <= 0x27bf)
+  );
+}
 
-function groupWords(
-  words: WordInput[],
-  wordsPerLine: number,
-  /**
-   * When true, a group containing an emphasised word holds on screen for at
-   * least the minimum emphasis dwell (see emphasis-dwell.ts) so the recolor /
-   * highlight persists as long as the reactive-zoom keyframe. Only the emphasis
-   * caption modes pass this; 'standard' mode keeps its raw timing.
-   */
-  honorEmphasisDwell = false,
-): WordGroup[] {
-  const n = Math.max(1, wordsPerLine | 0);
-  const groups: WordGroup[] = [];
-  for (let i = 0; i < words.length; i += n) {
-    const chunk = words.slice(i, i + n);
-    if (chunk.length === 0) continue;
-    groups.push({
-      words: chunk,
-      start: chunk[0].start,
-      end: chunk[chunk.length - 1].end,
-    });
-  }
-
-  // ── Apply lead-in / lead-out padding, clamped to neighbours ──────────
-  // Lead-in shifts `start` EARLIER (clamped to ≥0 and ≥ prev.end). Lead-out
-  // shifts `end` LATER (clamped to ≤ next.start). This keeps captions on
-  // screen across the small inter-word silences instead of strobing.
-  for (let i = 0; i < groups.length; i++) {
-    const g = groups[i];
-    const prev = i > 0 ? groups[i - 1] : null;
-    const next = i < groups.length - 1 ? groups[i + 1] : null;
-
-    const desiredStart = g.start - CAPTION_LEAD_IN_SECONDS;
-    const minStart = prev ? prev.end : 0;
-    g.start = Math.max(minStart, Math.max(0, desiredStart));
-
-    // Lead-out, plus (for emphasis modes) the minimum emphasis dwell of any
-    // emphasised word in the group. This keeps the recolored word visible long
-    // enough to read even when fast speech makes its raw window ~150–250 ms.
-    let desiredEnd = g.end + CAPTION_LEAD_OUT_SECONDS;
-    if (honorEmphasisDwell) {
-      for (const w of g.words) {
-        if (isEmphasized(w)) {
-          desiredEnd = Math.max(desiredEnd, minEmphasisDwellEnd(w.start));
-        }
-      }
+/** Conservative glyph-advance estimate used before ASS tags are inserted. */
+function estimateTextWidth(text: string, visualFontSize: number): number {
+  let emWidth = 0;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint === 0x200d || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) {
+      continue;
     }
-    // Use raw `next.start` for the clamp (before next's lead-in is applied
-    // in the next loop iteration — but order doesn't matter because the
-    // next iteration's clamp is `Math.max(prev.end, ...)` which sees this
-    // group's already-extended end).
-    const maxEnd = next ? next.start : Number.POSITIVE_INFINITY;
-    g.end = Math.min(maxEnd, desiredEnd);
+    if (isEmoji(codePoint)) emWidth += 1.15;
+    else if (isCjk(codePoint)) emWidth += 1;
+    else if (/\s/u.test(character)) emWidth += 0.34;
+    else if (/[ilI1|!.,'`:;]/u.test(character)) emWidth += 0.32;
+    else if (/[mwMW@%&#]/u.test(character)) emWidth += 0.95;
+    else if (/[A-Z0-9]/u.test(character)) emWidth += 0.68;
+    else if (/[-–—_+()[\]{}?/\\]/u.test(character)) emWidth += 0.48;
+    else emWidth += 0.58;
+  }
+  return emWidth * visualFontSize;
+}
+
+function estimateLineWidth(words: WordInput[], visualFontSize: number): number {
+  const wordWidths = words.reduce(
+    (total, word) => total + estimateTextWidth(word.text, visualFontSize),
+    0,
+  );
+  const spaces = Math.max(0, words.length - 1) * visualFontSize * 0.34;
+  return wordWidths + spaces;
+}
+
+interface LineLayout {
+  /** Word index where the second line begins; undefined means one line. */
+  breakIndex?: number;
+  horizontalScalePercent: number;
+}
+
+/** Choose one line, or the most balanced valid two-line hard break. */
+function chooseLineLayout(
+  words: WordInput[],
+  visualFontSize: number,
+  maxLineWidth: number,
+): LineLayout | null {
+  if (words.length === 0) return null;
+
+  const oneLineWidth = estimateLineWidth(words, visualFontSize);
+  if (oneLineWidth <= maxLineWidth) {
+    return { horizontalScalePercent: 100 };
   }
 
-  return groups;
+  let best:
+    | {
+        breakIndex: number;
+        imbalance: number;
+        widestLine: number;
+      }
+    | undefined;
+  for (let breakIndex = 1; breakIndex < words.length; breakIndex++) {
+    const firstWidth = estimateLineWidth(words.slice(0, breakIndex), visualFontSize);
+    const secondWidth = estimateLineWidth(words.slice(breakIndex), visualFontSize);
+    if (firstWidth > maxLineWidth || secondWidth > maxLineWidth) continue;
+    const candidate = {
+      breakIndex,
+      imbalance: Math.abs(firstWidth - secondWidth),
+      widestLine: Math.max(firstWidth, secondWidth),
+    };
+    if (
+      !best ||
+      candidate.imbalance < best.imbalance ||
+      (candidate.imbalance === best.imbalance && candidate.widestLine < best.widestLine)
+    ) {
+      best = candidate;
+    }
+  }
+  if (best) {
+    return { breakIndex: best.breakIndex, horizontalScalePercent: 100 };
+  }
+
+  // One unbreakable token gets its own event and a bounded horizontal scale.
+  if (words.length === 1) {
+    const requiredScale = Math.floor((maxLineWidth / Math.max(1, oneLineWidth)) * 100);
+    return {
+      horizontalScalePercent: Math.max(
+        MIN_OVERSIZED_TOKEN_SCALE_PERCENT,
+        Math.min(100, requiredScale),
+      ),
+    };
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// The ONE builder — buildAssLines
+// Presentation resolution and single-pass grouping
 // ---------------------------------------------------------------------------
 
-/**
- * Build the ASS Dialogue lines for the given word stream in one of the three
- * caption modes. Returns one `Dialogue: ...` line per word group.
- *
- * The Default style (defined in the header) already paints text in
- * `STANDARD_COLOR` using `STANDARD_FONT`, so 'standard' mode emits dialogue
- * lines with no inline overrides at all.
- *
- * @param words   Word-level timestamps, clip-relative.
- * @param mode    Which V2 mode to render.
- * @param accent  Accent color hex for `emphasis_highlight`. Defaults to PRESTYJ purple.
- * @param wordsPerLine  Max words per dialogue line. Defaults to 4.
- */
-export interface PerGroupOverride {
-  marginV?: number;
-  fontSize?: number;
-  /** Per-archetype visual override (font swap / recolor / halo kill). */
+type CaptionRole = 'ordinary' | 'hero';
+
+interface CaptionPresentation {
+  signature: string;
+  role: CaptionRole;
+  archetype: Archetype | null;
+  mode: CaptionMode;
+  accent: string;
+  maxWords: number;
+  anchor: SubtitleAnchor;
+  visualFontSize: number;
+  encodedFontSize: number;
   visual?: ArchetypeCaptionOverride;
 }
 
+interface CaptionGroup {
+  words: WordInput[];
+  rawStart: number;
+  rawEnd: number;
+  start: number;
+  end: number;
+  presentation: CaptionPresentation;
+  lineLayout: LineLayout;
+}
+
+interface IndexedWindow<T> {
+  value: T;
+  startTime: number;
+  endTime: number;
+  sourceIndex: number;
+}
+
+function prepareWindows<T extends { startTime: number; endTime: number }>(
+  windows: T[] | undefined,
+): IndexedWindow<T>[] {
+  return (windows ?? [])
+    .map((value, sourceIndex) => ({
+      value,
+      startTime: value.startTime,
+      endTime: value.endTime,
+      sourceIndex,
+    }))
+    .filter(
+      (window) =>
+        Number.isFinite(window.startTime) &&
+        Number.isFinite(window.endTime) &&
+        window.endTime > window.startTime,
+    )
+    .sort((left, right) =>
+      left.startTime === right.startTime
+        ? left.sourceIndex - right.sourceIndex
+        : left.startTime - right.startTime,
+    );
+}
+
+/** Half-open lookup; in overlaps, the most recently started window wins. */
+function findActiveWindow<T>(windows: IndexedWindow<T>[], time: number): T | undefined {
+  let active: IndexedWindow<T> | undefined;
+  for (const window of windows) {
+    if (window.startTime > time) break;
+    if (time >= window.startTime && time < window.endTime) active = window;
+  }
+  return active?.value;
+}
+
+function resolveMode(
+  style: CaptionStyleInput | undefined,
+  fallback?: CaptionStyleInput,
+): CaptionMode {
+  return style?.captionMode ?? fallback?.captionMode ?? 'standard';
+}
+
+function resolveAccent(style: CaptionStyleInput | undefined, fallback?: CaptionStyleInput): string {
+  return style?.accentColor ?? fallback?.accentColor ?? DEFAULT_ACCENT;
+}
+
+interface BuildContext {
+  frameWidth: number;
+  frameHeight: number;
+  ordinaryAnchor: SubtitleAnchor;
+  ordinaryVisualFontSize: number;
+  ordinaryEncodedFontSize: number;
+  maxLineWidth: number;
+  wordsPerLine: number;
+  editStyleId: string;
+  archetypeWindows: IndexedWindow<ArchetypeWindow>[];
+  shotOverrides: IndexedWindow<ShotCaptionOverride>[];
+}
+
+function createPresentationResolver(
+  style: CaptionStyleInput,
+  context: BuildContext,
+): (word: WordInput) => CaptionPresentation {
+  return (word) => {
+    const midpoint = (word.start + word.end) / 2;
+    const archetypeWindow = findActiveWindow(context.archetypeWindows, midpoint);
+    const shotOverride = findActiveWindow(context.shotOverrides, midpoint);
+    const archetype = archetypeWindow?.archetype ?? null;
+    const role: CaptionRole = archetype === 'fullscreen-quote' ? 'hero' : 'ordinary';
+    const mode = resolveMode(shotOverride?.style, style);
+    const accent = resolveAccent(shotOverride?.style, style);
+    const template = archetype ? resolveTemplate(archetype, context.editStyleId) : undefined;
+    const maxWords =
+      role === 'hero' || template?.captionMode === 'word-by-word' ? 1 : context.wordsPerLine;
+    const anchor =
+      role === 'hero'
+        ? { x: Math.round(context.frameWidth / 2), y: Math.round(context.frameHeight / 2) }
+        : context.ordinaryAnchor;
+    const visualFontSize =
+      role === 'hero'
+        ? FULLSCREEN_QUOTE_FONT_SIZE_FRACTION * context.frameHeight
+        : context.ordinaryVisualFontSize;
+    const encodedFontSize =
+      role === 'hero'
+        ? Math.round(visualFontSize * LINE_HEIGHT_FACTOR)
+        : context.ordinaryEncodedFontSize;
+
+    return {
+      signature: [role, archetype ?? 'none', mode, accent.toLowerCase(), maxWords].join('|'),
+      role,
+      archetype,
+      mode,
+      accent,
+      maxWords,
+      anchor,
+      visualFontSize,
+      encodedFontSize,
+      visual: role === 'hero' ? FULLSCREEN_QUOTE_VISUAL : undefined,
+    };
+  };
+}
+
+function groupCaptionWords(
+  words: WordInput[],
+  resolvePresentation: (word: WordInput) => CaptionPresentation,
+  maxLineWidth: number,
+): CaptionGroup[] {
+  const groups: CaptionGroup[] = [];
+  let current: CaptionGroup | undefined;
+
+  const startGroup = (word: WordInput, presentation: CaptionPresentation): CaptionGroup => {
+    const lineLayout = chooseLineLayout([word], presentation.visualFontSize, maxLineWidth);
+    if (!lineLayout) {
+      throw new Error(`Unable to lay out caption word: ${word.text}`);
+    }
+    return {
+      words: [word],
+      rawStart: word.start,
+      rawEnd: word.end,
+      start: word.start,
+      end: word.end,
+      presentation,
+      lineLayout,
+    };
+  };
+
+  const flush = (): void => {
+    if (current) groups.push(current);
+    current = undefined;
+  };
+
+  for (const word of words) {
+    const presentation = resolvePresentation(word);
+    if (!current) {
+      current = startGroup(word, presentation);
+      continue;
+    }
+
+    const candidateWords = [...current.words, word];
+    const samePresentation = current.presentation.signature === presentation.signature;
+    const withinWordLimit = candidateWords.length <= presentation.maxWords;
+    const candidateLayout =
+      samePresentation && withinWordLimit
+        ? chooseLineLayout(candidateWords, presentation.visualFontSize, maxLineWidth)
+        : null;
+
+    if (!candidateLayout) {
+      flush();
+      current = startGroup(word, presentation);
+      continue;
+    }
+
+    current.words = candidateWords;
+    current.rawEnd = word.end;
+    current.end = word.end;
+    current.lineLayout = candidateLayout;
+  }
+  flush();
+  return groups;
+}
+
+/** Apply padding and emphasis dwell once, against the complete group list. */
+function finalizeGroupTiming(groups: CaptionGroup[]): void {
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const previous = index > 0 ? groups[index - 1] : undefined;
+    const next = index + 1 < groups.length ? groups[index + 1] : undefined;
+
+    group.start = Math.max(
+      previous?.end ?? 0,
+      Math.max(0, group.rawStart - CAPTION_LEAD_IN_SECONDS),
+    );
+
+    let desiredEnd = group.rawEnd + CAPTION_LEAD_OUT_SECONDS;
+    if (group.presentation.mode !== 'standard') {
+      for (const word of group.words) {
+        if (isEmphasized(word)) {
+          desiredEnd = Math.max(desiredEnd, minEmphasisDwellEnd(word.start));
+        }
+      }
+    }
+
+    const nextBoundary = next ? next.rawStart : Number.POSITIVE_INFINITY;
+    group.end = Math.max(group.start, Math.min(nextBoundary, desiredEnd));
+  }
+}
+
+function buildCaptionGroups(
+  words: WordInput[],
+  style: CaptionStyleInput,
+  options: CaptionGenerationOptions,
+): { groups: CaptionGroup[]; context: BuildContext } {
+  const frameWidth =
+    Number.isFinite(options.frameWidth) && (options.frameWidth ?? 0) > 0
+      ? Math.round(options.frameWidth as number)
+      : DEFAULT_FRAME_WIDTH;
+  const frameHeight =
+    Number.isFinite(options.frameHeight) && (options.frameHeight ?? 0) > 0
+      ? Math.round(options.frameHeight as number)
+      : DEFAULT_FRAME_HEIGHT;
+  const ordinaryAnchor = resolveSubtitleAnchor(
+    options.position ?? DEFAULT_SUBTITLE_POSITION,
+    frameWidth,
+    frameHeight,
+  );
+  const ordinaryVisualFontSize = style.fontSize * frameHeight;
+  const ordinaryEncodedFontSize = Math.round(ordinaryVisualFontSize * LINE_HEIGHT_FACTOR);
+  const wordsPerLine = Math.max(1, style.wordsPerLine | 0 || 4);
+  const context: BuildContext = {
+    frameWidth,
+    frameHeight,
+    ordinaryAnchor,
+    ordinaryVisualFontSize,
+    ordinaryEncodedFontSize,
+    maxLineWidth: frameWidth * CAPTION_MAX_WIDTH_FRACTION,
+    wordsPerLine,
+    editStyleId: options.editStyleId ?? DEFAULT_EDIT_STYLE_ID,
+    archetypeWindows: prepareWindows(options.archetypeWindows),
+    shotOverrides: prepareWindows(options.shotOverrides),
+  };
+  const groups = groupCaptionWords(
+    words,
+    createPresentationResolver(style, context),
+    context.maxLineWidth,
+  );
+  finalizeGroupTiming(groups);
+  return { groups, context };
+}
+
+// ---------------------------------------------------------------------------
+// ASS event and document rendering
+// ---------------------------------------------------------------------------
+
+function renderWord(
+  word: WordInput,
+  presentation: CaptionPresentation,
+  standardASS: string,
+): string {
+  if (presentation.mode === 'standard' || !isEmphasized(word) || presentation.visual) {
+    return word.text;
+  }
+  const accentASS = hexToASS(presentation.accent);
+  if (presentation.mode === 'emphasis') {
+    return `{\\1c${accentASS}}${word.text}{\\1c${standardASS}}`;
+  }
+  return `{\\fn${FANCY_FONT}\\1c${accentASS}}${word.text}{\\fn${STANDARD_FONT}\\1c${standardASS}}`;
+}
+
+function renderCaptionGroup(group: CaptionGroup, ordinaryEncodedFontSize: number): string {
+  const { presentation, lineLayout } = group;
+  const start = formatASSTime(group.start);
+  const end = formatASSTime(group.end);
+  const standardASS = hexToASS(STANDARD_COLOR);
+  const visual = presentation.visual;
+  const blurValue = visual?.killHalo ? 0 : SHADOW_BLUR;
+  const positionTags = `\\an5\\pos(${presentation.anchor.x},${presentation.anchor.y})\\q2`;
+  const visualTags = [
+    visual?.font ? `\\fn${visual.font}` : '',
+    visual?.italic ? '\\i1' : '',
+    visual?.color ? `\\1c${hexToASS(visual.color)}` : '',
+    visual?.killHalo ? '\\bord0' : '',
+  ].join('');
+  const sizeTag =
+    presentation.encodedFontSize !== ordinaryEncodedFontSize
+      ? `\\fs${presentation.encodedFontSize}`
+      : '';
+  const horizontalScaleTag =
+    lineLayout.horizontalScalePercent < 100
+      ? `\\fscx${Math.round(lineLayout.horizontalScalePercent / LINE_HEIGHT_FACTOR)}`
+      : '';
+  const prefix = `{${positionTags}\\blur${blurValue}${sizeTag}${horizontalScaleTag}${visualTags}}`;
+
+  const text = group.words
+    .map((word, index) => {
+      const rendered = renderWord(word, presentation, standardASS);
+      if (index === group.words.length - 1) return rendered;
+      return `${rendered}${lineLayout.breakIndex === index + 1 ? '\\N' : ' '}`;
+    })
+    .join('');
+
+  return `Dialogue: 0,${start},${end},Default,,0,0,0,,${prefix}${text}`;
+}
+
+/**
+ * Public pure dialogue-line entry point used by focused caption tests.
+ * It routes through the same grouping, wrapping, timing, and rendering pass as
+ * full document generation with a constant ordinary presentation.
+ */
 export function buildAssLines(
   words: WordInput[],
   mode: CaptionMode,
   accent: string = DEFAULT_ACCENT,
   wordsPerLine = 4,
-  /**
-   * When set, each Dialogue line emits a per-line MarginV (slot 8) and a
-   * `\fs<px>` override prepended to the text so a single Style block can
-   * carry archetype-specific position + size.
-   */
-  perGroupOverride?: (groupMid: number) => PerGroupOverride,
 ): string[] {
   if (words.length === 0) return [];
-
-  const accentASS = hexToASS(accent);
-  const groups = groupWords(words, wordsPerLine, mode !== 'standard');
-  const lines: string[] = [];
-
-  for (const group of groups) {
-    const start = formatASSTime(group.start);
-    const end = formatASSTime(group.end);
-    const mid = (group.start + group.end) / 2;
-    const override = perGroupOverride ? perGroupOverride(mid) : undefined;
-    const visual = override?.visual;
-
-    // ASS overrides for archetype visual swap (font, color, italic, halo).
-    // `killHalo` zeroes both the outline thickness (`\bord0`) and the blur
-    // (`\blur0`) so the dark-brown serif reads as flat ink on the sand BG
-    // instead of having a glow behind it.
-    const visualFontTag = visual?.font ? `\\fn${visual.font}` : '';
-    const visualItalicTag = visual?.italic ? '\\i1' : '';
-    const visualColorTag = visual?.color ? `\\1c${hexToASS(visual.color)}` : '';
-    const blurValue = visual?.killHalo ? 0 : SHADOW_BLUR;
-    const visualBordTag = visual?.killHalo ? '\\bord0' : '';
-    const visualPrefix = `${visualFontTag}${visualItalicTag}${visualColorTag}${visualBordTag}`;
-
-    // Every line opens with a \blur override so the black outline reads as a
-    // soft 0-offset halo rather than a hard stroke. Outline colour stays
-    // black via the Style header. When an archetype window applies a
-    // fontSize override, prepend a `\fs<px>` tag so the per-line size beats
-    // the Default style's size.
-    const linePrefix =
-      `{\\blur${blurValue}` +
-      (override?.fontSize ? `\\fs${override.fontSize}` : '') +
-      `${visualPrefix}}`;
-    // Re-apply \fs after every \r so per-word resets don't snap back to the
-    // Default style's font size. (The emphasis branches early-return when an
-    // archetype visual override is in force, so we don't need to re-apply the
-    // visual prefix after \r — those branches never run with a visual.)
-    const fsRe = override?.fontSize ? `\\fs${override.fontSize}` : '';
-
-    // Render each word with the override block its mode requires, then a `\r`
-    // to reset back to the Default style — followed by a `\blur` re-apply,
-    // because `\r` resets transient overrides too.
-    const parts = group.words.map((w, idx) => {
-      const isLast = idx === group.words.length - 1;
-      const sep = isLast ? '' : ' ';
-      const emphasized = isEmphasized(w);
-
-      // Mode 1: standard — never apply per-word overrides.
-      if (mode === 'standard' || !emphasized) {
-        return `${w.text}${sep}`;
-      }
-
-      // When an archetype visual override is in force (e.g. fullscreen-quote),
-      // the emphasis recolor would fight the override's locked color. Keep the
-      // archetype's look intact and skip the per-word recolor.
-      if (visual) {
-        return `${w.text}${sep}`;
-      }
-
-      // Mode 2: emphasis — recolor to purple accent. Outline stays black so
-      // the same halo reads behind the coloured word. Halo blur is
-      // re-applied after \r so the override doesn't drop it.
-      if (mode === 'emphasis') {
-        return `{\\1c${accentASS}}${w.text}{\\r\\blur${SHADOW_BLUR}${fsRe}}${sep}`;
-      }
-
-      // Mode 3: emphasis_highlight — swap font AND recolor to accent.
-      return `{\\fn${FANCY_FONT}\\1c${accentASS}}${w.text}{\\r\\blur${SHADOW_BLUR}${fsRe}}${sep}`;
-    });
-
-    // Per-line MarginV goes in slot 8 of the Dialogue Format. 0 = use Style
-    // default. Anything else overrides per-line.
-    const lineMarginV = override?.marginV ?? 0;
-    lines.push(
-      `Dialogue: 0,${start},${end},Default,,0,0,${lineMarginV},,${linePrefix}${parts.join('')}`,
-    );
-  }
-
-  return lines;
+  const style: CaptionStyleInput = {
+    captionMode: mode,
+    accentColor: accent,
+    fontSize: 0.065,
+    wordsPerLine,
+  };
+  const { groups, context } = buildCaptionGroups(words, style, {});
+  return groups.map((group) => renderCaptionGroup(group, context.ordinaryEncodedFontSize));
 }
 
-// ---------------------------------------------------------------------------
-// ASS document assembly
-// ---------------------------------------------------------------------------
-
-/** Resolve the effective caption mode from a (possibly partial) style. */
-function resolveMode(style: CaptionStyleInput | undefined): CaptionMode {
-  return style?.captionMode ?? 'standard';
-}
-
-/** Resolve the effective accent color from a (possibly partial) style. */
-function resolveAccent(style: CaptionStyleInput | undefined): string {
-  return style?.accentColor ?? DEFAULT_ACCENT;
-}
-
-/**
- * Build the full .ass document: header + per-group dialogue lines.
- *
- * Per-shot overrides change the caption MODE and/or accent color for the
- * groups whose midpoint falls inside the override's time window. The font
- * (Inter Bold), text color (#ffffff), and the soft black halo are locked
- * across all shots.
- */
-function buildASSDocument(
+/** Build a complete ASS document without filesystem I/O. */
+export function buildCaptionASSDocument(
   words: WordInput[],
   style: CaptionStyleInput,
-  frameWidth: number,
-  frameHeight: number,
-  marginVOverride: number | undefined,
-  shotOverrides: ShotCaptionOverride[] | undefined,
-  archetypeWindows: ArchetypeWindow[] | undefined,
-  editStyleId: string,
+  options: CaptionGenerationOptions = {},
 ): string {
-  // ASS has no native line-spacing tag, so to tighten the gap between
-  // wrapped lines we shrink the font's reported size and rescale the glyphs
-  // back up via ScaleX/ScaleY. Line box ≈ fontSize * 1.2, so a 0.85x font
-  // with 118% scale keeps glyph size identical while cutting the line gap
-  // by ~15%. Tweak LINE_HEIGHT_FACTOR to taste (1.0 = libass default).
-  const LINE_HEIGHT_FACTOR = 0.85;
-  const visualSize = style.fontSize * frameHeight;
-  const fontSize = Math.round(visualSize * LINE_HEIGHT_FACTOR);
-  const glyphScale = Math.round(100 / LINE_HEIGHT_FACTOR);
-  const wordsPerLine = Math.max(1, style.wordsPerLine | 0 || 4);
-
+  const { groups, context } = buildCaptionGroups(words, style, options);
   const standardASS = hexToASS(STANDARD_COLOR);
-  // Outline / back colours are forced to fully-opaque black so the per-event
-  // \blur tag converts the outline into a centered soft halo behind the glyph.
   const shadowASS = hexToASS(SHADOW_COLOR);
-
-  // V2 lock: 0-offset black halo. Per-style outline/shadow knobs from the
-  // input are intentionally ignored so every clip gets the same treatment.
-  const outline = SHADOW_THICKNESS;
-  const shadow = 0;
-  const borderStyle = 1;
-  const marginV = marginVOverride ?? Math.round(frameHeight * 0.12);
-
-  // ── Style block ────────────────────────────────────────────────────────
-  // Default = clean white Inter Bold with a soft black halo (outline + blur).
+  const glyphScale = Math.round(100 / LINE_HEIGHT_FACTOR);
+  const horizontalMargin = Math.round(context.frameWidth * CAPTION_HORIZONTAL_INSET_FRACTION);
   const styleLine =
-    `Style: Default,${STANDARD_FONT},${fontSize},${standardASS},${standardASS},` +
-    `${shadowASS},${shadowASS},-1,0,0,0,${glyphScale},${glyphScale},0,0,${borderStyle},${outline},${shadow},2,40,40,${marginV},1`;
-
+    `Style: Default,${STANDARD_FONT},${context.ordinaryEncodedFontSize},${standardASS},${standardASS},` +
+    `${shadowASS},${shadowASS},-1,0,0,0,${glyphScale},${glyphScale},0,0,1,${SHADOW_THICKNESS},0,5,${horizontalMargin},${horizontalMargin},0,1`;
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
-    `PlayResX: ${frameWidth}`,
-    `PlayResY: ${frameHeight}`,
-    'WrapStyle: 0',
+    `PlayResX: ${context.frameWidth}`,
+    `PlayResY: ${context.frameHeight}`,
+    'WrapStyle: 2',
     'ScaledBorderAndShadow: yes',
     '',
     '[V4+ Styles]',
@@ -535,159 +655,31 @@ function buildASSDocument(
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ];
-
-  // ── Dialogue lines ─────────────────────────────────────────────────────
-  // When shot overrides are present, group the words first and pick the
-  // mode/accent per group based on the group's midpoint timestamp.
-  const dialogueLines: string[] = [];
-
-  // Per-group archetype lookup: returns the per-line marginV + fontSize
-  // overrides for the archetype window whose time range covers `mid`. Returns
-  // undefined when no window covers the timestamp — dialogue then falls back
-  // to the Default style's marginV / fontSize.
-  // Per-line override rules:
-  //   • Speaker-fullscreen archetypes (talking-head / tight-punch /
-  //     wide-breather): the user's global template editor position
-  //     (`marginVOverride`) wins; otherwise the per-archetype template
-  //     value drives the marginV.
-  //   • All other archetypes (split-image, fullscreen-image,
-  //     fullscreen-quote, quote-lower): the per-archetype template's
-  //     `captionMarginV` always wins. `marginVOverride` is ignored —
-  //     those layouts have purpose-built caption positions.
-  const perGroupOverride: ((mid: number) => PerGroupOverride) | undefined =
-    archetypeWindows && archetypeWindows.length > 0
-      ? (mid: number) => {
-          const win = archetypeWindows.find((w) => mid >= w.startTime && mid <= w.endTime);
-          if (!win) return {};
-          const fontFraction = ARCHETYPE_FONT_SIZE_FRACTION[win.archetype];
-          const visualPx = fontFraction * frameHeight;
-          const archetypeMarginV = resolveTemplate(win.archetype, editStyleId).captionMarginV;
-          const speakerOverride =
-            isSpeakerFullscreen(win.archetype) && marginVOverride !== undefined
-              ? marginVOverride
-              : undefined;
-          return {
-            marginV: speakerOverride ?? archetypeMarginV,
-            fontSize: Math.round(visualPx * LINE_HEIGHT_FACTOR),
-            visual: ARCHETYPE_CAPTION_OVERRIDES[win.archetype],
-          };
-        }
-      : undefined;
-
-  // Partition words by archetype window so each window can choose its own
-  // grouping (multi-word vs word-by-word) based on its resolved template's
-  // `captionMode`. When no windows are supplied, treat the whole word stream
-  // as one chunk that uses the style's `wordsPerLine`.
-  interface WordChunk {
-    words: WordInput[];
-    wordsPerLine: number;
-  }
-  const chunks: WordChunk[] = [];
-  if (archetypeWindows && archetypeWindows.length > 0) {
-    // Group consecutive words that share the same archetype window into a
-    // single chunk. Words outside every window fall back to the default
-    // grouping in their own chunk.
-    let current: { archetype: Archetype | null; words: WordInput[] } | null = null;
-    const flush = () => {
-      if (!current || current.words.length === 0) return;
-      const wpl =
-        current.archetype !== null &&
-        resolveTemplate(current.archetype, editStyleId).captionMode === 'word-by-word'
-          ? 1
-          : wordsPerLine;
-      chunks.push({ words: current.words, wordsPerLine: wpl });
-    };
-    for (const w of words) {
-      const mid = (w.start + w.end) / 2;
-      const win = archetypeWindows.find((aw) => mid >= aw.startTime && mid <= aw.endTime);
-      const archetype = win?.archetype ?? null;
-      if (!current || current.archetype !== archetype) {
-        flush();
-        current = { archetype, words: [] };
-      }
-      current.words.push(w);
-    }
-    flush();
-  } else {
-    chunks.push({ words, wordsPerLine });
-  }
-
-  for (const chunk of chunks) {
-    if (chunk.words.length === 0) continue;
-    if (shotOverrides && shotOverrides.length > 0) {
-      const groups = groupWords(chunk.words, chunk.wordsPerLine);
-      for (const group of groups) {
-        const mid = (group.start + group.end) / 2;
-        const override = shotOverrides.find((ov) => mid >= ov.startTime && mid <= ov.endTime);
-        const mode = resolveMode(override?.style ?? style);
-        const accent = resolveAccent(override?.style ?? style);
-        dialogueLines.push(
-          ...buildAssLines(group.words, mode, accent, chunk.wordsPerLine, perGroupOverride),
-        );
-      }
-    } else {
-      dialogueLines.push(
-        ...buildAssLines(
-          chunk.words,
-          resolveMode(style),
-          resolveAccent(style),
-          chunk.wordsPerLine,
-          perGroupOverride,
-        ),
-      );
-    }
-  }
-
+  const dialogueLines = groups.map((group) =>
+    renderCaptionGroup(group, context.ordinaryEncodedFontSize),
+  );
   return [...header, ...dialogueLines, ''].join('\n');
 }
 
 // ---------------------------------------------------------------------------
-// Public API — file writer
+// Public file writer
 // ---------------------------------------------------------------------------
 
 /**
  * Generate an ASS subtitle file from word-level timestamps.
- *
- * @param words            Word timestamps relative to clip start.
- * @param style            Caption style — primarily `captionMode`, `accentColor`,
- *                         `fontSize`, and `wordsPerLine` are consumed.
- * @param outputPath       Optional explicit .ass path. If omitted, a temp file is used.
- * @param frameWidth       Canvas width (default 1080).
- * @param frameHeight      Canvas height (default 1920).
- * @param marginVOverride  Override vertical margin in pixels (from the bottom).
- * @param shotOverrides    Per-shot mode/accent overrides for time windows.
- * @returns                Absolute path to the written .ass file.
+ * The three-argument IPC call remains valid; layout options are optional.
  */
 export async function generateCaptions(
   words: WordInput[],
   style: CaptionStyleInput,
   outputPath?: string,
-  frameWidth: number = DEFAULT_FRAME_WIDTH,
-  frameHeight: number = DEFAULT_FRAME_HEIGHT,
-  marginVOverride?: number,
-  shotOverrides?: ShotCaptionOverride[],
-  archetypeWindows?: ArchetypeWindow[],
-  // backgroundOpacity is accepted for V1 call-site compatibility but no longer
-  // alters output — V2 modes never render an opaque background box.
-  _backgroundOpacity?: number,
-  /** Active edit-style id — controls per-archetype marginV lookup. */
-  editStyleId: string = DEFAULT_EDIT_STYLE_ID,
+  options: CaptionGenerationOptions = {},
 ): Promise<string> {
   if (words.length === 0) {
     throw new Error('No words provided for caption generation');
   }
 
-  const assContent = buildASSDocument(
-    words,
-    style,
-    frameWidth,
-    frameHeight,
-    marginVOverride,
-    shotOverrides,
-    archetypeWindows,
-    editStyleId,
-  );
-
+  const assContent = buildCaptionASSDocument(words, style, options);
   const filePath = outputPath ?? join(tmpdir(), `batchcontent-captions-${Date.now()}.ass`);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, assContent, 'utf-8');

@@ -1,12 +1,11 @@
 /**
- * TemplateEditor \u2014 drag-to-position editor for the two on-screen text overlays
- * burned into every clip: the hook title and the subtitles baseline.
+ * TemplateEditor — drag-to-position editor for the two on-screen text overlays
+ * burned into every clip: the hook title and the reserved subtitle block.
  *
- * Coordinates are stored in `settings.templateLayout` as percentages of the
- * 1080\u00d71920 canvas (centre of element relative to top-left). The render
- * pipeline reads them via `BatchRenderOptions.templateLayout` and translates
- * them into ASS `\\an` / `MarginV` values for captions and into pixel y-offsets
- * for hook + rehook overlays.
+ * Coordinates are stored in `settings.templateLayout` as center percentages of
+ * the locked 1080×1920 canvas, measured from the top-left. Captions use that
+ * center directly as an ASS `\an5\pos(x,y)` anchor; hook and rehook overlays
+ * resolve the same percentage contract to pixels.
  *
  * Ported from the ultra-clip TemplateEditor with the "media" element removed
  * (BatchClip ships only single-source clips \u2014 no per-segment image / B-roll

@@ -19,6 +19,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('../../captions', () => ({
+  DEFAULT_ACCENT: '#9f75ff',
   generateCaptions: vi.fn().mockResolvedValue('/tmp/batchcontent-captions-1234.ass'),
 }));
 
@@ -49,12 +50,36 @@ vi.mock('../../filler-cuts', () => ({
   remapWordTimestamps: vi.fn(() => []),
 }));
 
-vi.mock('../../ffmpeg', () => ({
-  ffmpeg: vi.fn(),
-  getEncoder: vi.fn(() => ({ encoder: 'libx264', presetFlag: ['-preset', 'veryfast'] })),
-  getSoftwareEncoder: vi.fn(() => ({ encoder: 'libx264', presetFlag: ['-preset', 'veryfast'] })),
-  isGpuSessionError: vi.fn(() => false),
-}));
+vi.mock('../../ffmpeg', () => {
+  const ffmpeg = vi.fn(() => {
+    const handlers: Record<string, (...args: unknown[]) => void> = {};
+    const command = {
+      setStartTime: vi.fn(() => command),
+      setDuration: vi.fn(() => command),
+      audioFilters: vi.fn(() => command),
+      outputOptions: vi.fn(() => command),
+      input: vi.fn(() => command),
+      inputOptions: vi.fn(() => command),
+      on: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
+        handlers[event] = callback;
+        return command;
+      }),
+      save: vi.fn(() => {
+        handlers.end?.();
+        return command;
+      }),
+    };
+    return command;
+  });
+  return {
+    ffmpeg,
+    disableGpuEncoderForSession: vi.fn(),
+    getEncoder: vi.fn(() => ({ encoder: 'libx264', presetFlag: ['-preset', 'veryfast'] })),
+    getSoftwareEncoder: vi.fn(() => ({ encoder: 'libx264', presetFlag: ['-preset', 'veryfast'] })),
+    isGpuEncoderDisabled: vi.fn(() => false),
+    isGpuSessionError: vi.fn(() => false),
+  };
+});
 
 vi.mock('../../aspect-ratios', () => ({
   // Locked to 9:16 vertical at 1080×1920 @ 30fps. No other ratios are supported.
@@ -76,6 +101,8 @@ vi.mock('../../aspect-ratios', () => ({
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
+import { generateCaptions } from '../../captions';
+import { buildKeepSegments, remapWordTimestamps } from '../../filler-cuts';
 import { accentColorFeature, restoreBatchOptions } from '../features/accent-color.feature';
 import { autoZoomFeature } from '../features/auto-zoom.feature';
 import { brollFeature } from '../features/broll.feature';
@@ -211,6 +238,31 @@ describe('CaptionsFeature', () => {
     expect(result.modified).toBe(true);
     expect(result.tempFiles).toHaveLength(1);
     expect(job.assFilePath).toBeDefined();
+  });
+
+  it('forwards the subtitle center object unchanged', async () => {
+    const feature = createCaptionsFeature();
+    const subtitlePosition = { x: 37, y: 64 };
+    await feature.prepare?.(
+      makeJob(),
+      makeOptions({
+        captionsEnabled: true,
+        captionStyle: { fontSize: 0.065, wordsPerLine: 4 },
+        templateLayout: {
+          titleText: { x: 50, y: 18 },
+          subtitles: subtitlePosition,
+          rehookText: { x: 50, y: 18 },
+        },
+      }),
+    );
+
+    const call = vi.mocked(generateCaptions).mock.calls[0];
+    expect(call[3]).toMatchObject({
+      frameWidth: 1080,
+      frameHeight: 1920,
+      position: subtitlePosition,
+    });
+    expect(call[3]?.position).toBe(subtitlePosition);
   });
 
   it('overlayPass returns ass filter when assFilePath is set', () => {
@@ -564,6 +616,47 @@ describe('FillerRemovalFeature', () => {
     );
     // detectFillers mock returns empty segments
     expect(result.modified).toBe(false);
+  });
+
+  it('forwards the same subtitle center during compatibility caption regeneration', async () => {
+    const subtitlePosition = { x: 41, y: 76 };
+    vi.mocked(buildKeepSegments).mockReturnValueOnce([{ start: 0, end: 5 }]);
+    vi.mocked(remapWordTimestamps).mockReturnValueOnce([{ text: 'Hello', start: 0, end: 0.5 }]);
+    const job = makeJob({
+      precomputedFillerSegments: [{ start: 12, end: 12.3, type: 'filler', label: 'um' }],
+    });
+    const feature = createFillerRemovalFeature();
+
+    const result = await feature.prepare?.(
+      job,
+      makeOptions({
+        fillerRemoval: {
+          enabled: true,
+          removeFillerWords: true,
+          trimSilences: false,
+          removeRepeats: false,
+          silenceThreshold: 0.5,
+          silenceTargetGap: 0.15,
+          fillerWords: ['um'],
+        },
+        captionsEnabled: true,
+        captionStyle: { fontSize: 0.065, wordsPerLine: 4 },
+        templateLayout: {
+          titleText: { x: 50, y: 18 },
+          subtitles: subtitlePosition,
+          rehookText: { x: 50, y: 18 },
+        },
+      }),
+    );
+
+    expect(result?.modified).toBe(true);
+    const call = vi.mocked(generateCaptions).mock.calls[0];
+    expect(call[3]).toMatchObject({
+      frameWidth: 1080,
+      frameHeight: 1920,
+      position: subtitlePosition,
+    });
+    expect(call[3]?.position).toBe(subtitlePosition);
   });
 });
 

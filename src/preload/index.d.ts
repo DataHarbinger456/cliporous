@@ -779,7 +779,7 @@ interface Api {
       reason: string;
     }) => void,
   ) => () => void;
-  /** Fast low-quality preview with all overlays applied (540×960, ultrafast). */
+  /** Fast preview with all overlays at the locked 1080×1920 canvas. */
   renderPreview: (config: {
     sourceVideoPath: string;
     startTime: number;
@@ -799,6 +799,11 @@ interface Api {
     rehookText?: string;
     captionsEnabled?: boolean;
     captionStyle?: CaptionStyleInput;
+    /** Percentage centers shared by the editor, preview, and export. */
+    templateLayout?: {
+      titleText: { x: number; y: number };
+      subtitles: { x: number; y: number };
+    };
     hookTitleOverlay?: HookTitleOverlaySettings;
     rehookOverlay?: RehookOverlaySettings;
     wordEmphasisEnabled?: boolean;

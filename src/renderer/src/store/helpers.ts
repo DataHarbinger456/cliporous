@@ -1,3 +1,4 @@
+import { DEFAULT_SUBTITLE_POSITION } from '@shared/caption-layout';
 import { DEFAULT_FILENAME_TEMPLATE, DEFAULT_MIN_SCORE } from '@shared/constants';
 import type { CreatorJob } from '@shared/jobs';
 import { DEFAULT_PALETTE_ID } from '@shared/palettes';
@@ -230,7 +231,7 @@ export const DEFAULT_RENDER_QUALITY: RenderQualitySettings = {
  */
 export const DEFAULT_TEMPLATE_LAYOUT: TemplateLayout = {
   titleText: { x: 50, y: 18 },
-  subtitles: { x: 50, y: 85 },
+  subtitles: { ...DEFAULT_SUBTITLE_POSITION },
 };
 
 export const DEFAULT_TARGET_PLATFORM: Platform = 'universal';

@@ -17,6 +17,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { renderedPreviewCacheKey } from '@/hooks/useRenderedPreview';
 import { useStore } from '@/store';
 import type { ClipCandidate, SourceVideo } from '@/store/types';
 import { installApiStub, resetStore } from './test-utils';
@@ -203,9 +204,17 @@ describe('ClipDetail', () => {
     expect(resetClip?.endTime).toBe(40);
   });
 
-  it('queues the real rendered preview without blocking edits and reports when it is ready', async () => {
-    const renderPreview = vi.fn(async () => ({ previewPath: '/virtual/rendered-c1.mp4' }));
+  it('includes the current subtitle center in preview IPC and cache invalidation', async () => {
+    type PreviewConfig = Parameters<typeof window.api.renderPreview>[0];
+    const renderPreview = vi.fn(async (_config: PreviewConfig) => ({
+      previewPath: '/virtual/rendered-c1.mp4',
+    }));
     installApiStub({ renderPreview });
+    const initialLayout = {
+      titleText: { x: 50, y: 18 },
+      subtitles: { x: 42, y: 76 },
+    };
+    useStore.getState().setTemplateLayout(initialLayout);
     const { ClipDetail } = await import('@/components/ClipDetail');
     render(<ClipDetail clip={CLIP} source={SOURCE} open onOpenChange={() => {}} />);
 
@@ -213,15 +222,29 @@ describe('ClipDetail', () => {
     expect(screen.getByLabelText('Hook text')).toBeEnabled();
 
     await waitFor(() => expect(renderPreview).toHaveBeenCalledTimes(1), { timeout: 1500 });
-    expect(renderPreview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceVideoPath: SOURCE.path,
-        startTime: 10,
-        endTime: 40,
-        hookTitleText: CLIP.hookText,
-        captionsEnabled: true,
-      }),
-    );
+    const firstConfig = renderPreview.mock.calls.at(0)?.[0];
+    if (!firstConfig) throw new Error('Expected the first preview render config');
+    expect(firstConfig).toMatchObject({
+      sourceVideoPath: SOURCE.path,
+      startTime: 10,
+      endTime: 40,
+      hookTitleText: CLIP.hookText,
+      captionsEnabled: true,
+      templateLayout: initialLayout,
+    });
+    expect(firstConfig.templateLayout?.subtitles).toBe(initialLayout.subtitles);
+    const firstKey = renderedPreviewCacheKey(CLIP.id, firstConfig);
+
+    const updatedLayout = {
+      ...initialLayout,
+      subtitles: { x: 57, y: 68 },
+    };
+    act(() => useStore.getState().setTemplateLayout(updatedLayout));
+    await waitFor(() => expect(renderPreview).toHaveBeenCalledTimes(2), { timeout: 1500 });
+    const secondConfig = renderPreview.mock.calls.at(1)?.[0];
+    if (!secondConfig) throw new Error('Expected the second preview render config');
+    expect(secondConfig.templateLayout).toEqual(updatedLayout);
+    expect(renderedPreviewCacheKey(CLIP.id, secondConfig)).not.toBe(firstKey);
     expect(await screen.findByText(/^Rendered preview ready$/i)).toBeInTheDocument();
   });
 

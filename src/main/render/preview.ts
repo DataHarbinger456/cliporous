@@ -91,12 +91,17 @@ export interface PreviewRenderConfig {
   hookTitleText?: string;
   /** Creator-approved text for the registered mid-clip re-hook feature. */
   rehookText?: string;
-  /** Whether to burn in captions (requires wordTimestamps + captionStyle) */
+  /** Whether to burn in captions (requires wordTimestamps + captionStyle). */
   captionsEnabled?: boolean;
   captionStyle?: CaptionStyleInput;
-  /** Hook title overlay config — applied when enabled=true AND hookTitleText is set */
+  /** Percentage centers interpreted identically by preview and final export. */
+  templateLayout?: {
+    titleText: { x: number; y: number };
+    subtitles: { x: number; y: number };
+  };
+  /** Hook title overlay config, applied when enabled and hookTitleText is set. */
   hookTitleOverlay?: HookTitleConfig;
-  /** Mid-clip re-hook config — applied when enabled=true. */
+  /** Mid-clip re-hook config. */
   rehookOverlay?: RehookConfig;
   /** Whether word emphasis contributes caption and reactive-zoom keyframes. */
   wordEmphasisEnabled?: boolean;
@@ -133,10 +138,8 @@ export interface PreviewRenderConfig {
 // ---------------------------------------------------------------------------
 
 /**
- * Render a preview using the per-segment archetype pipeline.
- *
- * Mirrors pipeline.ts:389-474 but produces a lower-quality, half-resolution
- * MP4 suitable for the in-editor preview dialog.
+ * Render a preview using the per-segment archetype pipeline at the same locked
+ * 1080×1920 canvas as final export.
  */
 async function renderSegmentedPreview(
   config: PreviewRenderConfig,
@@ -178,6 +181,12 @@ async function renderSegmentedPreview(
     wordEmphasis: config.wordEmphasisEnabled === false ? undefined : config.wordEmphasis,
     captionStyle: config.captionStyle,
     captionsEnabled: config.captionsEnabled ?? true,
+    templateLayout: config.templateLayout
+      ? {
+          ...config.templateLayout,
+          rehookText: config.templateLayout.titleText,
+        }
+      : undefined,
     hookTitleText: config.hookTitleText,
     hookTitleConfig: config.hookTitleOverlay,
     rehookText: config.rehookText,
@@ -234,6 +243,12 @@ export async function renderPreview(config: PreviewRenderConfig): Promise<string
     outputDirectory: tmpdir(),
     captionsEnabled: config.captionsEnabled,
     captionStyle: config.captionStyle,
+    templateLayout: config.templateLayout
+      ? {
+          ...config.templateLayout,
+          rehookText: config.templateLayout.titleText,
+        }
+      : undefined,
     hookTitleOverlay: config.hookTitleOverlay,
     rehookOverlay: config.rehookOverlay,
     autoZoom: config.autoZoom,

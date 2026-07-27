@@ -1,11 +1,11 @@
 /**
  * Types for the edit-styles / templates system.
  *
- * EditStyleTemplate — authored per (edit-style × archetype). Carries only
- * the per-archetype tuning the render engine needs (zoom, caption margin).
- * Archetypes are self-contained layouts; there are no style variants.
+ * EditStyleTemplate is authored per edit-style and archetype. Ordinary
+ * subtitle geometry is global; templates retain only picker metadata and the
+ * intentional fullscreen-quote grouping exception.
  *
- * ResolvedTemplate — what the render pipeline consumes after merging a
+ * ResolvedTemplate is what the render pipeline consumes after merging a
  * template with its edit-style defaults.
  */
 
@@ -23,15 +23,10 @@ export type TMap = Record<string, TransitionType>;
 export type CaptionPosition = 'lower-third' | 'center' | 'top';
 
 /**
- * Per-template caption rendering mode override.
+ * Per-template caption grouping override.
  *
- *   • 'word-by-word' — emit ONE ASS dialogue event per word, using each
- *     word's own start/end timestamp. Used by hero archetypes
- *     (fullscreen-quote, fullscreen-image) to maximize emphasis when the
- *     caption is the only on-screen element.
- *
- * When omitted, captions use the default multi-word grouping driven by
- * `CaptionStyleInput.wordsPerLine`.
+ * `word-by-word` is reserved for fullscreen-quote, where the transcript is
+ * full-frame hero typography rather than the ordinary subtitle track.
  */
 export type TemplateCaptionMode = 'word-by-word';
 
@@ -42,25 +37,19 @@ export interface EditStyleTemplate {
   zoomIntensity?: number;
   captionPosition?: CaptionPosition;
   /**
-   * Per-archetype vertical margin (pixels) for the caption pass. Overrides
-   * the captionPosition-derived default.
-   */
-  captionMarginV?: number;
-  /**
    * Optional per-archetype caption rendering mode. Currently only
    * 'word-by-word' is supported; omit for the default multi-word grouping.
    */
   captionMode?: TemplateCaptionMode;
   /**
-   * Per-archetype Y position (pixels from top, on the locked 1280px canvas)
-   * for the hook title pill. The global `templateLayout.titleText.y` still
-   * wins when provided by the user.
+   * Per-archetype Y position in pixels from the top of the locked 1920px
+   * canvas for the hook title pill. The creator's global layout still wins
+   * for speaker archetypes.
    */
   hookTitleY?: number;
   /**
-   * Per-archetype Y position (pixels from top, on the locked 1280px canvas)
-   * for the rehook pill. The global `templateLayout.rehookText.y` still wins
-   * when provided by the user.
+   * Per-archetype Y position in pixels from the top of the locked 1920px
+   * canvas for the rehook pill.
    */
   rehookY?: number;
 }
@@ -72,11 +61,9 @@ export interface ResolvedTemplate {
   zoomStyle: EditStyle['defaultZoomStyle'];
   zoomIntensity: number;
   captionPosition: CaptionPosition;
-  /** Archetype-defined caption vertical margin in pixels. */
-  captionMarginV: number;
-  /** Hook title pill Y position in pixels (from top, 1280px canvas). */
+  /** Hook title pill Y position in pixels from the top of the 1920px canvas. */
   hookTitleY: number;
-  /** Rehook pill Y position in pixels (from top, 1280px canvas). */
+  /** Rehook pill Y position in pixels from the top of the 1920px canvas. */
   rehookY: number;
   /**
    * Caption rendering mode for this archetype. `undefined` = default

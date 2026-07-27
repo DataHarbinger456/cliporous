@@ -99,9 +99,9 @@ export interface SegmentRenderConfig {
   captionStyle?: CaptionStyleInput;
   /** Whether captions are enabled */
   captionsEnabled?: boolean;
-  /** Archetype windows for per-line marginV / fontSize in the captions pass. */
+  /** Archetype windows for presentation boundaries and the quote-hero exception. */
   archetypeWindows?: ArchetypeWindow[];
-  /** Template layout positions (only titleText.y + rehookText.y are read). */
+  /** Percentage centers shared by subtitles, hook title, and rehook overlays. */
   templateLayout?: {
     titleText: { x: number; y: number };
     subtitles: { x: number; y: number };
@@ -1131,22 +1131,14 @@ export async function renderSegmentedClip(
       if (clipWords.length > 0) {
         try {
           const windows = balancedArchetypeWindows;
-          const marginVOverride = config.templateLayout?.subtitles
-            ? Math.round((1 - config.templateLayout.subtitles.y / 100) * th)
-            : undefined;
           const editStyleId = config.editStyle?.id ?? DEFAULT_EDIT_STYLE_ID;
-          const captionAssPath = await generateCaptions(
-            clipWords,
-            config.captionStyle,
-            undefined,
-            tw,
-            th,
-            marginVOverride,
-            undefined,
-            windows,
-            undefined,
+          const captionAssPath = await generateCaptions(clipWords, config.captionStyle, undefined, {
+            frameWidth: tw,
+            frameHeight: th,
+            position: config.templateLayout?.subtitles,
+            archetypeWindows: windows,
             editStyleId,
-          );
+          });
           tempFiles.push(captionAssPath);
           // Pass fontsDir so libass can find bundled faces (Inter, Bebas,
           // Instrument Serif Italic for fullscreen-quote, etc.) even when

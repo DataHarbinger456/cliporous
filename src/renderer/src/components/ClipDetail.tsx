@@ -28,6 +28,7 @@
  *     this version).
  */
 
+import { CAPTION_MAX_WIDTH_FRACTION } from '@shared/caption-layout';
 import {
   Check,
   ChevronLeft,
@@ -273,9 +274,9 @@ function captionSnippet(text: string): string[] {
 }
 
 /**
- * Overlay drawn on top of the letterboxed `<video>`: a 9:16 crop framing box
- * (the rest of the frame dimmed) with a representative hook-title pill and a
- * caption mock positioned by the current `templateLayout`.
+ * Overlay drawn on top of the letterboxed video: a 9:16 crop framing box with
+ * representative title and subtitle blocks. Both use the same percentage
+ * center-anchor contract as the 1080×1920 libass render.
  */
 function FramingOverlay({
   box,
@@ -318,8 +319,12 @@ function FramingOverlay({
       )}
       {captionWords.length > 0 && (
         <div
-          className="absolute flex w-[96%] -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-x-1"
-          style={{ left: `${layout.subtitles.x}%`, top: `${layout.subtitles.y}%` }}
+          className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-x-1"
+          style={{
+            left: `${layout.subtitles.x}%`,
+            top: `${layout.subtitles.y}%`,
+            width: `${CAPTION_MAX_WIDTH_FRACTION * 100}%`,
+          }}
         >
           {captionWords.map((word, i) => (
             <span
@@ -475,6 +480,7 @@ export function ClipDetail({
       hookTitleText: hookText,
       rehookText: rehookText || undefined,
       captionsEnabled: regularClip.overrides?.enableCaptions ?? true,
+      templateLayout,
       captionStyle: {
         ...PRESTYJ_CAPTION_STYLE,
         captionMode: captionsMode,
@@ -510,6 +516,7 @@ export function ClipDetail({
     source,
     sourceChecking,
     sourceOffline,
+    templateLayout,
     trim,
   ]);
   const { state: renderedPreview, retry: retryRenderedPreview } = useRenderedPreview({

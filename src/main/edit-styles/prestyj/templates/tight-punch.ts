@@ -5,7 +5,6 @@ export const tightPunch: EditStyleTemplate = {
   zoomStyle: 'snap',
   zoomIntensity: 1.15,
   captionPosition: 'lower-third',
-  captionMarginV: 230,
   hookTitleY: 220,
   rehookY: 220,
 };

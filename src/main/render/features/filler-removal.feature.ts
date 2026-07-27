@@ -394,17 +394,17 @@ export function createFillerRemovalFeature(): RenderFeature {
       if (batchOptions.captionsEnabled && batchOptions.captionStyle && job.wordTimestamps) {
         try {
           const arCfg = ASPECT_RATIO_CONFIGS[batchOptions.outputAspectRatio ?? '9:16'];
-          const marginVOverride = batchOptions.templateLayout?.subtitles
-            ? Math.round((1 - batchOptions.templateLayout.subtitles.y / 100) * arCfg.height)
-            : undefined;
+          const captionPosition = batchOptions.templateLayout?.subtitles;
 
           const newAssPath = await generateCaptions(
             job.wordTimestamps,
             batchOptions.captionStyle,
             undefined,
-            arCfg.width,
-            arCfg.height,
-            marginVOverride,
+            {
+              frameWidth: arCfg.width,
+              frameHeight: arCfg.height,
+              position: captionPosition,
+            },
           );
           console.log(`[FillerRemoval] Clip ${job.clipId}: captions re-synced → ${newAssPath}`);
           job.assFilePath = newAssPath;

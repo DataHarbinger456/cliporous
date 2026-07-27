@@ -179,11 +179,8 @@ export function createCaptionsFeature(): RenderFeature {
       try {
         const arCfg = ASPECT_RATIO_CONFIGS[batchOptions.outputAspectRatio ?? '9:16'];
 
-        // Bottom-anchored alignment (AN2): templateLayout y is from the top
-        // (percent), so marginV (from the bottom) = (1 - y/100) * height.
-        const marginVOverride = batchOptions.templateLayout?.subtitles
-          ? Math.round((1 - batchOptions.templateLayout.subtitles.y / 100) * arCfg.height)
-          : undefined;
+        // Percentage coordinates are the center of the reserved subtitle block.
+        const captionPosition = batchOptions.templateLayout?.subtitles;
 
         // Lock the style to one of the three V2 modes before passing it down.
         // A per-clip `captionMode` override (set in the clip editor) wins over
@@ -199,29 +196,22 @@ export function createCaptionsFeature(): RenderFeature {
 
         const shotCaptionOverrides = buildShotCaptionOverrides(job.shotStyleConfigs, localWords);
 
-        // Non-segmented clips don't carry per-segment archetype data. Treat
-        // the whole clip as a single speaker-fullscreen 'talking-head'
-        // window so the per-archetype template (and — because talking-head
-        // is a speaker archetype — the user's global `templateLayout`)
-        // drive the caption marginV.
+        // Non-segmented clips are one ordinary talking-head presentation window.
+        // Geometry still comes only from the creator's global subtitle center.
         const clipDuration = job.endTime - job.startTime;
         const archetypeWindows: ArchetypeWindow[] = [
           { startTime: 0, endTime: clipDuration, archetype: 'talking-head' },
         ];
         const editStyleId = job.stylePresetId ?? DEFAULT_EDIT_STYLE_ID;
 
-        job.assFilePath = await generateCaptions(
-          localWords,
-          resolvedStyle,
-          undefined,
-          arCfg.width,
-          arCfg.height,
-          marginVOverride,
-          shotCaptionOverrides,
+        job.assFilePath = await generateCaptions(localWords, resolvedStyle, undefined, {
+          frameWidth: arCfg.width,
+          frameHeight: arCfg.height,
+          position: captionPosition,
+          shotOverrides: shotCaptionOverrides,
           archetypeWindows,
-          undefined,
           editStyleId,
-        );
+        });
         console.log(
           `[Captions] Clip ${job.clipId}: mode=${resolvedStyle.captionMode} → ${job.assFilePath}`,
         );

@@ -5,7 +5,6 @@ export const wideBreather: EditStyleTemplate = {
   zoomStyle: 'drift',
   zoomIntensity: 1.05,
   captionPosition: 'lower-third',
-  captionMarginV: 230,
   hookTitleY: 220,
   rehookY: 220,
 };
