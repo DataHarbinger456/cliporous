@@ -481,6 +481,11 @@ export function isGpuSessionError(errorMessage: string): boolean {
     'Error initializing',
     // Windows ACCESS_VIOLATION (0xC0000005 = 3221225477) — NVENC driver crash
     '3221225477',
+    // macOS VideoToolbox hardware DECODE failures (`-hwaccel auto` selects vt).
+    // These are tagged `[h264 @ ...]` (plain decoder + hwaccel), so the
+    // tagPattern below never matches them — match the error text directly.
+    'hardware accelerator failed to decode picture',
+    'vt decoder cb: output image buffer is null',
   ];
   if (specificErrors.some((s) => errorMessage.includes(s))) return true;
 
