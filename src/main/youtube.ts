@@ -7,12 +7,14 @@ import { runPythonScript } from './python';
 // ---------------------------------------------------------------------------
 
 const YT_PATTERNS = [
-  /(?:youtube\.com\/(?:.*v=|v\/|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i,
+  /(?:youtube\.com\/(?:.*v=|v\/|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i,
   /youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})/i,
   /youtube\.com\/embed\/([A-Za-z0-9_-]{11})/i,
   /youtube\.com\/v\/([A-Za-z0-9_-]{11})/i,
   /youtu\.be\/([A-Za-z0-9_-]{11})/i,
   /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/i,
+  // Finished livestream VODs: youtube.com/live/<id>
+  /youtube\.com\/live\/([A-Za-z0-9_-]{11})/i,
   /m\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})/i,
 ];
 
