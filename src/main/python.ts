@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { app } from 'electron';
-import { getResolvedFfmpegPath } from './ffmpeg';
+import { buildMediaProcessEnv, getResolvedFfmpegPath } from './ffmpeg';
 
 const execFileAsync = promisify(execFile);
 
@@ -298,10 +298,17 @@ export function runPythonScript(
       return reject(new Error(`Python script not found: ${scriptPath}`));
     }
 
-    // Build env with ffmpeg's directory on PATH so pydub/NeMo can find it
-    const spawnEnv = getPythonModelEnv();
+    // Build env with ffmpeg's directory on PATH so pydub/NeMo can find it.
+    // buildMediaProcessEnv also pins DYLD_LIBRARY_PATH for keg-only Homebrew
+    // builds — without it a child ffmpeg can bind to the wrong libav* dylibs
+    // and abort with "Symbol not found".
+    let spawnEnv = getPythonModelEnv();
     const ffmpegBin = getResolvedFfmpegPath();
     if (ffmpegBin) {
+      spawnEnv = buildMediaProcessEnv(ffmpegBin, process.platform, spawnEnv) as Record<
+        string,
+        string
+      >;
       const ffmpegDir = dirname(ffmpegBin);
       const sep = process.platform === 'win32' ? ';' : ':';
       spawnEnv.PATH = ffmpegDir + sep + (spawnEnv.PATH || '');

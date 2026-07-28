@@ -77,7 +77,18 @@ def parse_args() -> argparse.Namespace:
         help="NeMo model name (default: nvidia/parakeet-tdt-0.6b-v3)",
     )
     parser.add_argument("--output", required=True, help="Path to write output JSON")
+    parser.add_argument(
+        "--ffmpeg",
+        default=None,
+        help="Path to the ffmpeg binary. Defaults to 'ffmpeg' on PATH. The app passes "
+        "its own resolved binary so chunking never depends on the spawned "
+        "process inheriting a usable PATH.",
+    )
     return parser.parse_args()
+
+
+# Resolved ffmpeg binary used for chunk slicing. Set from --ffmpeg in main().
+FFMPEG_BIN = "ffmpeg"
 
 
 def write_output(path: str, data: dict) -> None:
@@ -110,11 +121,37 @@ CHUNK_SECONDS = 5 * 60               # 5 min per chunk (safe for ≤11 GB VRAM)
 OVERLAP_SECONDS = 10                 # 10 s overlap between chunks
 
 
-def _chunk_audio_ffmpeg(audio_path: str, start: float, duration: float, out_path: str) -> bool:
-    """Extract a slice of audio using ffmpeg."""
+def _ffmpeg_env() -> dict:
+    """Environment for spawning ffmpeg from inside this script.
+
+    Importing NeMo mutates DYLD_LIBRARY_PATH (it appends /opt/homebrew/lib and
+    /usr/local/lib). That makes a keg-only Homebrew ffmpeg bind to ANOTHER
+    formula's libav* dylibs and abort instantly with
+    "Symbol not found: _av_buffer_unref" — which previously failed every chunk
+    without any visible reason. Pin dyld to the binary's own lib dir, or drop
+    the polluted variable entirely.
+    """
+    env = os.environ.copy()
+    own_lib = os.path.normpath(os.path.join(os.path.dirname(FFMPEG_BIN), "..", "lib"))
+    if os.path.isdir(own_lib):
+        env["DYLD_LIBRARY_PATH"] = own_lib
+    else:
+        env.pop("DYLD_LIBRARY_PATH", None)
+    return env
+
+
+def _chunk_audio_ffmpeg(
+    audio_path: str, start: float, duration: float, out_path: str
+) -> "tuple[bool, str]":
+    """Extract a slice of audio using ffmpeg.
+
+    Returns (ok, error_detail). The detail is surfaced in the final error when
+    every chunk fails, so the real cause (missing binary, unreadable input,
+    full disk) is visible instead of a generic "all chunks failed".
+    """
     import subprocess
     cmd = [
-        "ffmpeg", "-y",
+        FFMPEG_BIN, "-y",
         "-ss", str(start),
         "-t", str(duration),
         "-i", audio_path,
@@ -122,8 +159,16 @@ def _chunk_audio_ffmpeg(audio_path: str, start: float, duration: float, out_path
         "-ac", "1",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True)
-    return result.returncode == 0
+    try:
+        result = subprocess.run(cmd, capture_output=True, env=_ffmpeg_env())
+    except FileNotFoundError:
+        return False, f"ffmpeg binary not found at {FFMPEG_BIN!r}"
+    except Exception as exc:  # pragma: no cover - defensive
+        return False, f"ffmpeg spawn failed: {exc}"
+    if result.returncode == 0:
+        return True, ""
+    stderr_tail = (result.stderr or b"").decode("utf-8", "replace").strip()[-300:]
+    return False, f"ffmpeg exit {result.returncode}: {stderr_tail}"
 
 
 # Per-chunk subprocess timeout: 30 min. Covers cold model load (~30–120 s),
@@ -294,6 +339,7 @@ def transcribe_chunked(model_name: str, audio_path: str, duration_sec: float) ->
     all_words: list = []
     all_segments: list = []
     full_text_parts: list = []
+    chunk_failures: list = []
 
     tmp_dir = tempfile.mkdtemp()
 
@@ -306,8 +352,12 @@ def transcribe_chunked(model_name: str, audio_path: str, duration_sec: float) ->
         chunk_path = os.path.join(tmp_dir, f"chunk_{i}.wav")
         chunk_json = os.path.join(tmp_dir, f"chunk_{i}.json")
 
-        if not _chunk_audio_ffmpeg(audio_path, chunk_start, chunk_dur, chunk_path):
-            emit_progress("transcribing", f"Warning: failed to extract chunk {i + 1} audio")
+        ok, slice_err = _chunk_audio_ffmpeg(audio_path, chunk_start, chunk_dur, chunk_path)
+        if not ok:
+            emit_progress(
+                "transcribing", f"Warning: failed to extract chunk {i + 1} audio: {slice_err}"
+            )
+            chunk_failures.append(f"chunk {i + 1} slice: {slice_err}")
             continue
 
         chunk_label = f"chunk {i + 1}/{len(chunks)}"
@@ -324,6 +374,7 @@ def transcribe_chunked(model_name: str, audio_path: str, duration_sec: float) ->
 
         if result is None:
             emit_progress("transcribing", f"Warning: chunk {i + 1} failed: {err}")
+            chunk_failures.append(f"chunk {i + 1}: {err}")
             continue
 
         for w in result.get("words", []):
@@ -360,11 +411,12 @@ def transcribe_chunked(model_name: str, audio_path: str, duration_sec: float) ->
     # If EVERY chunk failed, that is a hard error — not an empty-but-valid
     # transcript. Returning success with 0 words poisons every later stage.
     if not all_words and chunks:
+        # Surface the real per-chunk reasons — a generic "all chunks failed"
+        # message sends debugging down the wrong path.
+        detail = " | ".join(chunk_failures[:3]) if chunk_failures else "no error detail captured"
         raise RuntimeError(
             f"All {len(chunks)} transcription chunks failed to produce words. "
-            "Likely causes: out of memory (another heavy process running?), "
-            "a corrupted audio extract, or a broken model cache. "
-            "Close other apps and retry."
+            f"First failures: {detail}"
         )
 
     return {
@@ -380,6 +432,10 @@ def transcribe_chunked(model_name: str, audio_path: str, duration_sec: float) ->
 
 def main() -> None:
     args = parse_args()
+
+    if args.ffmpeg:
+        global FFMPEG_BIN
+        FFMPEG_BIN = args.ffmpeg
 
     if not os.path.isfile(args.input):
         emit_error(f"Input file not found: {args.input}")

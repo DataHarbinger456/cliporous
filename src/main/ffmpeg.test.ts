@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildMediaProcessEnv, isGpuSessionError } from './ffmpeg';
 
@@ -48,5 +49,21 @@ describe('buildMediaProcessEnv', () => {
     expect(buildMediaProcessEnv(ffprobePath, 'win32', { PATH: 'C:\\Windows' }, ';')).toEqual({
       PATH: 'C:\\Windows',
     });
+  });
+
+  it('pins dyld to a keg-only Homebrew ffmpeg\u2019s own lib dir when it exists', () => {
+    // Regression: ffmpeg-full is keg-only. Without this pin dyld can bind it to
+    // the linked `ffmpeg` formula\u2019s libav* dylibs and the binary aborts with
+    // "Symbol not found: _av_buffer_unref", failing every transcription chunk.
+    const kegBin = '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg';
+    const env = buildMediaProcessEnv(kegBin, 'darwin', { PATH: '/usr/bin' }, ':');
+
+    if (existsSync('/opt/homebrew/opt/ffmpeg-full/lib')) {
+      expect(env.DYLD_LIBRARY_PATH).toContain('ffmpeg-full');
+      expect(env.DYLD_LIBRARY_PATH).toContain('lib');
+    } else {
+      // No keg installed on this machine — must not invent a bogus path.
+      expect(env.DYLD_LIBRARY_PATH).toBeUndefined();
+    }
   });
 });

@@ -142,8 +142,15 @@ function resolveBinaryPath(name: string): string | null {
 
 /** Environment required by packaged media binaries.
  *
- * Remotion's macOS ffprobe links dylibs by filename rather than @rpath, so dyld
- * must be pointed at the directory where the package keeps those libraries.
+ * Two cases need an explicit dyld search path on macOS:
+ *
+ * 1. Remotion's macOS ffprobe links dylibs by filename rather than @rpath, so
+ *    dyld must be pointed at the directory where the package keeps them.
+ * 2. Homebrew keg-only builds (e.g. `ffmpeg-full`) live outside the linked
+ *    prefix. When another Homebrew formula (`ffmpeg`) has its libs linked into
+ *    /opt/homebrew/lib, dyld can bind the keg-only binary to the WRONG
+ *    libav* dylibs and it aborts with "Symbol not found". Pinning its own
+ *    ../lib directory makes resolution deterministic.
  */
 export function buildMediaProcessEnv(
   binaryPath: string,
@@ -152,11 +159,25 @@ export function buildMediaProcessEnv(
   pathDelimiter = delimiter,
 ): NodeJS.ProcessEnv {
   const env = { ...baseEnv };
-  if (platform !== 'darwin' || !binaryPath.includes('/@remotion/compositor-darwin-arm64/')) {
+  if (platform !== 'darwin') {
     return env;
   }
 
-  const libraryDir = dirname(binaryPath);
+  let libraryDir: string | null = null;
+  if (binaryPath.includes('/@remotion/compositor-darwin-arm64/')) {
+    libraryDir = dirname(binaryPath);
+  } else if (binaryPath.includes('/opt/') || binaryPath.includes('/Cellar/')) {
+    // <prefix>/bin/ffmpeg -> <prefix>/lib
+    const sibling = join(dirname(binaryPath), '..', 'lib');
+    if (existsSync(sibling)) {
+      libraryDir = sibling;
+    }
+  }
+
+  if (!libraryDir) {
+    return env;
+  }
+
   env.DYLD_LIBRARY_PATH = [libraryDir, baseEnv.DYLD_LIBRARY_PATH]
     .filter(Boolean)
     .join(pathDelimiter);

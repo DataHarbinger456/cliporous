@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { extractAudio } from './ffmpeg';
+import { extractAudio, getResolvedFfmpegPath } from './ffmpeg';
 import { resolvePythonPath, resolveScriptPath, runPythonScript } from './python';
 
 // ---------------------------------------------------------------------------
@@ -108,9 +108,21 @@ export async function transcribeVideo(
 
   try {
     try {
+      // Pass our resolved ffmpeg binary so chunk slicing never depends on the
+      // spawned Python process inheriting a usable PATH (packaged builds and
+      // GUI launches often do not).
+      const ffmpegBin = getResolvedFfmpegPath();
       await runPythonScript(
         'transcribe.py',
-        ['--input', wavPath, '--output', jsonPath, '--model', model],
+        [
+          '--input',
+          wavPath,
+          '--output',
+          jsonPath,
+          '--model',
+          model,
+          ...(ffmpegBin ? ['--ffmpeg', ffmpegBin] : []),
+        ],
         {
           timeoutMs: TRANSCRIPTION_TIMEOUT_MS,
           onStderr: (line) => {
