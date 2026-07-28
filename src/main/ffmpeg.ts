@@ -72,7 +72,29 @@ function resolveBinaryPath(name: string): string | null {
     }
   }
 
-  // Development uses the operator-installed FFmpeg toolchain on PATH.
+  // Development: prefer the bundled ffmpeg-static binary over system PATH.
+  // System builds (e.g. Homebrew FFmpeg 8.x) may omit libass, so the `ass`
+  // caption filter fails with confusing parse errors. ffmpeg-static is a
+  // self-contained full build with every filter BatchClip uses.
+  if (!app.isPackaged && name === 'ffmpeg') {
+    try {
+      // eslint-free dynamic require — resolves to node_modules/ffmpeg-static/ffmpeg
+      const staticFfmpeg = require('ffmpeg-static') as string | null;
+      if (staticFfmpeg) {
+        searchedPaths.push(
+          `ffmpeg-static (dev): ${staticFfmpeg} (exists: ${existsSync(staticFfmpeg)})`,
+        );
+        if (existsSync(staticFfmpeg)) {
+          console.log(`[FFmpeg] Using bundled ffmpeg-static binary (dev): ${staticFfmpeg}`);
+          return staticFfmpeg;
+        }
+      }
+    } catch {
+      // ffmpeg-static not installed — fall through to system PATH
+    }
+  }
+
+  // Fallback: operator-installed FFmpeg toolchain on PATH.
   // Release builds bundle an audited matching ffmpeg/ffprobe pair in resources/bin.
   const systemPath = findOnSystemPath(name);
   searchedPaths.push(`system PATH: ${systemPath ?? 'not found'}`);
