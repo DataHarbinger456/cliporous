@@ -18,6 +18,26 @@ function findOnSystemPath(name: string): string | null {
   return null;
 }
 
+const assFilterSupportCache = new Map<string, boolean>();
+
+/** Whether an ffmpeg binary was built with libass (`ass` caption filter). */
+function supportsAssFilter(binaryPath: string): boolean {
+  const cached = assFilterSupportCache.get(binaryPath);
+  if (cached !== undefined) return cached;
+  let supported = false;
+  try {
+    const result = spawnSync(binaryPath, ['-h', 'filter=ass'], {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    supported = `${result.stdout}${result.stderr}`.includes('Filter ass');
+  } catch {
+    supported = false;
+  }
+  assFilterSupportCache.set(binaryPath, supported);
+  return supported;
+}
+
 function resolveBinaryPath(name: string): string | null {
   const ext = process.platform === 'win32' ? '.exe' : '';
   const binary = `${name}${ext}`;
@@ -72,25 +92,35 @@ function resolveBinaryPath(name: string): string | null {
     }
   }
 
-  // Development: prefer the bundled ffmpeg-static binary over system PATH.
-  // System builds (e.g. Homebrew FFmpeg 8.x) may omit libass, so the `ass`
-  // caption filter fails with confusing parse errors. ffmpeg-static is a
-  // self-contained full build with every filter BatchClip uses.
+  // Development: pick the first ffmpeg that actually supports the `ass`
+  // caption filter (libass). Slim system builds (e.g. Homebrew's split
+  // `ffmpeg` formula) omit libass → cryptic filter parse errors; the bundled
+  // ffmpeg-static 6.0 has libass but mis-decodes 24-bit PCM audio (+8 dB
+  // clipping distortion). Probing capability instead of hard-coding a
+  // preference gets a correct binary on every machine.
   if (!app.isPackaged && name === 'ffmpeg') {
+    const candidates: string[] = [];
+    const systemFfmpeg = findOnSystemPath('ffmpeg');
+    if (systemFfmpeg) candidates.push(systemFfmpeg);
+    // Homebrew's full build is keg-only (not linked onto PATH).
+    candidates.push('/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg');
+    candidates.push('/usr/local/opt/ffmpeg-full/bin/ffmpeg');
     try {
-      // eslint-free dynamic require — resolves to node_modules/ffmpeg-static/ffmpeg
       const staticFfmpeg = require('ffmpeg-static') as string | null;
-      if (staticFfmpeg) {
-        searchedPaths.push(
-          `ffmpeg-static (dev): ${staticFfmpeg} (exists: ${existsSync(staticFfmpeg)})`,
-        );
-        if (existsSync(staticFfmpeg)) {
-          console.log(`[FFmpeg] Using bundled ffmpeg-static binary (dev): ${staticFfmpeg}`);
-          return staticFfmpeg;
-        }
-      }
+      if (staticFfmpeg) candidates.push(staticFfmpeg);
     } catch {
-      // ffmpeg-static not installed — fall through to system PATH
+      // ffmpeg-static not installed
+    }
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) {
+        searchedPaths.push(`${candidate} (missing)`);
+        continue;
+      }
+      if (supportsAssFilter(candidate)) {
+        console.log(`[FFmpeg] Using ${candidate} (dev, libass verified)`);
+        return candidate;
+      }
+      searchedPaths.push(`${candidate} (no libass)`);
     }
   }
 
