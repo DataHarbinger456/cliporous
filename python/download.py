@@ -40,12 +40,14 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 _YT_PATTERNS = [
-    r"(?:youtube\.com/(?:.*v=|v/|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})",
+    r"(?:youtube\.com/(?:.*v=|v/|embed/|shorts/|live/)|youtu\.be/)([A-Za-z0-9_-]{11})",
     r"youtube\.com/watch\?v=([A-Za-z0-9_-]{11})",
     r"youtube\.com/embed/([A-Za-z0-9_-]{11})",
     r"youtube\.com/v/([A-Za-z0-9_-]{11})",
     r"youtu\.be/([A-Za-z0-9_-]{11})",
     r"youtube\.com/shorts/([A-Za-z0-9_-]{11})",
+    # Finished livestream VODs: youtube.com/live/<id>
+    r"youtube\.com/live/([A-Za-z0-9_-]{11})",
     r"m\.youtube\.com/watch\?v=([A-Za-z0-9_-]{11})",
 ]
 
