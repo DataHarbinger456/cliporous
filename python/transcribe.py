@@ -357,6 +357,16 @@ def transcribe_chunked(model_name: str, audio_path: str, duration_sec: float) ->
     except Exception:
         pass
 
+    # If EVERY chunk failed, that is a hard error — not an empty-but-valid
+    # transcript. Returning success with 0 words poisons every later stage.
+    if not all_words and chunks:
+        raise RuntimeError(
+            f"All {len(chunks)} transcription chunks failed to produce words. "
+            "Likely causes: out of memory (another heavy process running?), "
+            "a corrupted audio extract, or a broken model cache. "
+            "Close other apps and retry."
+        )
+
     return {
         "text": " ".join(full_text_parts),
         "words": all_words,
