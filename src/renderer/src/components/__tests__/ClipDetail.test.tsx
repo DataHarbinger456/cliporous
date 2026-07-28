@@ -13,10 +13,10 @@
  * same `commitTrim` path.
  */
 
+import type { Archetype, VideoSegment } from '@shared/types';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { renderedPreviewCacheKey } from '@/hooks/useRenderedPreview';
 import { useStore } from '@/store';
 import type { ClipCandidate, SourceVideo } from '@/store/types';
@@ -60,6 +60,47 @@ const CLIP: ClipCandidate = {
   reasoning: 'because',
   status: 'pending',
 };
+
+/** Build one segment of the per-clip archetype plan produced by the segmenting stage. */
+function segment(
+  index: number,
+  archetype: Archetype,
+  startTime: number,
+  endTime: number,
+): VideoSegment {
+  const categories: Record<Archetype, VideoSegment['segmentStyleCategory']> = {
+    'talking-head': 'main-video',
+    'tight-punch': 'main-video',
+    'wide-breather': 'main-video',
+    'quote-lower': 'main-video-text',
+    'split-image': 'main-video-images',
+    'fullscreen-image': 'fullscreen-image',
+    'fullscreen-quote': 'fullscreen-text',
+  };
+  return {
+    id: `seg-${index}`,
+    clipId: CLIP.id,
+    index,
+    startTime,
+    endTime,
+    captionText: `caption ${index}`,
+    words: [{ text: `word${index}`, start: startTime, end: endTime }],
+    archetype,
+    segmentStyleCategory: categories[archetype],
+    zoomKeyframes: [],
+    transitionIn: 'hard-cut',
+    transitionOut: 'hard-cut',
+  };
+}
+
+const SEGMENTS: VideoSegment[] = [
+  segment(0, 'tight-punch', 10, 14),
+  segment(1, 'fullscreen-quote', 14, 18),
+  segment(2, 'split-image', 18, 22),
+  segment(3, 'talking-head', 22, 40),
+];
+
+const SEGMENTED_CLIP: ClipCandidate = { ...CLIP, segments: SEGMENTS };
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -246,6 +287,61 @@ describe('ClipDetail', () => {
     expect(secondConfig.templateLayout).toEqual(updatedLayout);
     expect(renderedPreviewCacheKey(CLIP.id, secondConfig)).not.toBe(firstKey);
     expect(await screen.findByText(/^Rendered preview ready$/i)).toBeInTheDocument();
+  });
+
+  it('sends the per-segment archetype plan to the preview instead of the single-clip path', async () => {
+    // Regression: the preview omitted `segments`, so it rendered the plain
+    // talking-head path (captions only) and never showed the fullscreen-quote /
+    // tight-punch screens the final render produces.
+    type PreviewConfig = Parameters<typeof window.api.renderPreview>[0];
+    const renderPreview = vi.fn(async (_config: PreviewConfig) => ({
+      previewPath: '/virtual/rendered-segmented.mp4',
+    }));
+    installApiStub({ renderPreview });
+    useStore.getState().setClips(SOURCE.id, [SEGMENTED_CLIP]);
+
+    const { ClipDetail } = await import('@/components/ClipDetail');
+    render(<ClipDetail clip={SEGMENTED_CLIP} source={SOURCE} open onOpenChange={() => {}} />);
+
+    await waitFor(() => expect(renderPreview).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    const config = renderPreview.mock.calls.at(0)?.[0];
+    if (!config) throw new Error('Expected a preview render config');
+
+    // The plan must arrive intact — main dispatches to renderSegmentedClip()
+    // only when `segments` is present and non-empty.
+    expect(config.segments).toBeDefined();
+    expect(config.segments).toHaveLength(SEGMENTS.length);
+    expect(config.segments?.map((s) => s.archetype)).toEqual([
+      'tight-punch',
+      'fullscreen-quote',
+      'split-image',
+      'talking-head',
+    ]);
+
+    // Segment boundaries must survive so each archetype covers the right span.
+    expect(config.segments?.at(1)).toMatchObject({
+      archetype: 'fullscreen-quote',
+      startTime: 14,
+      endTime: 18,
+    });
+  });
+
+  it('omits segments for an unsegmented clip so the preview uses the single-clip path', async () => {
+    type PreviewConfig = Parameters<typeof window.api.renderPreview>[0];
+    const renderPreview = vi.fn(async (_config: PreviewConfig) => ({
+      previewPath: '/virtual/rendered-plain.mp4',
+    }));
+    installApiStub({ renderPreview });
+
+    const { ClipDetail } = await import('@/components/ClipDetail');
+    render(<ClipDetail clip={CLIP} source={SOURCE} open onOpenChange={() => {}} />);
+
+    await waitFor(() => expect(renderPreview).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    const config = renderPreview.mock.calls.at(0)?.[0];
+    if (!config) throw new Error('Expected a preview render config');
+
+    // Undefined (not an empty array) keeps main on the single-clip path.
+    expect(config.segments).toBeUndefined();
   });
 
   it('frames score rationale as an AI estimate and exposes editorial playback controls', async () => {
