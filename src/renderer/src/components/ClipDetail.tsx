@@ -502,6 +502,12 @@ export function ClipDetail({
         enabled: regularClip.overrides?.enableAutoZoom ?? autoZoom.enabled,
       },
       accentColor,
+      // Per-segment archetype plan from the segmenting stage. Without this the
+      // preview renders the plain single-clip path and shows captions only — no
+      // fullscreen-quote / tight-punch screens — so it misrepresents the final
+      // render. Image archetypes degrade to talking-head here because the
+      // preview does not fetch b-roll.
+      segments: regularClip.segments?.length ? regularClip.segments : undefined,
     };
   }, [
     autoZoom,
