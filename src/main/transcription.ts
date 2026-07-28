@@ -228,6 +228,18 @@ export async function transcribeVideo(
     );
   }
 
+  // A structurally valid but EMPTY result must fail here, loudly. If it is
+  // cached and forwarded, scoring later reports a misleading "Gemini returned
+  // 0 segments" for what is really a transcription failure.
+  if ((!result.words || result.words.length === 0) && !result.text?.trim()) {
+    const stderrTail = recentStderr.slice(-10).join('\n');
+    throw new Error(
+      'Transcription produced an empty transcript (0 words). ' +
+        'The audio may be silent, corrupted, or in an unsupported language.' +
+        (stderrTail ? `\n--- last stderr ---\n${stderrTail}` : ''),
+    );
+  }
+
   return result;
 }
 

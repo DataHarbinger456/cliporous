@@ -420,6 +420,16 @@ export async function scoreTranscript(
   targetDuration: TargetDuration = 'auto',
   targetAudience: string = '',
 ): Promise<ScoringResult> {
+  // Guard: a blank transcript is a transcription failure, not a scoring one.
+  // Without this, Gemini dutifully returns zero segments and the error blames
+  // the wrong stage ("Gemini returned 0 segments").
+  if (!formattedTranscript?.trim()) {
+    throw new Error(
+      'The transcript for this source is empty — transcription failed or a failed attempt was cached. ' +
+        'Use "Start over" to re-run transcription instead of resuming.',
+    );
+  }
+
   onProgress({ stage: 'sending', message: 'Sending transcript to Gemini AI...' });
 
   const ai = new GoogleGenAI({ apiKey });
