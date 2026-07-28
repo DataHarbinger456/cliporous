@@ -116,6 +116,10 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // Dev only: the renderer is served from http://localhost (Vite), so
+      // Chromium blocks file:// <video> sources unless webSecurity is off.
+      // Packaged builds load index.html via file:// and keep webSecurity on.
+      webSecurity: app.isPackaged,
     },
   });
 

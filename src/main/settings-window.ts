@@ -59,6 +59,9 @@ export function openSettingsWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
+      // Dev only: allow file:// media from the http://localhost Vite origin
+      // (matches the main window). Packaged builds keep webSecurity on.
+      webSecurity: !is.dev,
     },
   });
   settingsWindow = window;
