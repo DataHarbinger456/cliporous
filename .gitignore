@@ -78,3 +78,6 @@ demo-*.mov
 demo-*.mp4
 catalog-demo.mp4
 showreel-delos.mp4
+
+# local agent notes
+CLAUDE.local.md

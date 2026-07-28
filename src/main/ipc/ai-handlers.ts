@@ -23,7 +23,7 @@ import { validatePexelsKey } from '../provider-connections';
 import type { TranscriptionResult } from '../transcription';
 import { analyzeWordEmphasis } from '../word-emphasis';
 
-const AI_VALIDATION_MODEL = 'gemini-2.5-flash-lite';
+const AI_VALIDATION_MODEL = 'gemini-3.1-flash-lite';
 
 export function registerAiHandlers(): void {
   // AI — score transcript segments for viral potential

@@ -270,7 +270,7 @@ async function downloadPexelsImage(
 // ---------------------------------------------------------------------------
 
 const GEMINI_IMAGE_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent';
 
 const STYLE_IMAGE_GUIDANCE: Record<string, string> = {
   viral: 'Vibrant, high-contrast, bold colors, dynamic composition, eye-catching',

@@ -22,12 +22,12 @@ export interface GeminiCall {
  *   FAST     — short prompts, JSON extraction, classification.
  *   BALANCED — heavier reasoning (edit plans, hook generation, scoring).
  *
- * `gemini-3-flash-preview` is the new default workhorse; 2.5 models stay in
- * the chain as fallbacks because 3.x is preview and occasionally overloaded.
+ * Updated July 2026: 2.5-era models are retired for new API accounts (404).
+ * Stable GA models: gemini-3.6-flash, gemini-3.5-flash-lite, gemini-3.1-flash-lite.
  */
 export const MODELS = {
-  FAST: ['gemini-3-flash-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'] as const,
-  BALANCED: ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'] as const,
+  FAST: ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.6-flash'] as const,
+  BALANCED: ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'] as const,
 } as const;
 
 /**

@@ -2,7 +2,7 @@
  * AI B-Roll Image Generation via Gemini
  *
  * Generates contextual images for B-Roll overlays using Gemini's native
- * image generation (gemini-2.5-flash-image). Uses REST API directly since
+ * image generation (gemini-3.1-flash-lite-image). Uses REST API directly since
  * the project's @google/genai SDK doesn't support responseModalities: ['IMAGE'].
  *
  * Images are cached locally (same pattern as broll-pexels.ts) to avoid
@@ -126,7 +126,7 @@ function evictOldCacheEntries(): void {
 // ---------------------------------------------------------------------------
 
 const GEMINI_IMAGE_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent';
 
 interface GeminiImageResponse {
   candidates?: Array<{

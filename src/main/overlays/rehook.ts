@@ -254,10 +254,10 @@ ${contextBlock}Transcript: "${transcript.slice(0, 600)}"
 Return ONLY the re-hook text, nothing else.`;
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       contents: prompt,
     });
-    emitUsageFromResponse('rehook', 'gemini-2.5-flash', result);
+    emitUsageFromResponse('rehook', 'gemini-3.6-flash', result);
     const raw = (result.text ?? '').trim();
     const firstLine = raw
       .split('\n')[0]
